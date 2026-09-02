@@ -435,35 +435,18 @@ def calcular_componentes(cierre, cruces):
     }
 
 
-def ejecutar_v2(ruta_cierre, ruta_macros, ruta_atc):
+def _ejecutar_v2_sobre_cierre(cierre, macros_idx, atc_idx):
+    """Aplica ETAPA 3 (cruces) + ETAPA 4 (universo, ALQUILERES,
+    componentes, recaudación explicada, cuadre) sobre un `cierre` y unos
+    índices `macros_idx`/`atc_idx` YA cargados en memoria. No abre ningún
+    archivo ni repite ninguna regla: es exactamente el mismo
+    procesamiento que hacía ejecutar_v2() después de leer sus tres
+    archivos, factorizado aquí para que ejecutar_lote_v2() pueda
+    reutilizar macros_idx/atc_idx entre varios cierres del mismo mes sin
+    reabrir MACROS ni ATC por cada uno.
+
+    Devuelve EXACTAMENTE la misma estructura que ejecutar_v2().
     """
-    ETAPA 4: orquesta ETAPA 2 (extracción) + ETAPA 3 (cruces) + ETAPA 4
-    (universo, ALQUILERES, componentes, recaudación explicada, cuadre)
-    en una sola corrida. Cada archivo se abre UNA sola vez.
-
-    Nunca deja escapar una excepción sin respuesta: tanto un fallo de
-    extracción como un fallo durante cruces/cuadre/armado del detalle
-    devuelven un estado estructurado (INDETERMINADO o ERROR) con motivo,
-    en lugar de reventar la corrida o esconder el problema como si el
-    cierre estuviera OK.
-
-    Si DOLARES > 0.00 el estado nunca puede ser "OK": se devuelve
-    "USD_CUENTA_PENDIENTE" de forma explícita (la cuenta USD no está
-    parametrizada), para que un cierre con USD pendiente no pueda
-    marcarse después como procesado normal.
-    """
-    try:
-        cierre = io.leer_cierre(ruta_cierre)
-        macros_idx = io.leer_macros_bnb(ruta_macros)   # UNA sola apertura
-        atc_idx = io.leer_atc_mensual(ruta_atc)         # UNA sola apertura
-    except (ValueError, KeyError) as exc:
-        return {
-            "fecha": None,
-            "estado": "INDETERMINADO",
-            "error": str(exc),
-            "etapa": "EXTRACCION",
-        }
-
     try:
         cruces = _cruzar_sobre_cierre(cierre, macros_idx, atc_idx)
 
@@ -515,6 +498,43 @@ def ejecutar_v2(ruta_cierre, ruta_macros, ruta_atc):
         "estado": estado,
         "detalle": detalle,
     }
+
+
+def ejecutar_v2(ruta_cierre, ruta_macros, ruta_atc):
+    """
+    ETAPA 4: orquesta ETAPA 2 (extracción) + ETAPA 3 (cruces) + ETAPA 4
+    (universo, ALQUILERES, componentes, recaudación explicada, cuadre)
+    en una sola corrida. Cada archivo se abre UNA sola vez.
+
+    Nunca deja escapar una excepción sin respuesta: tanto un fallo de
+    extracción como un fallo durante cruces/cuadre/armado del detalle
+    devuelven un estado estructurado (INDETERMINADO o ERROR) con motivo,
+    en lugar de reventar la corrida o esconder el problema como si el
+    cierre estuviera OK.
+
+    Si DOLARES > 0.00 el estado nunca puede ser "OK": se devuelve
+    "USD_CUENTA_PENDIENTE" de forma explícita (la cuenta USD no está
+    parametrizada), para que un cierre con USD pendiente no pueda
+    marcarse después como procesado normal.
+
+    API pública sin cambios: internamente solo abre los tres archivos y
+    delega el procesamiento a _ejecutar_v2_sobre_cierre(). Para procesar
+    varios cierres del mismo mes reutilizando MACROS/ATC ya cargados, ver
+    ejecutar_lote_v2().
+    """
+    try:
+        cierre = io.leer_cierre(ruta_cierre)
+        macros_idx = io.leer_macros_bnb(ruta_macros)   # UNA sola apertura
+        atc_idx = io.leer_atc_mensual(ruta_atc)         # UNA sola apertura
+    except (ValueError, KeyError) as exc:
+        return {
+            "fecha": None,
+            "estado": "INDETERMINADO",
+            "error": str(exc),
+            "etapa": "EXTRACCION",
+        }
+
+    return _ejecutar_v2_sobre_cierre(cierre, macros_idx, atc_idx)
 
 
 def _detalle_para_asiento(cierre, cruces, componentes):
@@ -798,6 +818,91 @@ def construir_asiento(resultado_v2):
         "correcciones_aplicadas": correcciones_aplicadas,
         "estado": "OK" if not problemas else "ERROR",
         "problemas": problemas,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Optimización PRE-SAP: procesamiento de un lote de cierres del mismo mes
+# ---------------------------------------------------------------------------
+#
+# Únicamente reutiliza aperturas y evita repetir cruces/reglas cuando se
+# procesan varios cierres contra el mismo MACROS/ATC mensual. No cambia
+# ninguna regla de negocio: cada cierre del lote produce exactamente el
+# mismo resultado_v2 y asiento que ejecutar_v2()+construir_asiento()
+# llamados individualmente sobre esa misma ruta.
+
+def ejecutar_lote_v2(rutas_cierres, ruta_macros, ruta_atc):
+    """Procesa varios cierres del mismo mes reutilizando MACROS y ATC ya
+    cargados en memoria.
+
+    - MACROS se abre UNA sola vez para todo el lote.
+    - ATC se abre UNA sola vez para todo el lote.
+    - Cada CIERRE se abre UNA sola vez.
+    - Los cruces/reglas de ETAPA 3-5 se aplican tal cual (mismas funciones
+      que usa el flujo individual, vía _ejecutar_v2_sobre_cierre()), sin
+      repetirse entre cierres.
+
+    Un fallo técnico al leer MACROS o ATC (archivos compartidos por todo
+    el lote) bloquea el lote completo de forma estructurada: sin esos
+    índices ningún cierre del lote puede procesarse de forma confiable.
+
+    Un problema puntual de un cierre —bloqueado por excepción, con
+    diferencia, USD pendiente, o incluso un error técnico al leer o
+    procesar ESE cierre en particular— NUNCA detiene el resto del lote:
+    cada cierre conserva su propio resultado_v2, asiento y error de forma
+    aislada, sin contaminar a los demás.
+
+    Devuelve:
+    {
+      "estado": "LOTE_OK" | "LOTE_ERROR_MAESTROS",
+      "error": "..."            (solo si LOTE_ERROR_MAESTROS),
+      "cantidad": N,
+      "cierres": [
+        {"ruta": "...", "resultado_v2": {...}, "asiento": {...} | None},
+        ...
+      ],
+    }
+    """
+    try:
+        macros_idx = io.leer_macros_bnb(ruta_macros)   # UNA sola apertura para todo el lote
+        atc_idx = io.leer_atc_mensual(ruta_atc)         # UNA sola apertura para todo el lote
+    except (ValueError, KeyError) as exc:
+        return {
+            "estado": "LOTE_ERROR_MAESTROS",
+            "error": str(exc),
+            "cantidad": 0,
+            "cierres": [],
+        }
+
+    resultados = []
+    for ruta_cierre in rutas_cierres:
+        try:
+            cierre = io.leer_cierre(ruta_cierre)  # UNA sola apertura por cierre
+        except (ValueError, KeyError) as exc:
+            resultado_v2 = {
+                "fecha": None,
+                "estado": "INDETERMINADO",
+                "error": str(exc),
+                "etapa": "EXTRACCION",
+            }
+            resultados.append({
+                "ruta": ruta_cierre,
+                "resultado_v2": resultado_v2,
+                "asiento": construir_asiento(resultado_v2),
+            })
+            continue
+
+        resultado_v2 = _ejecutar_v2_sobre_cierre(cierre, macros_idx, atc_idx)
+        resultados.append({
+            "ruta": ruta_cierre,
+            "resultado_v2": resultado_v2,
+            "asiento": construir_asiento(resultado_v2),
+        })
+
+    return {
+        "estado": "LOTE_OK",
+        "cantidad": len(resultados),
+        "cierres": resultados,
     }
 
 
