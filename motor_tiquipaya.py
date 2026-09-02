@@ -169,6 +169,10 @@ def cruzar_vouchers(cierre, macros_idx):
     for dep in depositos:
         r = _clasificar_voucher(dep["asignacion"], dep["importe"], macros_idx)
         r["sfc"] = dep["sfc"]
+        # Fecha propia del depósito (columna FECHA DE DEPOSITO del
+        # cierre), no la fecha bancaria de MACROS: es la fuente única de
+        # fecha_valor/texto_posicion del VOUCHER (ver construir_asiento).
+        r["fecha_deposito"] = dep.get("fecha_deposito")
         resultados.append(r)
 
     conteo = {"MATCH_EXACTO": 0, "AUTOCORRECCION_0_O": 0, "NO_ENCONTRADO": 0,
@@ -411,8 +415,13 @@ def validar_ci(cierre):
             "importe": ci["importe"],
             "cuenta_contable": ci["cuenta_contable"],
             "asignacion": asignacion,
-            # Fecha propia de la CI (ETAPA 2), None si la hoja no la trae.
-            # Nunca se sustituye por la fecha del cierre.
+            # Glosa literal de "GLOSA ASIENTO COMUNICACIONES INTERNAS",
+            # None si la hoja no la trae. Única fuente de texto_posicion
+            # para la partida CI (nunca se reconstruye desde referencia
+            # ni ninguna otra columna, ver construir_asiento).
+            "glosa": ci.get("glosa"),
+            # Fecha propia de la CI (columna FECHA2), None si la hoja no
+            # la trae. Nunca se sustituye por la fecha del cierre.
             "fecha_ci": ci.get("fecha_ci"),
         })
 
@@ -680,6 +689,10 @@ def _detalle_para_asiento(cierre, cruces, componentes):
             "codigo_confirmado": v["codigo_encontrado"],
             "codigo_informado": v["codigo_informado"],
             "fecha_bancaria": v.get("fecha_bancaria"),
+            # Fecha propia del depósito (FECHA DE DEPOSITO del cierre):
+            # fuente única de fecha_valor/texto_posicion del VOUCHER en
+            # construir_asiento (nunca la fecha bancaria de MACROS).
+            "fecha_deposito": v.get("fecha_deposito"),
             "estado": v["estado"],
         }
         for v in cruces["vouchers"]["detalle"]
@@ -782,6 +795,16 @@ def _asignacion_comision(fecha_iso):
     _, mes, _ = fecha_iso.split("-")
     abrev = _MESES_ABREV.get(int(mes), "")
     return f"TIQUIPAYA {abrev}"[:18]
+
+
+def _texto_voucher(fecha_deposito_iso):
+    """'DEPOSITO BNB DD/MM/YYYY' a partir de la fecha propia del depósito
+    (YYYY-MM-DD). None si el depósito no trae esa fecha (nunca se
+    inventa ni se sustituye por otra)."""
+    if not fecha_deposito_iso:
+        return None
+    anio, mes, dia = fecha_deposito_iso.split("-")
+    return f"DEPOSITO BNB {dia}/{mes}/{anio}"
 
 
 def _partida(cuenta_mayor, cargo, haber, asignacion, origen, sfc_origen,
@@ -918,10 +941,16 @@ def construir_asiento(resultado_v2):
 
     for v in detalle["vouchers_confirmados"]:
         es_autocorreccion = v["estado"] == "AUTOCORRECCION_0_O"
+        # fecha_valor y texto_posicion vienen de la fecha PROPIA del
+        # depósito (FECHA DE DEPOSITO), nunca de la fecha bancaria de
+        # MACROS (fecha_bancaria sigue existiendo para el cruce, pero ya
+        # no se usa aquí). El cruce de vouchers (código+importe contra
+        # "Tablas Dinamicas Profesional") no cambia.
         partidas.append(_partida(
             cuenta_mayor=_CUENTA_VOUCHER_ATC, cargo=v["importe"], haber="0.00",
-            asignacion=v["codigo_confirmado"], fecha_valor=v.get("fecha_bancaria"),
+            asignacion=v["codigo_confirmado"], fecha_valor=v.get("fecha_deposito"),
             origen="VOUCHER", sfc_origen=v["sfc"],
+            texto_posicion=_texto_voucher(v.get("fecha_deposito")),
             codigo_informado_original=v["codigo_informado"] if es_autocorreccion else None,
         ))
         if es_autocorreccion:
@@ -935,10 +964,14 @@ def construir_asiento(resultado_v2):
     for ci in detalle["ci_validas"]:
         partidas.append(_partida(
             cuenta_mayor=ci["cuenta_contable"], cargo=ci["importe"], haber="0.00",
-            asignacion=ci["asignacion"], texto_posicion=ci.get("referencia"),
+            # texto_posicion viene literal de "GLOSA ASIENTO
+            # COMUNICACIONES INTERNAS" (nunca se reconstruye desde
+            # referencia/N° DE FACTURA ni ninguna otra columna).
+            asignacion=ci["asignacion"], texto_posicion=ci.get("glosa"),
             origen="CI", sfc_origen=ci["sfc"],
-            # Fecha propia de la CI si existe; None si no la trae la hoja
-            # (nunca se usa la fecha del cierre como reemplazo).
+            # Fecha propia de la CI (columna FECHA2) si existe; None si
+            # no la trae la hoja (nunca se usa la fecha del cierre como
+            # reemplazo).
             fecha_valor=ci.get("fecha_ci"),
         ))
 

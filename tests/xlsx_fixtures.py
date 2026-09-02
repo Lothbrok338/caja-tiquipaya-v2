@@ -58,11 +58,23 @@ def _llenar_resumen(ws, datos):
 
 
 def _llenar_ci(ws, filas):
+    """`fecha` -> columna FECHA (fallback legado). `fecha2` -> columna
+    FECHA2 (autoritativa para fecha_valor/VALUT). `glosa` -> columna
+    GLOSA ASIENTO COMUNICACIONES INTERNAS (autoritativa para
+    texto_posicion/SGTXT). Cada columna solo se agrega si al menos una
+    fila la usa, para no afectar los fixtures existentes que no las
+    necesitan."""
     con_fecha = any("fecha" in f for f in filas)
+    con_fecha2 = any("fecha2" in f for f in filas)
+    con_glosa = any("glosa" in f for f in filas)
     header = ["N°", "N° DE FACTURA", "TOTAL C.I.", "CUENTA CONTABLE BANCO",
                "ASIGNACION", "BANCO"]
     if con_fecha:
         header.append("FECHA")
+    if con_fecha2:
+        header.append("FECHA2")
+    if con_glosa:
+        header.append("GLOSA ASIENTO COMUNICACIONES INTERNAS")
     ws.append(header)
     for i, f in enumerate(filas, start=1):
         row = [
@@ -71,6 +83,10 @@ def _llenar_ci(ws, filas):
         ]
         if con_fecha:
             row.append(f.get("fecha"))
+        if con_fecha2:
+            row.append(f.get("fecha2"))
+        if con_glosa:
+            row.append(f.get("glosa"))
         ws.append(row)
 
 

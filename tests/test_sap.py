@@ -55,18 +55,20 @@ def _resultado_v2_ok(cuenta_ci="210201005"):
                 "importe": "300.00",
                 "codigo_confirmado": "VCH0001",
                 "codigo_informado": "VCH0001",
-                "fecha_bancaria": FECHA_CIERRE,
+                "fecha_bancaria": "2026-08-20",  # nunca se usa para SAP; distinta a propósito
+                "fecha_deposito": FECHA_CIERRE,
                 "estado": "MATCH_EXACTO",
             },
         ],
         "ci_validas": [
             {
                 "sfc": "SFC102",
-                "referencia": "FAC-0001",
+                "referencia": "FAC-0001",  # ya no es fuente de texto_posicion
                 "importe": "100.00",
                 "cuenta_contable": cuenta_ci,
                 "asignacion": "CI0001",
-                "fecha_ci": None,
+                "glosa": "PAGO PROVEEDOR AGUA",
+                "fecha_ci": None,  # ver test_I: celda O debe quedar vacía
             },
         ],
         "atc_neto": {

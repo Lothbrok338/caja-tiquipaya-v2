@@ -267,9 +267,13 @@ def _leer_comunicaciones_internas(ws, sfc_label):
         return []
 
     header = rows[0]
-    _ENCABEZADOS_FECHA_CI = {"FECHA", "FECHA CI", "FECHA COMUNICACION INTERNA"}
+    # FECHA2 es la columna autoritativa para la fecha valor (VALUT) de la
+    # CI; el resto de nombres son un fallback defensivo únicamente para
+    # hojas antiguas que no traigan FECHA2 (nunca al revés: si ambas
+    # columnas existen, FECHA2 siempre gana).
+    _ENCABEZADOS_FECHA_CI_FALLBACK = {"FECHA", "FECHA CI", "FECHA COMUNICACION INTERNA"}
     idx_n = idx_factura = idx_total = idx_cuenta = idx_asignacion = idx_banco = None
-    idx_fecha = None
+    idx_glosa = idx_fecha = idx_fecha_fallback = None
     for j, cell in enumerate(header):
         text = normalize_text(cell)
         if not text:
@@ -287,8 +291,15 @@ def _leer_comunicaciones_internas(ws, sfc_label):
             idx_asignacion = j
         elif idx_banco is None and text == "BANCO":
             idx_banco = j
-        elif idx_fecha is None and text in _ENCABEZADOS_FECHA_CI:
+        elif idx_glosa is None and "GLOSA" in text:
+            idx_glosa = j
+        elif idx_fecha is None and text == "FECHA2":
             idx_fecha = j
+        elif idx_fecha_fallback is None and text in _ENCABEZADOS_FECHA_CI_FALLBACK:
+            idx_fecha_fallback = j
+
+    if idx_fecha is None:
+        idx_fecha = idx_fecha_fallback
 
     faltantes = []
     if idx_factura is None:
@@ -319,6 +330,7 @@ def _leer_comunicaciones_internas(ws, sfc_label):
         cuenta_val = row[idx_cuenta] if idx_cuenta < len(row) else None
         asignacion_val = row[idx_asignacion] if idx_asignacion < len(row) else None
         banco_val = row[idx_banco] if idx_banco < len(row) else None
+        glosa_val = row[idx_glosa] if idx_glosa is not None and idx_glosa < len(row) else None
         fecha_val = None
         if idx_fecha is not None and idx_fecha < len(row):
             fecha_val = row[idx_fecha]
@@ -334,8 +346,13 @@ def _leer_comunicaciones_internas(ws, sfc_label):
             "asignacion": _texto_o_none(asignacion_val),
             "banco": banco_texto,
             "alquileres": es_alquileres,
-            # Fecha propia de la CI si la hoja la trae; nunca se rellena
-            # con la fecha del cierre (ver excel_io._fecha_iso).
+            # Glosa literal de "GLOSA ASIENTO COMUNICACIONES INTERNAS"
+            # (None si la hoja no la trae): fuente única de SGTXT/texto
+            # posición para SAP, nunca se reconstruye a partir de otra
+            # columna (ver motor_tiquipaya.construir_asiento).
+            "glosa": _texto_o_none(glosa_val),
+            # Fecha propia de la CI (columna FECHA2) si la hoja la trae;
+            # nunca se rellena con la fecha del cierre (ver _fecha_iso).
             "fecha_ci": _fecha_iso(fecha_val) if fecha_val is not None else None,
         })
 
