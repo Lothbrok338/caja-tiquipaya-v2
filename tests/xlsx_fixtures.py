@@ -100,3 +100,36 @@ def crear_atc(ruta, filas):
     for fecha, tipo, monto in filas:
         ws.append([fecha, tipo, None, None, monto, None, None])
     wb.save(ruta)
+
+
+def crear_plantilla_sap(ruta, hoja="1"):
+    """Plantilla SAP sintética mínima (ETAPA 6), sin datos contables reales.
+
+    Reproduce solo la estructura exigida por sap_writer.py: hoja EXACTA
+    "1", cabecera en fila 10 (columnas B/C/D/E/F/G/H/L) y partidas desde
+    fila 16 (columnas B/C/D/E/F/L/O/R/U/V/W), todo vacío para que
+    sap_writer.py lo complete. Incluye contenido de ejemplo en columnas
+    NO autorizadas (A, I, K, N, P, Q, S, T, X) para poder probar que
+    sap_writer.py nunca las toca.
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = hoja
+
+    ws["A9"] = "PLANTILLA SAP SINTETICA DE PRUEBA"
+    ws["A10"] = "FILA CABECERA"
+    ws["I10"] = "NO TOCAR"
+    ws["K10"] = "NO TOCAR"
+    ws["N10"] = "NO TOCAR"
+
+    ws["A16"] = "FILA PRIMERA PARTIDA"
+    ws["I16"] = "NO TOCAR"
+    ws["K16"] = "NO TOCAR"
+    ws["N16"] = "NO TOCAR"
+    ws["P16"] = "NO TOCAR"
+    ws["Q16"] = "NO TOCAR"
+    ws["S16"] = "NO TOCAR"
+    ws["T16"] = "NO TOCAR"
+    ws["X16"] = "NO TOCAR"
+
+    wb.save(ruta)

@@ -13,6 +13,7 @@
 
 - `excel_io.py`
 - `motor_tiquipaya.py`
+- `sap_writer.py`
 
 ## 3. Etapas validadas
 
@@ -21,10 +22,13 @@
 - CUADRE V2 OK
 - ASIENTO V2 (ETAPA 5) OK
 
-Estado actual: ETAPAS 1-5 existen y están implementadas. El repo está en
-**hardening PRE-SAP** (corrección de hallazgos de una auditoría
-independiente sobre el commit `aeb8e7c`) — no en desarrollo de ETAPA 6
-(generación SAP), que todavía no ha comenzado.
+Estado actual: ETAPAS 1-5 están **congeladas** (commit base `d03c3ff`, 61/61
+tests OK, validado contra cierres reales). ETAPA 6 (generación y validación
+determinística del archivo SAP, en `sap_writer.py`) está en desarrollo sobre
+la rama `claude/etapa-6-sap-3f7xzq`, consumiendo exclusivamente el asiento
+ya producido por `construir_asiento()` — no recalcula cierres, cruces ni
+cuadre. Desarrollada con plantilla SAP sintética (`tests/test_sap.py`); la
+plantilla SAP real de Google Drive se probará después en Cowork.
 
 ## 4. Reglas técnicas críticas ya implementadas
 
