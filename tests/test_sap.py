@@ -289,15 +289,31 @@ class TestPrecondicionesBloqueo(_SapTestBase):
         self.assertEqual(resultado["estado"], "ERROR")
         self.assertFalse(os.path.isfile(self.ruta_salida))
 
-    def test_O1_usd_cuenta_pendiente_no_genera_sap(self):
+    def test_O1_usd_mayor_a_cero_genera_partida_en_sap(self):
+        # CORRECCIÓN USD/DOLARES (post-ETAPA 8): ya no bloquea SAP; se
+        # balancea el HABER SFC101 con el mismo importe para aislar esta
+        # prueba del cuadre real de ejecutar_v2 (sin tocarlo).
         resultado_v2 = _resultado_v2_ok()
         resultado_v2["detalle"]["dolares"] = "50.00"
+        resultado_v2["detalle"]["sfc101_haber"] = "1050.00"
         asiento_usd = motor.construir_asiento(resultado_v2)
-        self.assertEqual(asiento_usd["estado"], "USD_CUENTA_PENDIENTE")
+        self.assertEqual(asiento_usd["estado"], "OK", asiento_usd)
+        self.assertNotEqual(asiento_usd["estado"], "USD_CUENTA_PENDIENTE")
 
         resultado = sap.generar_sap(asiento_usd, self.ruta_plantilla, self.ruta_salida, self.metadata)
-        self.assertEqual(resultado["estado"], "ERROR")
-        self.assertFalse(os.path.isfile(self.ruta_salida))
+        self.assertEqual(resultado["estado"], "OK", resultado)
+        self.assertTrue(os.path.isfile(self.ruta_salida))
+
+        usd = next(p for p in asiento_usd["partidas"] if p["origen"] == "DOLARES")
+        idx = asiento_usd["partidas"].index(usd)
+        fila = 16 + idx
+        wb = openpyxl.load_workbook(self.ruta_salida, data_only=True)
+        ws = wb["1"]
+        self.assertEqual(ws[f"C{fila}"].value, "110101010")
+        self.assertEqual(ws[f"D{fila}"].value, "RECAUDACION DOLARES")
+        self.assertEqual(sap._decimal_celda(ws[f"E{fila}"].value), Decimal("50.00"))
+        self.assertIsNone(ws[f"R{fila}"].value)
+        wb.close()
 
     def test_O2_no_asiento_no_genera_sap(self):
         resultado_v2 = _resultado_v2_ok()

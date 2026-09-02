@@ -11,7 +11,9 @@ Orquesta, sobre lo ya leído por excel_io.py:
        formato por banco, ALQUILERES separado por SFC)
   ETAPA 4 (ejecutar_v2) — universo, ALQUILERES, componentes, recaudación
     explicada y cuadre, con estado estructurado (OK / DIFERENCIA /
-    BLOQUEADO_EXCEPCION / USD_CUENTA_PENDIENTE / INDETERMINADO / ERROR).
+    BLOQUEADO_EXCEPCION / INDETERMINADO / ERROR). USD/DOLARES > 0.00 ya
+    no produce "USD_CUENTA_PENDIENTE" (regla descartada, ver corrección
+    post-ETAPA 8 en HANDOFF_CODE_V2.md).
   ETAPA 5 (construir_asiento) — construcción determinística del asiento
     CARGO/HABER a partir del resultado de ejecutar_v2().
 
@@ -590,12 +592,14 @@ def _ejecutar_v2_sobre_cierre(cierre, macros_idx, atc_idx):
         diferencia = io.money_str(Decimal(universo_ajustado) - Decimal(recaudacion_explicada))
 
         excepciones_bloqueantes = cruces["excepciones_bloqueantes_total"]
-        dolares_pendiente = Decimal(componentes["dolares"]) > 0
 
+        # CORRECCIÓN USD/DOLARES (post-ETAPA 8, validada end-to-end por
+        # Cowork con el cierre real 05-08-2026): USD > 0.00 ya NO bloquea
+        # el cierre. USD no se concilia contra banco/MACROS: solo se sigue
+        # sumando a recaudacion_explicada (sin cambios, ver arriba) y
+        # construir_asiento() genera su propia partida DEBE 110101010.
         if excepciones_bloqueantes > 0:
             estado = "BLOQUEADO_EXCEPCION"
-        elif dolares_pendiente:
-            estado = "USD_CUENTA_PENDIENTE"
         elif Decimal(diferencia) != 0:
             estado = "DIFERENCIA"
         else:
@@ -636,10 +640,10 @@ def ejecutar_v2(ruta_cierre, ruta_macros, ruta_atc):
     en lugar de reventar la corrida o esconder el problema como si el
     cierre estuviera OK.
 
-    Si DOLARES > 0.00 el estado nunca puede ser "OK": se devuelve
-    "USD_CUENTA_PENDIENTE" de forma explícita (la cuenta USD no está
-    parametrizada), para que un cierre con USD pendiente no pueda
-    marcarse después como procesado normal.
+    CORRECCIÓN USD/DOLARES (post-ETAPA 8): DOLARES > 0.00 ya no impide
+    "OK" (regla anterior descartada). USD se suma a recaudacion_explicada
+    igual que siempre; construir_asiento() genera su propia partida DEBE
+    110101010 "Caja M/E" sin conciliarla contra banco/MACROS.
 
     API pública sin cambios: internamente solo abre los tres archivos y
     delega el procesamiento a _ejecutar_v2_sobre_cierre(). Para procesar
@@ -787,6 +791,12 @@ _CUENTA_ATC_COMISION = "110201008"
 _TEXTO_HABER_SFC101 = "RECAUDACION CAJA SFC101"
 _TEXTO_HABER_SFC102 = "RECAUDACION CAJA SFC102"
 
+# CORRECCIÓN USD/DOLARES (post-ETAPA 8): cuenta "Caja M/E" y texto de
+# posición autorizados, validados end-to-end por Cowork sobre el cierre
+# real 05-08-2026. USD nunca se concilia contra banco/MACROS.
+_CUENTA_USD = "110101010"
+_TEXTO_USD = "RECAUDACION DOLARES"
+
 _MESES_ABREV = {
     1: "ENE", 2: "FEB", 3: "MAR", 4: "ABR", 5: "MAY", 6: "JUN",
     7: "JUL", 8: "AGO", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DIC",
@@ -866,6 +876,8 @@ def _validar_partidas(partidas, total_cargo, total_haber, diferencia):
             problemas.append("ATC_NETO_CUENTA_INVALIDA")
         if p["origen"] == "ATC_COMISION" and p["cuenta_mayor"] != _CUENTA_ATC_COMISION:
             problemas.append("ATC_COMISION_CUENTA_INVALIDA")
+        if p["origen"] == "DOLARES" and p["cuenta_mayor"] != _CUENTA_USD:
+            problemas.append("DOLARES_CUENTA_INVALIDA")
 
     return problemas
 
@@ -875,21 +887,19 @@ def construir_asiento(resultado_v2):
     resultado ya calculado por ejecutar_v2() (incluida su clave "detalle").
 
     Solo construye partidas cuando el cierre está en estado "OK", con
-    diferencia 0.00 y cero excepciones bloqueantes. Si DOLARES > 0.00 (y la
-    cuenta USD no está parametrizada, que es el caso actual), no construye
-    el asiento completo y devuelve estado USD_CUENTA_PENDIENTE. En
-    cualquier otro caso de precondición no cumplida, devuelve NO_ASIENTO.
-    Nunca fuerza el cuadre ni inventa datos.
+    diferencia 0.00 y cero excepciones bloqueantes. En cualquier otro caso
+    de precondición no cumplida, devuelve NO_ASIENTO. Nunca fuerza el
+    cuadre ni inventa datos.
+
+    CORRECCIÓN USD/DOLARES (post-ETAPA 8): DOLARES > 0.00 ya NO produce
+    "USD_CUENTA_PENDIENTE" (regla anterior descartada, validada end-to-end
+    por Cowork con el cierre real 05-08-2026) — genera una única partida
+    DEBE, cuenta 110101010 "Caja M/E", texto_posicion "RECAUDACION
+    DOLARES", sin asignación (no hay fuente autorizada) y fecha_valor
+    igual a la fecha del cierre (USD no trae fecha propia ni se concilia
+    contra banco/MACROS).
     """
     fecha_cierre = resultado_v2.get("fecha")
-
-    if resultado_v2.get("estado") == "USD_CUENTA_PENDIENTE":
-        return {
-            "fecha_cierre": fecha_cierre,
-            "estado": "USD_CUENTA_PENDIENTE",
-            "motivo": "DOLARES > 0.00 y la cuenta USD no está parametrizada.",
-            "partidas": [],
-        }
 
     condiciones_ok = (
         resultado_v2.get("estado") == "OK"
@@ -909,13 +919,6 @@ def construir_asiento(resultado_v2):
     detalle = resultado_v2["detalle"]
 
     dolares = Decimal(detalle["dolares"])
-    if dolares > 0:
-        return {
-            "fecha_cierre": fecha_cierre,
-            "estado": "USD_CUENTA_PENDIENTE",
-            "motivo": "DOLARES > 0.00 y la cuenta USD no está parametrizada.",
-            "partidas": [],
-        }
 
     # atc_aplica=False (ATC BRUTO=0.00, ATC_NO_APLICA) significa que este
     # cierre no tiene componente ATC: el asiento se construye sin las 2
@@ -1014,6 +1017,17 @@ def construir_asiento(resultado_v2):
             texto_posicion=atc_comision.get("texto_detalle"),
         ))
 
+    # CORRECCIÓN USD/DOLARES (post-ETAPA 8): USD no se concilia contra
+    # banco/MACROS ni tiene fecha propia — asignación siempre vacía,
+    # fecha_valor recibe el fallback de fecha del cierre más abajo, igual
+    # que el resto de partidas sin fecha real específica.
+    if dolares > 0:
+        partidas.append(_partida(
+            cuenta_mayor=_CUENTA_USD, cargo=detalle["dolares"], haber="0.00",
+            asignacion=None, origen="DOLARES", sfc_origen=None,
+            texto_posicion=_TEXTO_USD,
+        ))
+
     # ETAPA 8: toda partida debe llegar a SAP con fecha_valor. Prioridad:
     # (A) fecha real propia del origen (CI: FECHA2; VOUCHER: FECHA DE
     # DEPOSITO; ATC preconciliado con fecha bancaria propia) se conserva
@@ -1080,8 +1094,8 @@ def ejecutar_lote_v2(rutas_cierres, ruta_macros, ruta_atc):
     índices ningún cierre del lote puede procesarse de forma confiable.
 
     Un problema puntual de un cierre —bloqueado por excepción, con
-    diferencia, USD pendiente, o incluso un error técnico al leer o
-    procesar ESE cierre en particular— NUNCA detiene el resto del lote:
+    diferencia, o incluso un error técnico al leer o procesar ESE cierre
+    en particular— NUNCA detiene el resto del lote:
     cada cierre conserva su propio resultado_v2, asiento y error de forma
     aislada, sin contaminar a los demás.
 

@@ -43,7 +43,7 @@ plantilla SAP real de Google Drive se probará después en Cowork.
 - ALQUILERES excluido del asiento (nunca se crea partida ALQUILERES ni se compensa con otra cuenta); se conserva separado por SFC para ajustar el HABER: `HABER SFCxxx = TOTAL SFCxxx - ALQUILERES de ese SFC`.
 - ATC NETO se cruza contra MACROS por importe exacto + fecha bancaria compatible (nunca ANTERIOR a la fecha de cierre; posteriores sí son válidas; sin ventana arbitraria de días).
 - Vouchers: código de asignación + importe exacto; 0↔O solo autocorrección única; O↔P nunca autocorrección (POSIBLE_TYPO/bloqueante). Sin ventana de fecha propia.
-- DOLARES determinístico (activo solo si importe > 0; no se trata como faltante). Si DOLARES > 0.00 y la cuenta USD no está parametrizada, `ejecutar_v2` nunca devuelve "OK" (usa `USD_CUENTA_PENDIENTE`) y `construir_asiento` no genera partidas.
+- DOLARES determinístico (activo solo si importe > 0; no se trata como faltante). Regla vigente: ver sección 11 (CIERRE DEFINITIVO — regla USD Caja M/E); `USD_CUENTA_PENDIENTE` fue descartado y ya no lo produce ningún flujo.
 - `_validar_partidas` bloquea importes negativos y cualquier problema estructural: si hay problemas, el asiento devuelto tiene `estado=ERROR` y `partidas=[]` (nunca partidas inválidas utilizables).
 - CI: si trae fecha propia se propaga como `fecha_valor`; si no, `fecha_valor=None` (nunca se usa la fecha del cierre como reemplazo). CI con importe negativo bloquea.
 - **TEXTO POSICIÓN Y FECHA VALOR (CORRECCIÓN FINAL post-ETAPA 6):** CI: `texto_posicion` (SGTXT) viene literal de la columna `GLOSA ASIENTO COMUNICACIONES INTERNAS` (nunca se reconstruye desde `N° DE FACTURA`/`referencia`); `fecha_valor` (VALUT) viene de la columna `FECHA2` (autoritativa; las variantes viejas `FECHA`/`FECHA CI`/`FECHA COMUNICACION INTERNA` quedan como fallback solo si no hay `FECHA2`, nunca al revés). VOUCHER: `fecha_valor` viene de la fecha propia de CADA depósito (`FECHA DE DEPOSITO` del cierre), no de la fecha bancaria de MACROS; `texto_posicion` se construye como `"DEPOSITO BNB DD/MM/YYYY"` con esa misma fecha (`motor_tiquipaya._texto_voucher`). El cruce de vouchers (código de asignación + importe exacto contra `Tablas Dinamicas Profesional`) no cambia. Ambas columnas (`GLOSA...`/`FECHA2`) son opcionales a nivel de lectura (`None` si la hoja no las trae, igual que el resto de columnas "blandas"), para no romper cierres sin esas columnas.
@@ -203,3 +203,45 @@ Ejemplo: `PROCESADO_d2d18cbe98679cc5d67c9ae4399f2d5bc1295a12da02cbc9ec59991e995a
   no requiere ningún cambio adicional en Python.
 - `CONTROL_PROCESAMIENTO.csv` (`registrar_procesado`) se conserva
   intacto como LEGACY/FALLBACK: no se elimina ninguna función ni test.
+
+## 11. CIERRE DEFINITIVO — Regla USD / DOLARES (Caja M/E)
+
+Validada end-to-end por Cowork sobre el cierre real `CIERRE
+05-08-2026.xlsm` (USD 3606.00 → diferencia 0.00, asiento de 59 partidas,
+Cargo = Haber = 547882.23, SAP generado y validado OK). Implementada
+directamente en el repo canónico (Cowork no pudo hacer push desde su
+sesión).
+
+**Regla:** DOLARES > 0.00 genera una única partida:
+
+| Campo | Valor |
+|---|---|
+| Cuenta | `110101010` ("Caja M/E") |
+| Lado | DEBE (cargo = importe DOLARES, haber = 0.00) |
+| Texto posición | `RECAUDACION DOLARES` |
+| FechaValor | fecha del cierre (USD no trae fecha propia) |
+| Asignación | vacía (`None` — no existe fuente autorizada) |
+| Sociedad | `BO01` |
+| Centro Beneficio | `10010101` |
+
+USD **nunca** se concilia contra banco/MACROS: no cruza contra ninguna
+fuente externa, se toma literal de la columna DOLARES del cierre
+(`motor_tiquipaya.calcular_componentes`, sin cambios). DOLARES = 0.00 no
+genera ninguna partida (como siempre).
+
+**Supersede** la regla anterior (`USD_CUENTA_PENDIENTE`): DOLARES > 0.00
+ya NO bloquea `ejecutar_v2` (nunca vuelve a devolver ese estado) ni
+`construir_asiento` (ya no existe el corte temprano por USD). El importe
+USD ya se sumaba a `recaudacion_explicada` desde antes (sin cambios en
+esa fórmula ni en el resto del cuadre); lo único que cambia es que ahora,
+en vez de bloquear, se refleja como partida DEBE real.
+
+Constantes en `motor_tiquipaya.py`: `_CUENTA_USD = "110101010"`,
+`_TEXTO_USD = "RECAUDACION DOLARES"`. `_validar_partidas` exige que toda
+partida `origen == "DOLARES"` use esa cuenta (`DOLARES_CUENTA_INVALIDA`
+si no). El fallback de `fecha_valor` de ETAPA 8 (fecha del cierre cuando
+no hay fecha real propia) cubre esta partida sin necesitar código nuevo.
+
+Sin cambios en: vouchers, CI, ATC, ALQUILERES, SFC101/SFC102, resto de
+reglas SAP (ETAPA 6/8) ni control inmutable por SHA256 (ETAPA 8 y su
+corrección).
