@@ -412,8 +412,9 @@ def _resultado_v2_minimo_con_ci(ci_validas):
 
 class TestCiFechaPropia(unittest.TestCase):
     """10-11. Fecha propia de CI: se preserva y se propaga como
-    fecha_valor; si no existe, fecha_valor queda en None (nunca se usa la
-    fecha del cierre como reemplazo)."""
+    fecha_valor; si no existe, ETAPA 8 usa como fallback la fecha del
+    cierre (nunca queda vacía), sin que eso reemplace una fecha real
+    cuando sí existe."""
 
     def test_fecha_ci_preservada_hasta_la_partida(self):
         cierre = {"comunicaciones_internas": [{
@@ -430,7 +431,7 @@ class TestCiFechaPropia(unittest.TestCase):
         ci_partida = next(p for p in asiento["partidas"] if p["origen"] == "CI")
         self.assertEqual(ci_partida["fecha_valor"], "2026-08-15")
 
-    def test_sin_fecha_propia_fecha_valor_es_none(self):
+    def test_sin_fecha_propia_fecha_valor_usa_fallback_fecha_cierre(self):
         cierre = {"comunicaciones_internas": [{
             "sfc": "SFC101", "referencia": "F-1", "importe": "100.00",
             "cuenta_contable": "210201005", "asignacion": "CI0001",
@@ -444,7 +445,8 @@ class TestCiFechaPropia(unittest.TestCase):
         asiento = motor.construir_asiento(resultado)
         self.assertEqual(asiento["estado"], "OK")
         ci_partida = next(p for p in asiento["partidas"] if p["origen"] == "CI")
-        self.assertIsNone(ci_partida["fecha_valor"])
+        # ETAPA 8: sin fecha real propia, fallback = fecha del cierre.
+        self.assertEqual(ci_partida["fecha_valor"], resultado["fecha"])
 
 
 # ---------------------------------------------------------------------------

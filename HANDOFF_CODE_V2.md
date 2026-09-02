@@ -81,3 +81,83 @@ ETAPA 5 — Construcción determinística del asiento.
 - No cambiar reglas ya validadas salvo bug demostrado.
 - No crear módulos innecesarios.
 - No generar SAP todavía durante la primera parte de ETAPA 5.
+
+## 8. ETAPA 8 — Ajustes finales SAP + control operativo
+
+Sobre ETAPAS 1-7 ya validadas (congeladas), commit base `ba4fd20`,
+137/137 tests OK. ETAPA 8 solo agrega los ajustes explícitos siguientes,
+sin reinterpretar ninguna regla contable:
+
+- **texto_posicion HABER SFC** (`motor_tiquipaya.py`): las 2 líneas HABER
+  normales llevan ahora `texto_posicion` fijo — `UNIVERSO_SFC101` →
+  `"RECAUDACION CAJA SFC101"`, `UNIVERSO_SFC102` → `"RECAUDACION CAJA
+  SFC102"` (constantes `_TEXTO_HABER_SFC101`/`_TEXTO_HABER_SFC102`).
+- **Fallback fecha_valor = fecha del cierre** (`motor_tiquipaya.py`,
+  `construir_asiento`): toda partida sin fecha real específica de origen
+  (CI sin FECHA2, VOUCHER sin FECHA DE DEPOSITO, HABER SFC101/SFC102, ATC
+  sin fecha bancaria propia) recibe como `fecha_valor` la fecha del
+  cierre. Una fecha real existente NUNCA se reemplaza. Esto **supersede**
+  la regla anterior de ETAPA 6 que prohibía ese fallback (ver tests
+  actualizados en `test_asiento.py`, `test_atc_preconciliado.py`,
+  `test_sap.py`).
+- **Fechas como tipo fecha Excel real** (`sap_writer.py`): D10
+  (FechaRegistro), E10 (FechaContabilizacion) y la columna O
+  (FechaValor, fila 16+) se escriben como `datetime.date` real (no
+  texto), con `number_format="dd/mm/yyyy"` (`_fecha_desde_iso`/
+  `_fecha_a_iso`, constante `_FORMATO_FECHA_CORTA`). La validación
+  post-escritura normaliza esos valores de vuelta a ISO para compararlos
+  contra el asiento/metadata fuente.
+- **Cabecera derivada de la fecha real del cierre**
+  (`pipeline_tiquipaya.derivar_cabecera_fecha_cierre`): FechaRegistro,
+  FechaContabilizacion y Mes se calculan siempre a partir de
+  `resultado_v2["fecha"]` (nunca fin de mes ni otro cálculo).
+  `procesar_cierre_completo` sobrescribe con este resultado los campos
+  `fecha_registro`/`fecha_contabilizacion`/`mes` de `metadata_cabecera`
+  antes de llamar a `sap_writer` (el resto de la cabecera —
+  tipo_asiento, texto_cabecera, referencia, Sociedad=BO01, Moneda=BOB—
+  no cambia). `sap_writer.py` sigue sin decidir fechas por sí mismo.
+- **Control de procesamiento como interfaz de datos limpia**
+  (`pipeline_tiquipaya.py`): `construir_registro_control(resultado_json,
+  estado=..., archivo_sap=..., observaciones=..., fecha_procesamiento=...)`
+  devuelve el dict de una fila de control (mismas columnas que
+  `COLUMNAS_CONTROL`: FechaCierre, ArchivoOrigen, HashOrigen, Estado,
+  FechaProcesamiento, VersionCodigo, Resultado, Diferencia, Blockers,
+  ArchivoSAP, Observaciones), reutilizado tanto por `registrar_procesado`
+  (destino CSV) como por quien escriba el Google Sheet
+  CONTROL_PROCESAMIENTO. `procesar_cierre_completo` acepta además
+  `hashes_procesados` (set/dict de HashOrigen ya PROCESADO) y
+  `registros_control` (lista de dicts con esa misma forma) para resolver
+  la idempotencia sin depender de que exista un CSV local. Python **no**
+  implementa ninguna API de Google Drive/Sheets: solo produce/consume
+  esta forma de dict; la ruta CSV (`ruta_control`) se conserva intacta
+  como compatibilidad y auditoría.
+
+### Contrato operativo de producción (Cowork)
+
+1. Cowork descarga/materializa CIERRE, MAESTRO mensual y PLANTILLA SAP.
+2. Python procesa V2 → ASIENTO → SAP → validación → RESULTADO
+   (`pipeline_tiquipaya.procesar_cierre_completo`).
+3. Cowork puede subir automáticamente `RESULTADO.json` (vía
+   `textContent`).
+4. El SAP `.xlsx` queda disponible en Salidas para el usuario.
+5. **Única intervención humana:** el usuario guarda/sube `SAP.xlsx` a
+   Drive.
+6. El usuario confirma `PUBLICADO`.
+7. Cowork verifica el SAP en Drive, mueve el CIERRE a PROCESADOS, agrega
+   una fila al Google Sheet `CONTROL_PROCESAMIENTO` (con
+   `construir_registro_control(...)`) y confirma `PROCESADO`
+   (`pipeline_tiquipaya.registrar_procesado` sigue siendo el camino CSV
+   equivalente/compatible).
+8. Un reintento con el mismo SHA256 devuelve `YA_PROCESADO`, ya sea
+   contra el CSV, contra `hashes_procesados`, o contra
+   `registros_control` leídos del Google Sheet.
+
+## 9. Prohibiciones ETAPA 8
+
+- No implementar Google Drive/Sheets API en Python.
+- No implementar subida del SAP.
+- No tocar importes, cuentas, asignaciones, Sociedad, Centro Beneficio,
+  matching de vouchers, autocorrección 0↔O, POSIBLE_TYPO, CI glosa/FECHA2,
+  voucher FECHA DE DEPOSITO/glosa, ATC preconciliado/ATC_NO_APLICA,
+  REVISAR, ALQUILERES, USD, cálculo de diferencia, Cargo/Haber,
+  estructura SAP ni XREF.

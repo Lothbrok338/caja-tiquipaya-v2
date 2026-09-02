@@ -349,5 +349,75 @@ class TestControlUtf8(_BasePipeline):
         self.assertIn("áéíóú", contenido)
 
 
+# ---------------------------------------------------------------------------
+# ETAPA 8 — 19-21. Control externo (Google Sheet vía Cowork): registro
+# como dict, idempotencia con hashes/registros externos, CSV legacy
+# intacto. Python no implementa ningún conector de Drive/Sheets aquí:
+# solo produce/consume la misma forma de dict que ya usa el CSV.
+# ---------------------------------------------------------------------------
+
+class TestControlExternoEtapa8(_BasePipeline):
+    def test_construir_registro_control_devuelve_dict_esperado(self):
+        resultado = self._procesar()
+        registro = pipeline.construir_registro_control(
+            resultado["resultado_json"], estado="PROCESADO",
+            observaciones="publicado por Cowork",
+        )
+        self.assertIsInstance(registro, dict)
+        self.assertEqual(set(registro.keys()), set(pipeline.COLUMNAS_CONTROL))
+        self.assertEqual(registro["HashOrigen"], resultado["hash_origen"])
+        self.assertEqual(registro["Estado"], "PROCESADO")
+        self.assertEqual(registro["FechaCierre"], FECHA_CIERRE)
+        self.assertEqual(registro["Observaciones"], "publicado por Cowork")
+
+    def test_registrar_procesado_usa_construir_registro_control(self):
+        # NO duplicar lógica de negocio: la fila que termina en el CSV es
+        # exactamente la misma forma que produce construir_registro_control.
+        resultado = self._procesar()
+        registro = pipeline.registrar_procesado(self.ruta_control, resultado["resultado_json"])
+        esperado = pipeline.construir_registro_control(
+            resultado["resultado_json"], estado="PROCESADO",
+            fecha_procesamiento=registro["fila"]["FechaProcesamiento"],
+        )
+        self.assertEqual(registro["fila"], esperado)
+
+    def test_idempotencia_con_hashes_procesados_externos_sin_csv(self):
+        # Sin CONTROL_PROCESAMIENTO.csv en disco: la idempotencia puede
+        # resolverse igual recibiendo el set/dict de hashes ya procesados
+        # desde el orquestador (p. ej. leído de un Google Sheet).
+        primero = self._procesar()
+        self.assertFalse(os.path.isfile(self.ruta_control))
+
+        segundo = self._procesar(
+            ruta_control=None,
+            hashes_procesados={primero["hash_origen"]},
+        )
+        self.assertEqual(segundo["estado"], pipeline.ESTADO_YA_PROCESADO)
+        self.assertIsNone(segundo["resultado_v2"])
+        self.assertIsNone(segundo["sap"])
+
+    def test_idempotencia_con_registros_control_externos_sin_csv(self):
+        # Misma idea, pero recibiendo filas ya armadas (misma forma que
+        # una fila del Google Sheet CONTROL_PROCESAMIENTO), sin CSV local.
+        primero = self._procesar()
+        registro_externo = pipeline.construir_registro_control(primero["resultado_json"])
+
+        segundo = self._procesar(
+            ruta_control=None,
+            registros_control=[registro_externo],
+        )
+        self.assertEqual(segundo["estado"], pipeline.ESTADO_YA_PROCESADO)
+        self.assertIsNone(segundo["resultado_v2"])
+
+    def test_csv_legacy_sigue_funcionando_sin_fuentes_externas(self):
+        # Compatibilidad: sin hashes_procesados/registros_control, el
+        # camino CSV de siempre (ETAPA 7) sigue intacto.
+        primero = self._procesar()
+        pipeline.registrar_procesado(self.ruta_control, primero["resultado_json"])
+
+        segundo = self._procesar()
+        self.assertEqual(segundo["estado"], pipeline.ESTADO_YA_PROCESADO)
+
+
 if __name__ == "__main__":
     unittest.main()

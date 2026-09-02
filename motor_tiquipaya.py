@@ -781,6 +781,12 @@ _CUENTA_HABER = "110101001"
 _CUENTA_VOUCHER_ATC = "110103012"
 _CUENTA_ATC_COMISION = "110201008"
 
+# ETAPA 8: texto_posicion (SGTXT) autorizado para las 2 líneas HABER
+# normales (UNIVERSO_SFC101/UNIVERSO_SFC102). Literal, no se reconstruye
+# a partir de ningún otro dato del cierre.
+_TEXTO_HABER_SFC101 = "RECAUDACION CAJA SFC101"
+_TEXTO_HABER_SFC102 = "RECAUDACION CAJA SFC102"
+
 _MESES_ABREV = {
     1: "ENE", 2: "FEB", 3: "MAR", 4: "ABR", 5: "MAY", 6: "JUN",
     7: "JUL", 8: "AGO", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DIC",
@@ -933,10 +939,12 @@ def construir_asiento(resultado_v2):
     partidas.append(_partida(
         cuenta_mayor=_CUENTA_HABER, cargo="0.00", haber=detalle["sfc101_haber"],
         asignacion="SFC101", origen="UNIVERSO_SFC101", sfc_origen="SFC101",
+        texto_posicion=_TEXTO_HABER_SFC101,
     ))
     partidas.append(_partida(
         cuenta_mayor=_CUENTA_HABER, cargo="0.00", haber=detalle["sfc102_haber"],
         asignacion="SFC102", origen="UNIVERSO_SFC102", sfc_origen="SFC102",
+        texto_posicion=_TEXTO_HABER_SFC102,
     ))
 
     for v in detalle["vouchers_confirmados"]:
@@ -1005,6 +1013,17 @@ def construir_asiento(resultado_v2):
             origen="ATC_COMISION", sfc_origen=None,
             texto_posicion=atc_comision.get("texto_detalle"),
         ))
+
+    # ETAPA 8: toda partida debe llegar a SAP con fecha_valor. Prioridad:
+    # (A) fecha real propia del origen (CI: FECHA2; VOUCHER: FECHA DE
+    # DEPOSITO; ATC preconciliado con fecha bancaria propia) se conserva
+    # tal cual, nunca se reemplaza. (B) si la partida no trae una fecha
+    # real específica (HABER SFC101/SFC102, ATC sin fecha propia, o
+    # cualquier otra partida válida sin fecha_valor), se usa como
+    # fallback la fecha del cierre. Nunca se inventa una fecha distinta.
+    for p in partidas:
+        if not p.get("fecha_valor"):
+            p["fecha_valor"] = fecha_cierre
 
     total_cargo = sum((Decimal(p["cargo"]) for p in partidas), Decimal("0"))
     total_haber = sum((Decimal(p["haber"]) for p in partidas), Decimal("0"))

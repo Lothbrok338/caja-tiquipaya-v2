@@ -56,6 +56,21 @@ COLUMNAS_CONTROL = [
 ]
 
 
+def derivar_cabecera_fecha_cierre(fecha_cierre):
+    """ETAPA 8 — FechaRegistro/BLDAT y FechaContabilizacion/BUDAT siempre
+    son la fecha real del cierre (nunca fin de mes ni otro cálculo);
+    Mes/MONAT se deriva de esa misma fecha. `fecha_cierre` es el ISO
+    'YYYY-MM-DD' ya extraído por el motor (resultado_v2["fecha"]): esta
+    función solo separa sus componentes, nunca inventa una fecha
+    distinta."""
+    anio, mes, dia = fecha_cierre.split("-")
+    return {
+        "fecha_registro": fecha_cierre,
+        "fecha_contabilizacion": fecha_cierre,
+        "mes": mes,
+    }
+
+
 def calcular_sha256(ruta_archivo):
     """SHA256 exacto del archivo en `ruta_archivo`. Llave de idempotencia
     del CIERRE: el nombre del archivo NUNCA es suficiente por sí solo."""
@@ -212,6 +227,8 @@ def procesar_cierre_completo(
     version_codigo,
     ruta_control=None,
     ruta_resultado=None,
+    hashes_procesados=None,
+    registros_control=None,
 ):
     """Orquesta ETAPAS 1-6 sobre un único cierre, con control de
     procesamiento por SHA256 e idempotencia.
@@ -221,12 +238,29 @@ def procesar_cierre_completo(
       ruta_maestro, ruta_maestro).
     - `version_codigo` se recibe explícito del llamador; nunca se
       inventa/adivina un commit aquí.
-    - `ruta_control`: ruta a CONTROL_PROCESAMIENTO.csv (opcional). Si el
-      HashOrigen del cierre ya figura con Estado=PROCESADO, se devuelve
-      YA_PROCESADO sin ejecutar el motor, sin generar SAP y sin tocar el
-      control.
+    - `ruta_control`: ruta a CONTROL_PROCESAMIENTO.csv (opcional, se
+      conserva como compatibilidad/auditoría). Si el HashOrigen del
+      cierre ya figura con Estado=PROCESADO —en el CSV, o en
+      `hashes_procesados`/`registros_control`—, se devuelve YA_PROCESADO
+      sin ejecutar el motor, sin generar SAP y sin tocar ningún control.
+    - `hashes_procesados`: colección (set o dict) de HashOrigen ya
+      PROCESADO, para cuando el control operativo real vive fuera del
+      CSV (p. ej. un Google Sheet leído por el orquestador/Cowork). No
+      obliga a que exista un CSV local.
+    - `registros_control`: lista de dicts con la misma forma que las
+      filas de CONTROL_PROCESAMIENTO.csv (HashOrigen/ArchivoOrigen/
+      Estado/...), típicamente las filas ya leídas de ese Google Sheet.
+      Se combinan con las del CSV para la idempotencia y la advertencia
+      de mismo-nombre-hash-distinto.
     - `ruta_resultado`: si se pasa, se escribe ahí el JSON de resultado
       estructurado (RESULTADO_TIQ_DD-MM-YYYY.json).
+
+    Las fechas de cabecera (FechaRegistro/FechaContabilizacion/Mes) que
+    se envían a `sap_writer` siempre se derivan de la fecha real del
+    cierre ya extraída por el motor (`derivar_cabecera_fecha_cierre`),
+    nunca del valor que traiga `metadata_cabecera`: el resto de los
+    campos de cabecera (tipo_asiento, texto_cabecera, referencia) sí
+    vienen tal cual del llamador.
 
     Nunca marca PROCESADO: como mucho devuelve
     VALIDADO_PENDIENTE_PUBLICACION cuando el cierre es válido de punta a
@@ -238,11 +272,17 @@ def procesar_cierre_completo(
     hash_origen = calcular_sha256(ruta_cierre)
 
     filas_control = _leer_control(ruta_control)
+    registros_externos = list(registros_control or [])
+    todas_las_filas = filas_control + registros_externos
 
     fila_mismo_hash = next(
-        (f for f in filas_control if f.get("HashOrigen") == hash_origen), None
+        (f for f in todas_las_filas if f.get("HashOrigen") == hash_origen), None
     )
-    if fila_mismo_hash and fila_mismo_hash.get("Estado") == "PROCESADO":
+    ya_procesado_externo = bool(hashes_procesados) and hash_origen in hashes_procesados
+    ya_procesado = ya_procesado_externo or (
+        fila_mismo_hash is not None and fila_mismo_hash.get("Estado") == "PROCESADO"
+    )
+    if ya_procesado:
         return {
             "estado": ESTADO_YA_PROCESADO,
             "hash_origen": hash_origen,
@@ -262,7 +302,7 @@ def procesar_cierre_completo(
     warnings_list = []
     mismo_nombre_otro_hash = any(
         f.get("ArchivoOrigen") == archivo_origen and f.get("HashOrigen") != hash_origen
-        for f in filas_control
+        for f in todas_las_filas
     )
     if mismo_nombre_otro_hash:
         warnings_list.append(WARNING_MISMO_NOMBRE_HASH_DISTINTO)
@@ -282,8 +322,10 @@ def procesar_cierre_completo(
 
     sap_resumen = None
     if v2_ok and asiento_ok:
+        metadata_sap = dict(metadata_cabecera or {})
+        metadata_sap.update(derivar_cabecera_fecha_cierre(resultado_v2["fecha"]))
         sap_resumen = sap.generar_y_validar_sap(
-            asiento, ruta_plantilla_sap, ruta_sap_salida, metadata_cabecera
+            asiento, ruta_plantilla_sap, ruta_sap_salida, metadata_sap
         )
     sap_ok = bool(sap_resumen) and sap_resumen.get("estado_sap") == "OK"
 
@@ -337,6 +379,39 @@ def procesar_cierre_completo(
 # resultado y cierre ya fueron publicados/movidos en Drive.
 # ---------------------------------------------------------------------------
 
+def construir_registro_control(resultado_json, estado="PROCESADO", archivo_sap=None,
+                                observaciones="", fecha_procesamiento=None):
+    """Construye el registro de control (misma forma que una fila de
+    CONTROL_PROCESAMIENTO.csv y que una fila del Google Sheet
+    CONTROL_PROCESAMIENTO — ver HANDOFF ETAPA 8) a partir de
+    `resultado_json` (el dict devuelto en
+    procesar_cierre_completo(...)["resultado_json"], o uno con la misma
+    forma).
+
+    Este dict es la única fuente de verdad del registro de control:
+    tanto `registrar_procesado` (destino CSV) como Cowork (destino
+    Google Sheet nativo, vía su propio conector — Python nunca implementa
+    la API de Drive/Sheets aquí) lo usan tal cual, sin reinterpretar
+    ningún campo. Claves: FechaCierre, ArchivoOrigen, HashOrigen, Estado,
+    FechaProcesamiento, VersionCodigo, Resultado, Diferencia, Blockers,
+    ArchivoSAP, Observaciones.
+    """
+    fecha_proc = fecha_procesamiento or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        "FechaCierre": resultado_json.get("fecha_cierre", ""),
+        "ArchivoOrigen": resultado_json.get("archivo_origen", ""),
+        "HashOrigen": resultado_json.get("sha256_origen", ""),
+        "Estado": estado,
+        "FechaProcesamiento": fecha_proc,
+        "VersionCodigo": resultado_json.get("version_codigo", ""),
+        "Resultado": resultado_json.get("estado_v2", ""),
+        "Diferencia": resultado_json.get("diferencia_asiento") or resultado_json.get("diferencia", "0.00"),
+        "Blockers": str(resultado_json.get("blockers", 0)),
+        "ArchivoSAP": archivo_sap or resultado_json.get("sap_archivo") or "",
+        "Observaciones": observaciones,
+    }
+
+
 def registrar_procesado(ruta_control, resultado_json, archivo_sap=None,
                          observaciones="", fecha_procesamiento=None):
     """Añade o actualiza, de forma segura, CONTROL_PROCESAMIENTO.csv con
@@ -351,6 +426,11 @@ def registrar_procesado(ruta_control, resultado_json, archivo_sap=None,
     no duplica el control: devuelve YA_PROCESADO sin escribir nada. Nunca
     se debe llamar antes de que Cowork confirme que SAP, RESULTADO y el
     CIERRE original ya fueron publicados/movidos correctamente.
+
+    Ruta CSV: compatibilidad/auditoría (ver ETAPA 8). El control
+    operativo real en producción puede ser, en cambio, el Google Sheet
+    CONTROL_PROCESAMIENTO que gestiona Cowork con
+    `construir_registro_control(...)`.
     """
     hash_origen = resultado_json["sha256_origen"]
     filas = _leer_control(ruta_control)
@@ -359,21 +439,10 @@ def registrar_procesado(ruta_control, resultado_json, archivo_sap=None,
     if existente and existente.get("Estado") == "PROCESADO":
         return {"estado": ESTADO_YA_PROCESADO, "duplicado": True, "fila": existente}
 
-    fecha_proc = fecha_procesamiento or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    nueva_fila = {
-        "FechaCierre": resultado_json.get("fecha_cierre", ""),
-        "ArchivoOrigen": resultado_json.get("archivo_origen", ""),
-        "HashOrigen": hash_origen,
-        "Estado": "PROCESADO",
-        "FechaProcesamiento": fecha_proc,
-        "VersionCodigo": resultado_json.get("version_codigo", ""),
-        "Resultado": resultado_json.get("estado_v2", ""),
-        "Diferencia": resultado_json.get("diferencia_asiento") or resultado_json.get("diferencia", "0.00"),
-        "Blockers": str(resultado_json.get("blockers", 0)),
-        "ArchivoSAP": archivo_sap or resultado_json.get("sap_archivo") or "",
-        "Observaciones": observaciones,
-    }
+    nueva_fila = construir_registro_control(
+        resultado_json, estado="PROCESADO", archivo_sap=archivo_sap,
+        observaciones=observaciones, fecha_procesamiento=fecha_procesamiento,
+    )
 
     if existente is not None:
         filas[filas.index(existente)] = nueva_fila
