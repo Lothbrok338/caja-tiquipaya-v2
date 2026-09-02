@@ -195,6 +195,24 @@ def cruzar_atc(cierre, atc_idx, macros_idx):
     bruto_cierre = Decimal(cierre["sfc101"]["cobros_atc"]) + Decimal(cierre["sfc102"]["cobros_atc"])
     bruto_str = io.money_str(bruto_cierre)
 
+    if bruto_cierre == 0:
+        # ATC BRUTO = 0.00: el día no tuvo cobros con tarjeta. ATC está
+        # INACTIVO/NO APLICA para este cierre: no se exige fila en el ATC
+        # mensual, no se busca NETO en MACROS y esto NUNCA es una
+        # excepción (no cuenta para excepciones_bloqueantes). El cierre
+        # sigue su curso normal sin componente ATC.
+        return {
+            "bruto": bruto_str,
+            "neto": "0.00",
+            "comision": "0.00",
+            "diferencia": "0.00",
+            "estado_validacion": "ATC_NO_APLICA",
+            "estado_match_macros": None,
+            "codigo_encontrado": None,
+            "fecha_bancaria_encontrada": None,
+            "excepcion": False,
+        }
+
     registro = atc_idx.get(fecha_cierre)
     if registro is None or registro["neto"] is None or registro["comision"] is None:
         return {
@@ -572,7 +590,12 @@ def _detalle_para_asiento(cierre, cruces, componentes):
     ]
 
     atc = cruces["atc"]
-    if not atc["excepcion"] and atc["estado_match_macros"] == "ATC_MATCH_EXACTO":
+    # ATC_NO_APLICA (bruto=0.00) nunca es excepción, pero tampoco genera
+    # atc_neto/atc_comision: es una ausencia legítima de componente ATC,
+    # distinta de un ATC que sí aplica y no pudo determinarse. atc_aplica
+    # es lo que permite a construir_asiento() distinguir ambos casos.
+    atc_aplica = Decimal(atc["bruto"]) > 0
+    if atc_aplica and not atc["excepcion"] and atc["estado_match_macros"] == "ATC_MATCH_EXACTO":
         atc_neto = {
             "importe": atc["neto"],
             "codigo_confirmado": atc["codigo_encontrado"],
@@ -594,6 +617,8 @@ def _detalle_para_asiento(cierre, cruces, componentes):
         "ci_validas": cruces["ci"]["detalle_validas"],
         "atc_neto": atc_neto,
         "atc_comision": atc_comision,
+        "atc_aplica": atc_aplica,
+        "atc_estado": atc["estado_validacion"],
         "dolares": componentes["dolares"],
     }
 
@@ -734,7 +759,14 @@ def construir_asiento(resultado_v2):
             "partidas": [],
         }
 
-    if detalle.get("atc_neto") is None or detalle.get("atc_comision") is None:
+    # atc_aplica=False (ATC BRUTO=0.00, ATC_NO_APLICA) significa que este
+    # cierre no tiene componente ATC: el asiento se construye sin las 2
+    # líneas ATC_NETO/ATC_COMISION, sin que eso sea NO_ASIENTO. Solo es
+    # NO_ASIENTO cuando ATC sí aplica (bruto>0) y no quedó determinado.
+    atc_aplica = detalle.get("atc_aplica", True)
+    atc_neto = detalle.get("atc_neto")
+    atc_comision = detalle.get("atc_comision")
+    if atc_aplica and (atc_neto is None or atc_comision is None):
         return {
             "fecha_cierre": fecha_cierre,
             "estado": "NO_ASIENTO",
@@ -780,18 +812,17 @@ def construir_asiento(resultado_v2):
             fecha_valor=ci.get("fecha_ci"),
         ))
 
-    atc_neto = detalle["atc_neto"]
-    partidas.append(_partida(
-        cuenta_mayor=_CUENTA_VOUCHER_ATC, cargo=atc_neto["importe"], haber="0.00",
-        asignacion=atc_neto["codigo_confirmado"], fecha_valor=atc_neto.get("fecha_bancaria"),
-        origen="ATC_NETO", sfc_origen=None,
-    ))
+    if atc_aplica:
+        partidas.append(_partida(
+            cuenta_mayor=_CUENTA_VOUCHER_ATC, cargo=atc_neto["importe"], haber="0.00",
+            asignacion=atc_neto["codigo_confirmado"], fecha_valor=atc_neto.get("fecha_bancaria"),
+            origen="ATC_NETO", sfc_origen=None,
+        ))
 
-    atc_comision = detalle["atc_comision"]
-    partidas.append(_partida(
-        cuenta_mayor=_CUENTA_ATC_COMISION, cargo=atc_comision["importe"], haber="0.00",
-        asignacion=_asignacion_comision(fecha_cierre), origen="ATC_COMISION", sfc_origen=None,
-    ))
+        partidas.append(_partida(
+            cuenta_mayor=_CUENTA_ATC_COMISION, cargo=atc_comision["importe"], haber="0.00",
+            asignacion=_asignacion_comision(fecha_cierre), origen="ATC_COMISION", sfc_origen=None,
+        ))
 
     total_cargo = sum((Decimal(p["cargo"]) for p in partidas), Decimal("0"))
     total_haber = sum((Decimal(p["haber"]) for p in partidas), Decimal("0"))

@@ -448,6 +448,76 @@ class TestCiFechaPropia(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Corrección PRE-SAP — ATC BRUTO = 0.00 (ATC_NO_APLICA): el asiento debe
+# construirse igual, sin las 2 líneas ATC_NETO/ATC_COMISION, siempre que
+# el resto del cierre esté OK. Nunca debe convertirse en NO_ASIENTO solo
+# porque el día no tuvo cobros con tarjeta.
+# ---------------------------------------------------------------------------
+
+def _resultado_v2_sin_atc():
+    """resultado_v2 mínimo y cuadrado (CARGO==HABER) con ATC BRUTO=0.00:
+    sin atc_neto/atc_comision y atc_aplica=False (ATC_NO_APLICA)."""
+    detalle = {
+        "sfc101_total": "1000.00",
+        "sfc102_total": "0.00",
+        "sfc101_haber": "1000.00",
+        "sfc102_haber": "0.00",
+        "alquileres_sfc101": "0.00",
+        "alquileres_sfc102": "0.00",
+        "vouchers_confirmados": [{
+            "sfc": "SFC101", "importe": "1000.00", "codigo_confirmado": "VCH1",
+            "codigo_informado": "VCH1", "fecha_bancaria": "2026-08-08",
+            "estado": "MATCH_EXACTO",
+        }],
+        "ci_validas": [],
+        "atc_neto": None,
+        "atc_comision": None,
+        "atc_aplica": False,
+        "atc_estado": "ATC_NO_APLICA",
+        "dolares": "0.00",
+    }
+    return {
+        "fecha": "2026-08-08",
+        "estado": "OK",
+        "excepciones_bloqueantes": 0,
+        "diferencia": "0.00",
+        "detalle": detalle,
+    }
+
+
+class TestAtcNoAplicaEnAsiento(unittest.TestCase):
+    def test_C_asiento_ok_sin_partida_atc_neto(self):
+        resultado = _resultado_v2_sin_atc()
+        asiento = motor.construir_asiento(resultado)
+        self.assertNotEqual(asiento["estado"], "NO_ASIENTO")
+        self.assertEqual(asiento["estado"], "OK")
+        self.assertFalse(any(p["origen"] == "ATC_NETO" for p in asiento["partidas"]))
+
+    def test_D_asiento_ok_sin_partida_atc_comision(self):
+        resultado = _resultado_v2_sin_atc()
+        asiento = motor.construir_asiento(resultado)
+        self.assertEqual(asiento["estado"], "OK")
+        self.assertFalse(any(p["origen"] == "ATC_COMISION" for p in asiento["partidas"]))
+
+    def test_asiento_cuadra_con_las_demas_partidas(self):
+        resultado = _resultado_v2_sin_atc()
+        asiento = motor.construir_asiento(resultado)
+        self.assertEqual(asiento["problemas"], [])
+        self.assertEqual(asiento["cantidad_partidas"], 3)  # 2 HABER + 1 VOUCHER
+        self.assertEqual(asiento["total_cargo"], asiento["total_haber"])
+        self.assertEqual(asiento["diferencia"], "0.00")
+
+    def test_atc_aplica_ausente_conserva_comportamiento_anterior(self):
+        # Compatibilidad: si detalle no trae "atc_aplica" (fixtures/código
+        # anterior a esta corrección), el default es True y atc_neto/
+        # atc_comision ausentes siguen dando NO_ASIENTO como antes.
+        resultado = _resultado_v2_sin_atc()
+        del resultado["detalle"]["atc_aplica"]
+        asiento = motor.construir_asiento(resultado)
+        self.assertEqual(asiento["estado"], "NO_ASIENTO")
+
+
+# ---------------------------------------------------------------------------
 # Asiento inválido: ERROR -> partidas vacías (corrección obligatoria E)
 # ---------------------------------------------------------------------------
 

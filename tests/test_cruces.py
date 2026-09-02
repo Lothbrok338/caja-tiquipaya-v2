@@ -98,6 +98,46 @@ class TestAtcFechaCompatible(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Corrección PRE-SAP — ATC BRUTO = 0.00: día sin cobros con tarjeta.
+# ATC queda INACTIVO/NO APLICA: nunca es excepción, no exige fila en el
+# ATC mensual y no busca NETO en MACROS. Si ATC BRUTO > 0.00, la lógica
+# de excepción por fecha ausente en el maestro se mantiene intacta.
+# ---------------------------------------------------------------------------
+
+class TestAtcBrutoCero(unittest.TestCase):
+    def test_A_bruto_cero_fecha_ausente_en_atc_no_es_excepcion(self):
+        cierre = _cierre_atc("0.00")
+        atc_idx = {}  # el ATC mensual no trae ninguna fila para esta fecha
+        macros_idx = _macros_por_importe([])
+        resultado = motor.cruzar_atc(cierre, atc_idx, macros_idx)
+        self.assertEqual(resultado["estado_validacion"], "ATC_NO_APLICA")
+        self.assertFalse(resultado["excepcion"])
+        self.assertEqual(resultado["neto"], "0.00")
+        self.assertEqual(resultado["comision"], "0.00")
+        self.assertEqual(resultado["diferencia"], "0.00")
+
+    def test_B_bruto_cero_no_busca_neto_en_macros(self):
+        cierre = _cierre_atc("0.00")
+        atc_idx = {}
+        # macros_idx=None: si el código intentara buscar el NETO en
+        # MACROS (macros_idx["por_importe"].get(...)) esto lanzaría
+        # TypeError/AttributeError. Que no falle prueba que no se
+        # consulta MACROS en absoluto cuando ATC BRUTO = 0.00.
+        resultado = motor.cruzar_atc(cierre, atc_idx, macros_idx=None)
+        self.assertEqual(resultado["estado_validacion"], "ATC_NO_APLICA")
+        self.assertIsNone(resultado["estado_match_macros"])
+        self.assertIsNone(resultado["codigo_encontrado"])
+
+    def test_E_bruto_mayor_a_cero_fecha_ausente_sigue_bloqueando(self):
+        cierre = _cierre_atc("130883.00")
+        atc_idx = {}  # sin fila para la fecha del cierre
+        macros_idx = _macros_por_importe([])
+        resultado = motor.cruzar_atc(cierre, atc_idx, macros_idx)
+        self.assertEqual(resultado["estado_validacion"], "ATC_FECHA_NO_ENCONTRADA")
+        self.assertTrue(resultado["excepcion"])
+
+
+# ---------------------------------------------------------------------------
 # 15-17. Vouchers — O<->P nunca autocorrección, 0<->O único/ambiguo
 # ---------------------------------------------------------------------------
 

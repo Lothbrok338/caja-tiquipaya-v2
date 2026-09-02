@@ -244,6 +244,62 @@ class TestFechaBancariaInvalidaEnMacros(_BaseRegresion):
         self.assertIn("error", resultado)
 
 
+class TestAtcBrutoCeroSinFilaEnMaestro(_BaseRegresion):
+    """23. Corrección PRE-SAP: ATC BRUTO = 0.00 (día sin cobros con
+    tarjeta) y la fecha del cierre NO existe en el ATC mensual real
+    (openpyxl, no fixture de diccionario): no es excepción, no se busca
+    NETO en MACROS, y el cierre completo (extracción + cruces + cuadre +
+    asiento) queda OK sin las 2 líneas ATC."""
+
+    def _sfc101(self):
+        datos = _baseline_sfc101()
+        datos["cobros_atc"] = "0.00"
+        # El total del día baja en la misma medida que el ATC que deja de
+        # existir: el resto de componentes (vouchers, CI) no cambia.
+        datos["total_movimiento"] = "67504.96"  # 137504.96 - 70000.00
+        return datos
+
+    def _sfc102(self):
+        datos = _baseline_sfc102()
+        datos["cobros_atc"] = "0.00"
+        datos["total_movimiento"] = "83669.00"  # 144552.00 - 60883.00
+        return datos
+
+    def _macros_filas(self):
+        # Sin la fila ATC-19082026: solo quedan los vouchers. Si el motor
+        # intentara buscar el NETO en MACROS pese a ATC BRUTO=0.00, no lo
+        # encontraría y el cierre quedaría bloqueado (lo que estas pruebas
+        # descartan).
+        return [f for f in _baseline_macros_filas() if f[1] != "ATC-19082026"]
+
+    def _atc_filas(self):
+        # El ATC mensual real no trae ninguna fila para la fecha del
+        # cierre (día sin cobros con tarjeta).
+        return []
+
+    def test_A_sin_blocker_cierre_queda_ok(self):
+        resultado = self._ejecutar()
+        self.assertEqual(resultado["componentes"]["atc_bruto"], "0.00")
+        self.assertEqual(resultado["excepciones_bloqueantes"], 0)
+        self.assertEqual(resultado["estado"], "OK")
+        self.assertEqual(resultado["diferencia"], "0.00")
+        self.assertEqual(resultado["detalle"]["atc_estado"], "ATC_NO_APLICA")
+        self.assertFalse(resultado["detalle"]["atc_aplica"])
+        self.assertIsNone(resultado["detalle"]["atc_neto"])
+        self.assertIsNone(resultado["detalle"]["atc_comision"])
+
+    def test_C_D_asiento_ok_sin_lineas_atc(self):
+        resultado = self._ejecutar()
+        asiento = motor.construir_asiento(resultado)
+        self.assertEqual(asiento["estado"], "OK")
+        self.assertEqual(asiento["problemas"], [])
+        origenes = {p["origen"] for p in asiento["partidas"]}
+        self.assertNotIn("ATC_NETO", origenes)
+        self.assertNotIn("ATC_COMISION", origenes)
+        self.assertEqual(asiento["total_cargo"], asiento["total_haber"])
+        self.assertEqual(asiento["diferencia"], "0.00")
+
+
 class TestAtcDuplicadoEnMaestro(_BaseRegresion):
     """8. ATC con NETO duplicado para la misma fecha en el maestro: no se
     sobrescribe silenciosamente ("la última fila"), falla de forma
