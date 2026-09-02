@@ -122,17 +122,17 @@ sin reinterpretar ninguna regla contable:
   devuelve el dict de una fila de control (mismas columnas que
   `COLUMNAS_CONTROL`: FechaCierre, ArchivoOrigen, HashOrigen, Estado,
   FechaProcesamiento, VersionCodigo, Resultado, Diferencia, Blockers,
-  ArchivoSAP, Observaciones), reutilizado tanto por `registrar_procesado`
-  (destino CSV) como por quien escriba el Google Sheet
-  CONTROL_PROCESAMIENTO. `procesar_cierre_completo` acepta además
-  `hashes_procesados` (set/dict de HashOrigen ya PROCESADO) y
-  `registros_control` (lista de dicts con esa misma forma) para resolver
-  la idempotencia sin depender de que exista un CSV local. Python **no**
-  implementa ninguna API de Google Drive/Sheets: solo produce/consume
-  esta forma de dict; la ruta CSV (`ruta_control`) se conserva intacta
-  como compatibilidad y auditoría.
+  ArchivoSAP, Observaciones), reutilizado por `registrar_procesado`
+  (destino CSV) y por `construir_marcador_procesado` (destino marcador
+  inmutable, ver sección 10 — CORRECCIÓN POST-ETAPA 8).
+  `procesar_cierre_completo` acepta además `hashes_procesados` (set/dict
+  de HashOrigen ya PROCESADO) y `registros_control` (lista de dicts con
+  esa misma forma) para resolver la idempotencia sin depender de que
+  exista un CSV local. Python **no** implementa ninguna API de Google
+  Drive/Sheets: solo produce/consume esta forma de dict; la ruta CSV
+  (`ruta_control`) se conserva intacta como compatibilidad y auditoría.
 
-### Contrato operativo de producción (Cowork)
+### Contrato operativo de producción (Cowork) — ver corrección en sección 10
 
 1. Cowork descarga/materializa CIERRE, MAESTRO mensual y PLANTILLA SAP.
 2. Python procesa V2 → ASIENTO → SAP → validación → RESULTADO
@@ -143,14 +143,14 @@ sin reinterpretar ninguna regla contable:
 5. **Única intervención humana:** el usuario guarda/sube `SAP.xlsx` a
    Drive.
 6. El usuario confirma `PUBLICADO`.
-7. Cowork verifica el SAP en Drive, mueve el CIERRE a PROCESADOS, agrega
-   una fila al Google Sheet `CONTROL_PROCESAMIENTO` (con
-   `construir_registro_control(...)`) y confirma `PROCESADO`
-   (`pipeline_tiquipaya.registrar_procesado` sigue siendo el camino CSV
-   equivalente/compatible).
+7. Cowork verifica el SAP en Drive, mueve el CIERRE a PROCESADOS y
+   confirma `PROCESADO` — el registro de ese estado es el marcador
+   inmutable `PROCESADO_<SHA256>.json` de la sección 10 (el CSV,
+   vía `pipeline_tiquipaya.registrar_procesado`, sigue siendo el camino
+   legacy/fallback equivalente).
 8. Un reintento con el mismo SHA256 devuelve `YA_PROCESADO`, ya sea
    contra el CSV, contra `hashes_procesados`, o contra
-   `registros_control` leídos del Google Sheet.
+   `registros_control` construidos a partir de los marcadores existentes.
 
 ## 9. Prohibiciones ETAPA 8
 
@@ -161,3 +161,45 @@ sin reinterpretar ninguna regla contable:
   voucher FECHA DE DEPOSITO/glosa, ATC preconciliado/ATC_NO_APLICA,
   REVISAR, ALQUILERES, USD, cálculo de diferencia, Cargo/Haber,
   estructura SAP ni XREF.
+
+## 10. CORRECCIÓN POST-ETAPA 8 — Control inmutable por SHA256
+
+Hallazgo real de Cowork: Google Sheets no permite append ni edición de
+celdas con las herramientas disponibles, y `CONTROL_PROCESAMIENTO.csv`
+tampoco puede actualizarse en sitio sin crear un archivo nuevo. **Se
+descarta Google Sheets como control operativo de producción** (no debe
+existir dependencia productiva de Sheets).
+
+**Nueva arquitectura autorizada:** cada cierre oficialmente publicado
+tiene un marcador inmutable en Drive:
+
+```
+PROCESADO_<SHA256>.json
+```
+
+Ejemplo: `PROCESADO_d2d18cbe98679cc5d67c9ae4399f2d5bc1295a12da02cbc9ec59991e995a6008.json`.
+
+- `pipeline_tiquipaya.nombre_marcador_procesado(hash_origen)` devuelve
+  ese nombre de archivo, determinístico y estable.
+- `pipeline_tiquipaya.construir_marcador_procesado(resultado_json,
+  sap_publicado_por_usuario, sap_verificado_en_drive, resultado_publicado,
+  cierre_movido_a_procesados, archivo_sap=..., observaciones=...,
+  fecha_procesamiento=...)` devuelve `(nombre_archivo, contenido)` —
+  `contenido` es exactamente `construir_registro_control(...)` (mismas
+  claves que `COLUMNAS_CONTROL`, sin datos personales de CI). Las 4
+  confirmaciones deben ser `True`; si falta alguna, lanza `ValueError`
+  con el detalle (`MARCADOR_NO_AUTORIZADO:...`) y no construye nada. El
+  marcador **nunca** se construye al terminar el motor: solo después de
+  que el usuario publicó el SAP, Cowork lo verificó en Drive, el
+  RESULTADO está publicado y el CIERRE fue movido a PROCESADOS.
+- Python **nunca** escribe este archivo en Drive: Cowork lo materializa
+  con `textContent` usando el `(nombre_archivo, contenido)` devuelto.
+- Antes de procesar un cierre, Cowork calcula/obtiene su SHA256 y
+  busca si ya existe un marcador con ese HashOrigen y Estado=PROCESADO;
+  si existe, no reprocesa. Este chequeo usa el mecanismo genérico ya
+  existente de ETAPA 8: `procesar_cierre_completo(...,
+  hashes_procesados=..., registros_control=[...])`, pasando los
+  HashOrigen o el contenido ya parseado de los marcadores encontrados —
+  no requiere ningún cambio adicional en Python.
+- `CONTROL_PROCESAMIENTO.csv` (`registrar_procesado`) se conserva
+  intacto como LEGACY/FALLBACK: no se elimina ninguna función ni test.

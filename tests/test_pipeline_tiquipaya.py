@@ -350,10 +350,12 @@ class TestControlUtf8(_BasePipeline):
 
 
 # ---------------------------------------------------------------------------
-# ETAPA 8 — 19-21. Control externo (Google Sheet vía Cowork): registro
-# como dict, idempotencia con hashes/registros externos, CSV legacy
-# intacto. Python no implementa ningún conector de Drive/Sheets aquí:
-# solo produce/consume la misma forma de dict que ya usa el CSV.
+# ETAPA 8 — 19-21. Control externo (idempotencia sin depender del CSV):
+# registro como dict, idempotencia con hashes/registros externos, CSV
+# legacy intacto. Python no implementa ningún conector de Drive aquí:
+# solo produce/consume la misma forma de dict que ya usa el CSV (y que,
+# tras la corrección post-ETAPA 8, también usa el marcador inmutable
+# PROCESADO_<SHA256>.json — ver TestMarcadorInmutablePostEtapa8 más abajo).
 # ---------------------------------------------------------------------------
 
 class TestControlExternoEtapa8(_BasePipeline):
@@ -384,7 +386,8 @@ class TestControlExternoEtapa8(_BasePipeline):
     def test_idempotencia_con_hashes_procesados_externos_sin_csv(self):
         # Sin CONTROL_PROCESAMIENTO.csv en disco: la idempotencia puede
         # resolverse igual recibiendo el set/dict de hashes ya procesados
-        # desde el orquestador (p. ej. leído de un Google Sheet).
+        # desde el orquestador (p. ej. los HashOrigen de los marcadores
+        # PROCESADO_<SHA256>.json ya existentes en Drive).
         primero = self._procesar()
         self.assertFalse(os.path.isfile(self.ruta_control))
 
@@ -398,7 +401,7 @@ class TestControlExternoEtapa8(_BasePipeline):
 
     def test_idempotencia_con_registros_control_externos_sin_csv(self):
         # Misma idea, pero recibiendo filas ya armadas (misma forma que
-        # una fila del Google Sheet CONTROL_PROCESAMIENTO), sin CSV local.
+        # el contenido ya parseado de esos marcadores), sin CSV local.
         primero = self._procesar()
         registro_externo = pipeline.construir_registro_control(primero["resultado_json"])
 
@@ -417,6 +420,115 @@ class TestControlExternoEtapa8(_BasePipeline):
 
         segundo = self._procesar()
         self.assertEqual(segundo["estado"], pipeline.ESTADO_YA_PROCESADO)
+
+
+# ---------------------------------------------------------------------------
+# CORRECCIÓN POST-ETAPA 8 — Control inmutable por SHA256
+# (PROCESADO_<SHA256>.json), en reemplazo de Google Sheets como control
+# operativo de producción (Cowork no puede editar/append celdas de forma
+# confiable). Python nunca escribe en Drive: solo construye nombre +
+# contenido del marcador; Cowork lo materializa con textContent.
+# ---------------------------------------------------------------------------
+
+_CONFIRMACIONES_COMPLETAS = dict(
+    sap_publicado_por_usuario=True,
+    sap_verificado_en_drive=True,
+    resultado_publicado=True,
+    cierre_movido_a_procesados=True,
+)
+
+
+class TestMarcadorInmutablePostEtapa8(_BasePipeline):
+
+    def test_nombre_marcador_estable_procesado_sha256(self):
+        resultado = self._procesar()
+        nombre = pipeline.nombre_marcador_procesado(resultado["hash_origen"])
+        self.assertEqual(nombre, f"PROCESADO_{resultado['hash_origen']}.json")
+        # Determinístico: mismo hash -> siempre el mismo nombre.
+        self.assertEqual(nombre, pipeline.nombre_marcador_procesado(resultado["hash_origen"]))
+
+    def test_construir_marcador_valido_tras_publicacion_confirmada(self):
+        resultado = self._procesar()
+        nombre, contenido = pipeline.construir_marcador_procesado(
+            resultado["resultado_json"], **_CONFIRMACIONES_COMPLETAS,
+        )
+        self.assertEqual(nombre, f"PROCESADO_{resultado['hash_origen']}.json")
+        self.assertIsInstance(contenido, dict)
+        self.assertEqual(set(contenido.keys()), set(pipeline.COLUMNAS_CONTROL))
+        self.assertEqual(contenido["HashOrigen"], resultado["hash_origen"])
+        self.assertEqual(contenido["Estado"], "PROCESADO")
+        self.assertEqual(contenido["FechaCierre"], FECHA_CIERRE)
+
+    def test_marcador_no_autorizado_antes_de_publicacion(self):
+        resultado = self._procesar()
+        for campo_faltante in _CONFIRMACIONES_COMPLETAS:
+            confirmaciones = dict(_CONFIRMACIONES_COMPLETAS)
+            confirmaciones[campo_faltante] = False
+            with self.assertRaises(ValueError):
+                pipeline.construir_marcador_procesado(
+                    resultado["resultado_json"], **confirmaciones,
+                )
+
+    def test_marcador_sin_ninguna_confirmacion_no_autorizado(self):
+        resultado = self._procesar()
+        with self.assertRaises(ValueError):
+            pipeline.construir_marcador_procesado(
+                resultado["resultado_json"],
+                sap_publicado_por_usuario=False, sap_verificado_en_drive=False,
+                resultado_publicado=False, cierre_movido_a_procesados=False,
+            )
+
+    def test_marcador_dict_sin_datos_personales_de_ci(self):
+        resultado = self._procesar()
+        _, contenido = pipeline.construir_marcador_procesado(
+            resultado["resultado_json"], **_CONFIRMACIONES_COMPLETAS,
+        )
+        serializado = json.dumps(contenido, ensure_ascii=False)
+        for token in ("FAC-0001", "FAC-0002", "glosa", "referencia", "PAGO PROVEEDOR"):
+            self.assertNotIn(token, serializado)
+
+    def test_mismo_sha256_con_marcador_procesado_da_ya_procesado(self):
+        primero = self._procesar()
+        _, marcador = pipeline.construir_marcador_procesado(
+            primero["resultado_json"], **_CONFIRMACIONES_COMPLETAS,
+        )
+
+        segundo = self._procesar(ruta_control=None, registros_control=[marcador])
+        self.assertEqual(segundo["estado"], pipeline.ESTADO_YA_PROCESADO)
+        self.assertIsNone(segundo["resultado_v2"])
+        self.assertIsNone(segundo["sap"])
+
+    def test_sha256_distinto_continua_pese_a_marcador_existente(self):
+        primero = self._procesar()
+        _, marcador = pipeline.construir_marcador_procesado(
+            primero["resultado_json"], **_CONFIRMACIONES_COMPLETAS,
+        )
+
+        # Cierre con bytes distintos (misma cuenta/importe, otra
+        # asignación de CI) -> SHA256 distinto: el marcador del primer
+        # cierre no debe bloquear el procesamiento del nuevo.
+        sfc101 = _baseline_sfc101()
+        sfc101["ci"][0]["asignacion"] = "CI0001-V2"
+        fx.crear_cierre(self.ruta_cierre, sfc101, _baseline_sfc102())
+
+        segundo = self._procesar(ruta_control=None, registros_control=[marcador])
+        self.assertNotEqual(pipeline.calcular_sha256(self.ruta_cierre), primero["hash_origen"])
+        self.assertNotEqual(segundo["estado"], pipeline.ESTADO_YA_PROCESADO)
+        self.assertIsNotNone(segundo["resultado_v2"])
+
+    def test_csv_legacy_no_se_toca_por_marcador_inmutable(self):
+        # El marcador es independiente del CSV: construirlo no escribe
+        # ni requiere CONTROL_PROCESAMIENTO.csv en disco.
+        resultado = self._procesar()
+        self.assertFalse(os.path.isfile(self.ruta_control))
+        pipeline.construir_marcador_procesado(
+            resultado["resultado_json"], **_CONFIRMACIONES_COMPLETAS,
+        )
+        self.assertFalse(os.path.isfile(self.ruta_control))
+
+        # El camino CSV de siempre sigue funcionando sin cambios.
+        pipeline.registrar_procesado(self.ruta_control, resultado["resultado_json"])
+        self.assertTrue(os.path.isfile(self.ruta_control))
 
 
 if __name__ == "__main__":
