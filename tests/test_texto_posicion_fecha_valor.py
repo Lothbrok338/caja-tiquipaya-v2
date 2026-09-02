@@ -204,7 +204,10 @@ class TestSapColumnasDyO(_EjecutarBase):
         for offset, p in enumerate(self.asiento["partidas"]):
             fila = 16 + offset
             self.assertEqual(ws[f"D{fila}"].value, p.get("texto_posicion"))
-            self.assertEqual(ws[f"O{fila}"].value, p.get("fecha_valor"))
+            # ETAPA 8: columna O es fecha Excel real, se normaliza a ISO
+            # para comparar contra fecha_valor (string 'YYYY-MM-DD').
+            self.assertEqual(sap._fecha_a_iso(ws[f"O{fila}"].value), p.get("fecha_valor"))
+            self.assertIn("dd/mm/yyyy", ws[f"O{fila}"].number_format.lower())
         wb.close()
 
         ci = self._partida("CI", asignacion="CI9001")
@@ -215,9 +218,9 @@ class TestSapColumnasDyO(_EjecutarBase):
         wb = openpyxl.load_workbook(self.ruta_salida, data_only=True)
         ws = wb["1"]
         self.assertEqual(ws[f"D{16 + idx_ci}"].value, "PAGO SERVICIOS AGUA")
-        self.assertEqual(ws[f"O{16 + idx_ci}"].value, "2026-08-18")
+        self.assertEqual(sap._fecha_a_iso(ws[f"O{16 + idx_ci}"].value), "2026-08-18")
         self.assertEqual(ws[f"D{16 + idx_v1}"].value, "DEPOSITO BNB 19/08/2026")
-        self.assertEqual(ws[f"O{16 + idx_v1}"].value, "2026-08-19")
+        self.assertEqual(sap._fecha_a_iso(ws[f"O{16 + idx_v1}"].value), "2026-08-19")
         wb.close()
 
 

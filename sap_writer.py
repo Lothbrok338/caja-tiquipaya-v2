@@ -27,6 +27,7 @@ Uso:
                                      metadata_cabecera)
 """
 
+import datetime
 import hashlib
 import os
 import shutil
@@ -50,6 +51,11 @@ _FILA_CABECERA = 10
 _FILA_PRIMERA_PARTIDA = 16
 
 _MONEDA = "BOB"
+
+# ETAPA 8: fechas de cabecera (D/E) y fecha_valor de partidas (O) se
+# escriben como valor de fecha Excel real (nunca texto), con formato
+# visual de fecha corta dd/mm/yyyy.
+_FORMATO_FECHA_CORTA = "dd/mm/yyyy"
 
 _COLUMNAS_AUTORIZADAS_CABECERA = {"B", "C", "D", "E", "F", "G", "H", "L"}
 _COLUMNAS_AUTORIZADAS_PARTIDA = {"B", "C", "D", "E", "F", "L", "O", "R", "U", "V", "W"}
@@ -100,6 +106,31 @@ def _campo_faltante(valor):
 
 def _es_macro_habilitado(ruta):
     return str(ruta).lower().endswith((".xlsm", ".xltm"))
+
+
+def _fecha_desde_iso(valor):
+    """Convierte una fecha ISO 'YYYY-MM-DD' (la forma en que viajan todas
+    las fechas dentro del motor) a un `datetime.date` real, para que
+    openpyxl la escriba como valor de fecha Excel y no como texto. Nunca
+    inventa ni ajusta la fecha: solo cambia su representación."""
+    if valor is None:
+        return None
+    if isinstance(valor, datetime.date):
+        return valor
+    return datetime.date.fromisoformat(str(valor))
+
+
+def _fecha_a_iso(valor):
+    """Inverso de `_fecha_desde_iso`: normaliza un valor leído de una
+    celda (datetime/date real, o ya el propio string) a ISO 'YYYY-MM-DD'
+    para poder compararlo contra el asiento/metadata fuente (que siguen
+    usando strings ISO). Valores no-fecha (texto, número) se devuelven
+    intactos."""
+    if isinstance(valor, datetime.datetime):
+        return valor.date().isoformat()
+    if isinstance(valor, datetime.date):
+        return valor.isoformat()
+    return valor
 
 
 # ---------------------------------------------------------------------------
@@ -162,8 +193,15 @@ def _escribir_cabecera(ws, asiento, metadata_cabecera):
     fila = _FILA_CABECERA
     ws[f"B{fila}"] = asiento["sociedad"]
     ws[f"C{fila}"] = metadata_cabecera["tipo_asiento"]
-    ws[f"D{fila}"] = metadata_cabecera["fecha_registro"]
-    ws[f"E{fila}"] = metadata_cabecera["fecha_contabilizacion"]
+
+    celda_fecha_registro = ws[f"D{fila}"]
+    celda_fecha_registro.value = _fecha_desde_iso(metadata_cabecera["fecha_registro"])
+    celda_fecha_registro.number_format = _FORMATO_FECHA_CORTA
+
+    celda_fecha_contabilizacion = ws[f"E{fila}"]
+    celda_fecha_contabilizacion.value = _fecha_desde_iso(metadata_cabecera["fecha_contabilizacion"])
+    celda_fecha_contabilizacion.number_format = _FORMATO_FECHA_CORTA
+
     ws[f"F{fila}"] = metadata_cabecera["mes"]
     ws[f"G{fila}"] = metadata_cabecera["texto_cabecera"]
     ws[f"H{fila}"] = _MONEDA
@@ -187,7 +225,9 @@ def _escribir_partidas(ws, partidas):
 
         ws[f"L{fila}"] = p["centro_beneficio"]
         if p.get("fecha_valor") is not None:
-            ws[f"O{fila}"] = p["fecha_valor"]
+            celda_fecha_valor = ws[f"O{fila}"]
+            celda_fecha_valor.value = _fecha_desde_iso(p["fecha_valor"])
+            celda_fecha_valor.number_format = _FORMATO_FECHA_CORTA
         if p.get("asignacion") is not None:
             celda_asignacion = ws[f"R{fila}"]
             celda_asignacion.value = p["asignacion"]
@@ -265,7 +305,7 @@ def _validar_cabecera(ws, asiento, metadata_cabecera):
         f"L{fila}": metadata_cabecera.get("referencia"),
     }
     for celda, valor_esperado in esperado.items():
-        valor_real = ws[celda].value
+        valor_real = _fecha_a_iso(ws[celda].value)
         if valor_real != valor_esperado:
             problemas.append(
                 f"CABECERA_{celda}_ESPERADO_{valor_esperado!r}_OBTENIDO_{valor_real!r}"
@@ -322,7 +362,7 @@ def _validar_partidas_escritas(ws, partidas_esperadas):
 
         if ws[f"L{fila}"].value != p.get("centro_beneficio"):
             problemas.append(f"PARTIDA_{fila}_CENTRO_BENEFICIO_DISTINTO")
-        if ws[f"O{fila}"].value != p.get("fecha_valor"):
+        if _fecha_a_iso(ws[f"O{fila}"].value) != p.get("fecha_valor"):
             problemas.append(f"PARTIDA_{fila}_FECHA_VALOR_DISTINTA")
         if ws[f"R{fila}"].value != p.get("asignacion"):
             problemas.append(f"PARTIDA_{fila}_ASIGNACION_DISTINTA")

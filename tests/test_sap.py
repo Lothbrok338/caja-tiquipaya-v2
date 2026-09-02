@@ -12,6 +12,7 @@ construido y verifican que se serializa tal cual, sin recalcular nada.
 Uso: python -m unittest tests.test_sap -v   (desde la raíz del repo)
 """
 
+import datetime
 import os
 import sys
 import shutil
@@ -165,12 +166,25 @@ class TestGeneracionBasica(_SapTestBase):
         wb, ws = self._reabrir()
         self.assertEqual(ws["B10"].value, self.asiento["sociedad"])
         self.assertEqual(ws["C10"].value, self.metadata["tipo_asiento"])
-        self.assertEqual(ws["D10"].value, self.metadata["fecha_registro"])
-        self.assertEqual(ws["E10"].value, self.metadata["fecha_contabilizacion"])
+        # ETAPA 8: D10/E10 son fecha Excel real (no texto); se comparan
+        # normalizadas de vuelta a ISO 'YYYY-MM-DD'.
+        self.assertEqual(sap._fecha_a_iso(ws["D10"].value), self.metadata["fecha_registro"])
+        self.assertEqual(sap._fecha_a_iso(ws["E10"].value), self.metadata["fecha_contabilizacion"])
         self.assertEqual(ws["F10"].value, self.metadata["mes"])
         self.assertEqual(ws["G10"].value, self.metadata["texto_cabecera"])
         self.assertEqual(ws["H10"].value, "BOB")
         self.assertEqual(ws["L10"].value, self.metadata["referencia"])
+        wb.close()
+
+    def test_D2_cabecera_fechas_formato_corto_dd_mm_yyyy(self):
+        # ETAPA 8: D10/E10 deben tener number_format compatible con
+        # dd/mm/yyyy, y seguir siendo fechas válidas al reabrir.
+        self._generar()
+        wb, ws = self._reabrir()
+        self.assertIn("dd/mm/yyyy", ws["D10"].number_format.lower())
+        self.assertIn("dd/mm/yyyy", ws["E10"].number_format.lower())
+        self.assertIsInstance(ws["D10"].value, datetime.datetime)
+        self.assertIsInstance(ws["E10"].value, datetime.datetime)
         wb.close()
 
     def test_E_primera_partida_fila_16(self):
@@ -205,16 +219,20 @@ class TestGeneracionBasica(_SapTestBase):
         wb, ws = self._reabrir()
         voucher = next(p for p in self.asiento["partidas"] if p["origen"] == "VOUCHER")
         idx = self.asiento["partidas"].index(voucher)
-        self.assertEqual(ws[f"O{16 + idx}"].value, FECHA_CIERRE)
+        self.assertEqual(sap._fecha_a_iso(ws[f"O{16 + idx}"].value), FECHA_CIERRE)
+        self.assertIn("dd/mm/yyyy", ws[f"O{16 + idx}"].number_format.lower())
         wb.close()
 
-    def test_I_fecha_valor_none_deja_celda_vacia(self):
+    def test_I_fecha_valor_sin_fecha_propia_usa_fallback_fecha_cierre(self):
+        # ETAPA 8: la CI de este fixture llega sin fecha_ci propia
+        # (ver comentario en _resultado_v2_ok); ya no queda vacía, usa
+        # el fallback autorizado (fecha del cierre) como fecha_valor.
         self._generar()
         wb, ws = self._reabrir()
         ci = next(p for p in self.asiento["partidas"] if p["origen"] == "CI")
         idx = self.asiento["partidas"].index(ci)
-        self.assertIsNone(ci["fecha_valor"])
-        self.assertIsNone(ws[f"O{16 + idx}"].value)
+        self.assertEqual(ci["fecha_valor"], FECHA_CIERRE)
+        self.assertEqual(sap._fecha_a_iso(ws[f"O{16 + idx}"].value), FECHA_CIERRE)
         wb.close()
 
     def test_J_asignacion_en_R(self):

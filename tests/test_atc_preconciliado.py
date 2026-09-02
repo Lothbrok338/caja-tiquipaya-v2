@@ -147,9 +147,10 @@ class TestEjecutarV2ConMaestroUnico(unittest.TestCase):
             atc_com_p = next(p for p in asiento["partidas"] if p["origen"] == "ATC_COMISION")
             self.assertEqual(atc_neto_p["cuenta_mayor"], "110103012")
             self.assertEqual(atc_neto_p["asignacion"], "3P02891953")
-            # Sección D: sin columna de fecha bancaria en ATC TIQUIPAYA,
-            # nunca se usa la fecha de cierre como reemplazo.
-            self.assertIsNone(atc_neto_p["fecha_valor"])
+            # ETAPA 8: sin columna de fecha bancaria propia en ATC
+            # TIQUIPAYA, fecha_valor usa el fallback autorizado (fecha
+            # del cierre) en vez de quedar vacío.
+            self.assertEqual(atc_neto_p["fecha_valor"], FECHA_CIERRE)
             self.assertEqual(atc_com_p["cuenta_mayor"], "110201008")
             self.assertEqual(atc_com_p["asignacion"], "TIQUIPAYA AGO")
 
