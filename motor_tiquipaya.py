@@ -241,6 +241,7 @@ def cruzar_atc(cierre, atc_idx, macros_idx):
 
 def validar_ci(cierre):
     validas = 0
+    detalle_validas = []
     bloqueantes = []
     advertencias = []
     alquileres = []
@@ -279,6 +280,13 @@ def validar_ci(cierre):
             })
 
         validas += 1
+        detalle_validas.append({
+            "sfc": ci["sfc"],
+            "referencia": ci["referencia"],
+            "importe": ci["importe"],
+            "cuenta_contable": ci["cuenta_contable"],
+            "asignacion": asignacion,
+        })
 
     importe_alquileres = sum((Decimal(ci["importe"]) for ci in alquileres), Decimal("0"))
 
@@ -286,6 +294,7 @@ def validar_ci(cierre):
         "cantidad": len(cierre["comunicaciones_internas"]),
         "importe": io.money_str(sum((Decimal(ci["importe"]) for ci in cierre["comunicaciones_internas"]), Decimal("0"))),
         "validas": validas,
+        "detalle_validas": detalle_validas,
         "bloqueantes": bloqueantes,
         "advertencias": advertencias,
         "alquileres_cantidad": len(alquileres),
@@ -449,6 +458,254 @@ def ejecutar_v2(ruta_cierre, ruta_macros, ruta_atc):
         "diferencia": diferencia,
         "excepciones_bloqueantes": excepciones_bloqueantes,
         "estado": estado,
+        "detalle": _detalle_para_asiento(cierre, cruces, componentes),
+    }
+
+
+def _detalle_para_asiento(cierre, cruces, componentes):
+    """Expone, sin recalcular nada, los datos crudos ya producidos por la
+    ETAPA 2 (cierre) y la ETAPA 3 (cruces) que la ETAPA 5 necesita para
+    construir el asiento: totales HABER por SFC, vouchers ya confirmados,
+    CI ya validadas y ATC ya cruzado contra MACROS.
+    """
+    vouchers_confirmados = [
+        {
+            "sfc": v["sfc"],
+            "importe": v["importe"],
+            "codigo_confirmado": v["codigo_encontrado"],
+            "codigo_informado": v["codigo_informado"],
+            "fecha_bancaria": v.get("fecha_bancaria"),
+            "estado": v["estado"],
+        }
+        for v in cruces["vouchers"]["detalle"]
+        if v["estado"] in _ESTADOS_VOUCHER_VALIDOS
+    ]
+
+    atc = cruces["atc"]
+    if not atc["excepcion"] and atc["estado_match_macros"] == "ATC_MATCH_EXACTO":
+        atc_neto = {
+            "importe": atc["neto"],
+            "codigo_confirmado": atc["codigo_encontrado"],
+            "fecha_bancaria": atc["fecha_bancaria_encontrada"],
+        }
+        atc_comision = {"importe": atc["comision"]}
+    else:
+        atc_neto = None
+        atc_comision = None
+
+    return {
+        "sfc101_total": cierre["sfc101"]["total_movimiento"],
+        "sfc102_total": cierre["sfc102"]["total_movimiento"],
+        "vouchers_confirmados": vouchers_confirmados,
+        "ci_validas": cruces["ci"]["detalle_validas"],
+        "atc_neto": atc_neto,
+        "atc_comision": atc_comision,
+        "dolares": componentes["dolares"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# ETAPA 5: construcción determinística del asiento
+# ---------------------------------------------------------------------------
+#
+# Consume exclusivamente el resultado ya producido por ejecutar_v2() (sus
+# claves de nivel superior más "detalle", ETAPA 4/5). No reabre archivos, no
+# repite extracción ni cruces, no genera SAP. Solo arma partidas CARGO/HABER
+# cuando el cierre está OK, sin excepciones bloqueantes y con diferencia
+# 0.00. Nunca crea partidas artificiales para forzar el cuadre.
+
+_SOCIEDAD = "BO01"
+_CENTRO_BENEFICIO = "10010101"
+_CUENTA_HABER = "110101001"
+_CUENTA_VOUCHER_ATC = "110103012"
+_CUENTA_ATC_COMISION = "110201008"
+
+_MESES_ABREV = {
+    1: "ENE", 2: "FEB", 3: "MAR", 4: "ABR", 5: "MAY", 6: "JUN",
+    7: "JUL", 8: "AGO", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DIC",
+}
+
+
+def _asignacion_comision(fecha_iso):
+    """'TIQUIPAYA <MES>' a partir de la fecha de cierre YYYY-MM-DD.
+    Nunca supera 18 caracteres (p. ej. 'TIQUIPAYA AGO' = 13)."""
+    if not fecha_iso:
+        return None
+    _, mes, _ = fecha_iso.split("-")
+    abrev = _MESES_ABREV.get(int(mes), "")
+    return f"TIQUIPAYA {abrev}"[:18]
+
+
+def _partida(cuenta_mayor, cargo, haber, asignacion, origen, sfc_origen,
+             texto_posicion=None, fecha_valor=None, codigo_informado_original=None):
+    return {
+        "sociedad": _SOCIEDAD,
+        "cuenta_mayor": cuenta_mayor,
+        "texto_posicion": texto_posicion,
+        "cargo": io.money_str(cargo),
+        "haber": io.money_str(haber),
+        "centro_beneficio": _CENTRO_BENEFICIO,
+        "fecha_valor": fecha_valor,
+        "asignacion": asignacion,
+        "origen": origen,
+        "sfc_origen": sfc_origen,
+        "codigo_informado_original": codigo_informado_original,
+    }
+
+
+def _validar_partidas(partidas, total_cargo, total_haber, diferencia):
+    """Verifica, sin forzar nada, que el asiento ya construido cumpla las
+    reglas obligatorias de ETAPA 5. Devuelve la lista de problemas
+    encontrados (vacía si el asiento es válido)."""
+    problemas = []
+
+    if total_cargo != total_haber:
+        problemas.append("TOTAL_CARGO_DISTINTO_DE_TOTAL_HABER")
+    if diferencia != 0:
+        problemas.append("DIFERENCIA_DISTINTA_DE_CERO")
+
+    haber_normales = [p for p in partidas if p["origen"] in ("UNIVERSO_SFC101", "UNIVERSO_SFC102")]
+    if len(haber_normales) != 2:
+        problemas.append("CANTIDAD_HABER_NORMAL_INVALIDA")
+
+    for p in partidas:
+        cargo_dec = Decimal(p["cargo"])
+        haber_dec = Decimal(p["haber"])
+
+        if p["origen"] == "ALQUILERES":
+            problemas.append("ALQUILERES_PRESENTE_EN_ASIENTO")
+        if cargo_dec < 0 or haber_dec < 0:
+            problemas.append(f"IMPORTE_NEGATIVO:{p['origen']}")
+        if cargo_dec > 0 and haber_dec > 0:
+            problemas.append(f"CARGO_Y_HABER_SIMULTANEO:{p['origen']}")
+
+        if p["origen"] in ("UNIVERSO_SFC101", "UNIVERSO_SFC102") and p["cuenta_mayor"] != _CUENTA_HABER:
+            problemas.append(f"HABER_CUENTA_INVALIDA:{p['origen']}")
+        if p["origen"] == "VOUCHER" and p["cuenta_mayor"] != _CUENTA_VOUCHER_ATC:
+            problemas.append("VOUCHER_CUENTA_INVALIDA")
+        if p["origen"] == "CI" and (not p["cuenta_mayor"] or not p["asignacion"]):
+            problemas.append("CI_SIN_CUENTA_O_ASIGNACION")
+        if p["origen"] == "ATC_NETO" and p["cuenta_mayor"] != _CUENTA_VOUCHER_ATC:
+            problemas.append("ATC_NETO_CUENTA_INVALIDA")
+        if p["origen"] == "ATC_COMISION" and p["cuenta_mayor"] != _CUENTA_ATC_COMISION:
+            problemas.append("ATC_COMISION_CUENTA_INVALIDA")
+
+    return problemas
+
+
+def construir_asiento(resultado_v2):
+    """ETAPA 5: construye el asiento contable determinístico a partir del
+    resultado ya calculado por ejecutar_v2() (incluida su clave "detalle").
+
+    Solo construye partidas cuando el cierre está en estado "OK", con
+    diferencia 0.00 y cero excepciones bloqueantes. Si DOLARES > 0.00 (y la
+    cuenta USD no está parametrizada, que es el caso actual), no construye
+    el asiento completo y devuelve estado USD_CUENTA_PENDIENTE. En
+    cualquier otro caso de precondición no cumplida, devuelve NO_ASIENTO.
+    Nunca fuerza el cuadre ni inventa datos.
+    """
+    fecha_cierre = resultado_v2.get("fecha")
+
+    condiciones_ok = (
+        resultado_v2.get("estado") == "OK"
+        and resultado_v2.get("excepciones_bloqueantes") == 0
+        and "diferencia" in resultado_v2
+        and Decimal(resultado_v2["diferencia"]) == 0
+        and resultado_v2.get("detalle") is not None
+    )
+    if not condiciones_ok:
+        return {
+            "fecha_cierre": fecha_cierre,
+            "estado": "NO_ASIENTO",
+            "motivo": f"Cierre no habilitado para asiento (estado={resultado_v2.get('estado')}).",
+            "partidas": [],
+        }
+
+    detalle = resultado_v2["detalle"]
+
+    dolares = Decimal(detalle["dolares"])
+    if dolares > 0:
+        return {
+            "fecha_cierre": fecha_cierre,
+            "estado": "USD_CUENTA_PENDIENTE",
+            "motivo": "DOLARES > 0.00 y la cuenta USD no está parametrizada.",
+            "partidas": [],
+        }
+
+    if detalle.get("atc_neto") is None or detalle.get("atc_comision") is None:
+        return {
+            "fecha_cierre": fecha_cierre,
+            "estado": "NO_ASIENTO",
+            "motivo": "ATC no está determinado pese a estado OK.",
+            "partidas": [],
+        }
+
+    partidas = []
+    correcciones_aplicadas = []
+
+    partidas.append(_partida(
+        cuenta_mayor=_CUENTA_HABER, cargo="0.00", haber=detalle["sfc101_total"],
+        asignacion="SFC101", origen="UNIVERSO_SFC101", sfc_origen="SFC101",
+    ))
+    partidas.append(_partida(
+        cuenta_mayor=_CUENTA_HABER, cargo="0.00", haber=detalle["sfc102_total"],
+        asignacion="SFC102", origen="UNIVERSO_SFC102", sfc_origen="SFC102",
+    ))
+
+    for v in detalle["vouchers_confirmados"]:
+        es_autocorreccion = v["estado"] == "AUTOCORRECCION_0_O"
+        partidas.append(_partida(
+            cuenta_mayor=_CUENTA_VOUCHER_ATC, cargo=v["importe"], haber="0.00",
+            asignacion=v["codigo_confirmado"], fecha_valor=v.get("fecha_bancaria"),
+            origen="VOUCHER", sfc_origen=v["sfc"],
+            codigo_informado_original=v["codigo_informado"] if es_autocorreccion else None,
+        ))
+        if es_autocorreccion:
+            correcciones_aplicadas.append({
+                "tipo": "AUTOCORRECCION_0_O",
+                "sfc": v["sfc"],
+                "codigo_informado": v["codigo_informado"],
+                "codigo_confirmado": v["codigo_confirmado"],
+            })
+
+    for ci in detalle["ci_validas"]:
+        partidas.append(_partida(
+            cuenta_mayor=ci["cuenta_contable"], cargo=ci["importe"], haber="0.00",
+            asignacion=ci["asignacion"], texto_posicion=ci.get("referencia"),
+            origen="CI", sfc_origen=ci["sfc"],
+        ))
+
+    atc_neto = detalle["atc_neto"]
+    partidas.append(_partida(
+        cuenta_mayor=_CUENTA_VOUCHER_ATC, cargo=atc_neto["importe"], haber="0.00",
+        asignacion=atc_neto["codigo_confirmado"], fecha_valor=atc_neto.get("fecha_bancaria"),
+        origen="ATC_NETO", sfc_origen=None,
+    ))
+
+    atc_comision = detalle["atc_comision"]
+    partidas.append(_partida(
+        cuenta_mayor=_CUENTA_ATC_COMISION, cargo=atc_comision["importe"], haber="0.00",
+        asignacion=_asignacion_comision(fecha_cierre), origen="ATC_COMISION", sfc_origen=None,
+    ))
+
+    total_cargo = sum((Decimal(p["cargo"]) for p in partidas), Decimal("0"))
+    total_haber = sum((Decimal(p["haber"]) for p in partidas), Decimal("0"))
+    diferencia = total_cargo - total_haber
+
+    problemas = _validar_partidas(partidas, total_cargo, total_haber, diferencia)
+
+    return {
+        "fecha_cierre": fecha_cierre,
+        "sociedad": _SOCIEDAD,
+        "centro_beneficio": _CENTRO_BENEFICIO,
+        "partidas": partidas,
+        "cantidad_partidas": len(partidas),
+        "total_cargo": io.money_str(total_cargo),
+        "total_haber": io.money_str(total_haber),
+        "diferencia": io.money_str(diferencia),
+        "correcciones_aplicadas": correcciones_aplicadas,
+        "estado": "OK" if not problemas else "ERROR",
+        "problemas": problemas,
     }
 
 
