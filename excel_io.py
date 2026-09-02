@@ -80,14 +80,40 @@ def _texto_o_none(value):
     return str(value).strip()
 
 
+_RE_FECHA_ISO = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+_RE_FECHA_DMY = re.compile(r"^(\d{2})[/-](\d{2})[/-](\d{4})$")
+
+
 def _fecha_iso(value):
+    """Normaliza un valor de fecha a 'YYYY-MM-DD'.
+
+    Acepta datetime/date reales (lo habitual al leer una celda con formato
+    de fecha en Excel). Si llega texto, solo se parsean formatos
+    inequívocos ('YYYY-MM-DD' o 'DD-MM-YYYY'/'DD/MM/YYYY'); cualquier otro
+    texto lanza ValueError en lugar de viajar sin validar hasta SAP.
+    """
     if value is None:
         return None
     if isinstance(value, datetime.datetime):
         return value.date().isoformat()
     if isinstance(value, datetime.date):
         return value.isoformat()
-    return str(value).strip()
+
+    texto = str(value).strip()
+    if not texto:
+        return None
+
+    m = _RE_FECHA_ISO.match(texto)
+    if m:
+        anio, mes, dia = m.groups()
+        return datetime.date(int(anio), int(mes), int(dia)).isoformat()
+
+    m = _RE_FECHA_DMY.match(texto)
+    if m:
+        dia, mes, anio = m.groups()
+        return datetime.date(int(anio), int(mes), int(dia)).isoformat()
+
+    raise ValueError(f"Fecha en formato no reconocido (no inequívoco): {value!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -200,8 +226,14 @@ def _leer_composicion_depositos(rows, sfc_label):
     for row in rows[header_row_idx + 1:]:
         comp_val = row[comp_idx] if comp_idx < len(row) else None
         comp_text = normalize_text(comp_val)
+        if not comp_text:
+            # Fila vacía/separadora dentro del bloque: no trunca, se ignora
+            # y se sigue leyendo (puede haber depósitos válidos después).
+            continue
         if "DEPOSITO" not in comp_text:
-            # Fin del bloque de depósitos (estructura fija según sección 4).
+            # Contenido real que no es un depósito: fin determinístico del
+            # bloque (estructura fija según sección 4). No se lee nada más
+            # allá de este punto.
             break
 
         importe_val = row[importe_idx] if importe_idx < len(row) else None
@@ -235,7 +267,9 @@ def _leer_comunicaciones_internas(ws, sfc_label):
         return []
 
     header = rows[0]
+    _ENCABEZADOS_FECHA_CI = {"FECHA", "FECHA CI", "FECHA COMUNICACION INTERNA"}
     idx_n = idx_factura = idx_total = idx_cuenta = idx_asignacion = idx_banco = None
+    idx_fecha = None
     for j, cell in enumerate(header):
         text = normalize_text(cell)
         if not text:
@@ -253,6 +287,8 @@ def _leer_comunicaciones_internas(ws, sfc_label):
             idx_asignacion = j
         elif idx_banco is None and text == "BANCO":
             idx_banco = j
+        elif idx_fecha is None and text in _ENCABEZADOS_FECHA_CI:
+            idx_fecha = j
 
     faltantes = []
     if idx_factura is None:
@@ -283,6 +319,9 @@ def _leer_comunicaciones_internas(ws, sfc_label):
         cuenta_val = row[idx_cuenta] if idx_cuenta < len(row) else None
         asignacion_val = row[idx_asignacion] if idx_asignacion < len(row) else None
         banco_val = row[idx_banco] if idx_banco < len(row) else None
+        fecha_val = None
+        if idx_fecha is not None and idx_fecha < len(row):
+            fecha_val = row[idx_fecha]
 
         banco_texto = _texto_o_none(banco_val)
         es_alquileres = banco_texto is not None and normalize_text(banco_texto) == "ALQUILERES"
@@ -295,6 +334,9 @@ def _leer_comunicaciones_internas(ws, sfc_label):
             "asignacion": _texto_o_none(asignacion_val),
             "banco": banco_texto,
             "alquileres": es_alquileres,
+            # Fecha propia de la CI si la hoja la trae; nunca se rellena
+            # con la fecha del cierre (ver excel_io._fecha_iso).
+            "fecha_ci": _fecha_iso(fecha_val) if fecha_val is not None else None,
         })
 
     return resultado
@@ -540,8 +582,19 @@ def leer_atc_mensual(ruta_archivo):
 
                 registro = por_fecha.setdefault(fecha_iso, {"neto": None, "comision": None})
                 if "NETO" in tipo_norm:
+                    if registro["neto"] is not None:
+                        # Fila NETO duplicada para la misma fecha: no hay
+                        # regla inequívoca para consolidarlas (no se suma,
+                        # no se usa "la última fila"). Falla cerrado.
+                        raise ValueError(
+                            f"ATC mensual: fila NETO duplicada para fecha {fecha_iso}."
+                        )
                     registro["neto"] = importe
                 elif "COMISION" in tipo_norm:
+                    if registro["comision"] is not None:
+                        raise ValueError(
+                            f"ATC mensual: fila COMISIÓN duplicada para fecha {fecha_iso}."
+                        )
                     registro["comision"] = importe
         finally:
             wb.close()

@@ -19,6 +19,12 @@
 - EXTRACCIÓN V2 OK
 - CRUCES V2 OK
 - CUADRE V2 OK
+- ASIENTO V2 (ETAPA 5) OK
+
+Estado actual: ETAPAS 1-5 existen y están implementadas. El repo está en
+**hardening PRE-SAP** (corrección de hallazgos de una auditoría
+independiente sobre el commit `aeb8e7c`) — no en desarrollo de ETAPA 6
+(generación SAP), que todavía no ha comenzado.
 
 ## 4. Reglas técnicas críticas ya implementadas
 
@@ -29,8 +35,13 @@
 - MACROS se usa únicamente para vouchers y NETO de ATC.
 - ATC siempre BNB.
 - CI no usa MACROS.
-- ALQUILERES excluido (de CI operativas, de validación bancaria y del universo ajustado).
-- DOLARES determinístico (activo solo si importe > 0; no se trata como faltante).
+- ALQUILERES excluido del asiento (nunca se crea partida ALQUILERES ni se compensa con otra cuenta); se conserva separado por SFC para ajustar el HABER: `HABER SFCxxx = TOTAL SFCxxx - ALQUILERES de ese SFC`.
+- ATC NETO se cruza contra MACROS por importe exacto + fecha bancaria compatible (nunca ANTERIOR a la fecha de cierre; posteriores sí son válidas; sin ventana arbitraria de días).
+- Vouchers: código de asignación + importe exacto; 0↔O solo autocorrección única; O↔P nunca autocorrección (POSIBLE_TYPO/bloqueante). Sin ventana de fecha propia.
+- DOLARES determinístico (activo solo si importe > 0; no se trata como faltante). Si DOLARES > 0.00 y la cuenta USD no está parametrizada, `ejecutar_v2` nunca devuelve "OK" (usa `USD_CUENTA_PENDIENTE`) y `construir_asiento` no genera partidas.
+- `_validar_partidas` bloquea importes negativos y cualquier problema estructural: si hay problemas, el asiento devuelto tiene `estado=ERROR` y `partidas=[]` (nunca partidas inválidas utilizables).
+- CI: si trae fecha propia se propaga como `fecha_valor`; si no, `fecha_valor=None` (nunca se usa la fecha del cierre como reemplazo). CI con importe negativo bloquea.
+- ATC mensual: filas NETO o COMISIÓN duplicadas para la misma fecha lanzan excepción explícita (no se suman ni se usa "la última fila").
 - Anulaciones/refacturaciones: inexistentes para V2.
 - Decimal siempre, nunca float.
 - Cada archivo (CIERRE, MACROS, ATC) se abre una sola vez por corrida.

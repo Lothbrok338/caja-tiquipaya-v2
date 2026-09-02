@@ -1,15 +1,27 @@
 """
-motor_tiquipaya.py — ETAPA 3: cruces determinísticos V2 (Caja Tiquipaya CLOUD).
+motor_tiquipaya.py — ETAPAS 1-5 V2 (Caja Tiquipaya CLOUD) + hardening PRE-SAP.
 
-Orquesta:
-  1. VOUCHERS ↔ MACROS BNB (código de asignación + importe exacto)
-  2. ATC mensual: NETO + COMISIÓN = ATC BRUTO del cierre
-  3. NETO ATC ↔ MACROS BNB (importe exacto)
-  4. Validación mínima de CI (cuenta, asignación, formato por banco, ALQUILERES)
+Orquesta, sobre lo ya leído por excel_io.py:
+  ETAPA 3 — cruces determinísticos:
+    1. VOUCHERS ↔ MACROS BNB (código de asignación + importe exacto)
+    2. ATC mensual: NETO + COMISIÓN = ATC BRUTO del cierre
+    3. NETO ATC ↔ MACROS BNB (importe exacto + fecha bancaria compatible,
+       nunca ANTERIOR a la fecha de cierre)
+    4. Validación mínima de CI (cuenta, asignación, importe no negativo,
+       formato por banco, ALQUILERES separado por SFC)
+  ETAPA 4 (ejecutar_v2) — universo, ALQUILERES, componentes, recaudación
+    explicada y cuadre, con estado estructurado (OK / DIFERENCIA /
+    BLOQUEADO_EXCEPCION / USD_CUENTA_PENDIENTE / INDETERMINADO / ERROR).
+  ETAPA 5 (construir_asiento) — construcción determinística del asiento
+    CARGO/HABER a partir del resultado de ejecutar_v2().
 
-NO calcula cuadre final, NO construye asiento, NO genera SAP, NO mueve cierres,
-NO marca procesado, NO genera reportes. Claude no procesa filas: todo el
-recorrido de filas ocurre aquí, en Python, con Decimal.
+Estas ETAPAS 1-5 ya existen y están validadas contra la regresión sintética
+19-08-2026; este archivo está actualmente en hardening PRE-SAP (corrección
+de hallazgos de auditoría), no en desarrollo de generación SAP (ETAPA 6).
+
+NO genera SAP, NO mueve cierres, NO marca procesado, NO genera reportes.
+Claude no procesa filas: todo el recorrido de filas ocurre aquí, en Python,
+con Decimal.
 
 Uso:
     python motor_tiquipaya.py <cierre.xlsm> <macros.xlsm> <atc.xlsx>
@@ -17,7 +29,7 @@ Uso:
 
 import sys
 import json
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import excel_io as io
 
@@ -183,6 +195,24 @@ def cruzar_atc(cierre, atc_idx, macros_idx):
     bruto_cierre = Decimal(cierre["sfc101"]["cobros_atc"]) + Decimal(cierre["sfc102"]["cobros_atc"])
     bruto_str = io.money_str(bruto_cierre)
 
+    if bruto_cierre == 0:
+        # ATC BRUTO = 0.00: el día no tuvo cobros con tarjeta. ATC está
+        # INACTIVO/NO APLICA para este cierre: no se exige fila en el ATC
+        # mensual, no se busca NETO en MACROS y esto NUNCA es una
+        # excepción (no cuenta para excepciones_bloqueantes). El cierre
+        # sigue su curso normal sin componente ATC.
+        return {
+            "bruto": bruto_str,
+            "neto": "0.00",
+            "comision": "0.00",
+            "diferencia": "0.00",
+            "estado_validacion": "ATC_NO_APLICA",
+            "estado_match_macros": None,
+            "codigo_encontrado": None,
+            "fecha_bancaria_encontrada": None,
+            "excepcion": False,
+        }
+
     registro = atc_idx.get(fecha_cierre)
     if registro is None or registro["neto"] is None or registro["comision"] is None:
         return {
@@ -218,14 +248,20 @@ def cruzar_atc(cierre, atc_idx, macros_idx):
     if not valida:
         return resultado
 
-    # Buscar NETO en MACROS BNB por importe exacto.
+    # Buscar NETO en MACROS BNB por importe exacto + fecha bancaria
+    # compatible: nunca ANTERIOR a la fecha de cierre. Fechas posteriores
+    # sí son válidas. No se inventa un máximo arbitrario de días de
+    # tolerancia. Un movimiento sin fecha no se puede evaluar y se excluye.
     candidatos = macros_idx["por_importe"].get(io.money_str(neto), [])
-    if len(candidatos) == 1:
-        m = candidatos[0]
+    candidatos_compatibles = [
+        m for m in candidatos if m.get("fecha") and m["fecha"] >= fecha_cierre
+    ]
+    if len(candidatos_compatibles) == 1:
+        m = candidatos_compatibles[0]
         resultado["estado_match_macros"] = "ATC_MATCH_EXACTO"
         resultado["codigo_encontrado"] = m["codigo"]
         resultado["fecha_bancaria_encontrada"] = m["fecha"]
-    elif len(candidatos) == 0:
+    elif len(candidatos_compatibles) == 0:
         resultado["estado_match_macros"] = "ATC_SIN_CANDIDATO"
         resultado["excepcion"] = True
     else:
@@ -245,10 +281,13 @@ def validar_ci(cierre):
     bloqueantes = []
     advertencias = []
     alquileres = []
+    alquileres_por_sfc = {"SFC101": Decimal("0"), "SFC102": Decimal("0")}
 
     for ci in cierre["comunicaciones_internas"]:
         if ci["alquileres"]:
             alquileres.append(ci)
+            sfc = ci["sfc"]
+            alquileres_por_sfc[sfc] = alquileres_por_sfc.get(sfc, Decimal("0")) + Decimal(ci["importe"])
             continue  # EXCLUIDO_ALQUILERES: sin validación de cuenta/banco/formato
 
         problema_bloqueante = None
@@ -256,6 +295,8 @@ def validar_ci(cierre):
             problema_bloqueante = "CI_CUENTA_FALTANTE"
         elif not ci["asignacion"]:
             problema_bloqueante = "CI_ASIGNACION_FALTANTE"
+        elif Decimal(ci["importe"]) < 0:
+            problema_bloqueante = "CI_IMPORTE_NEGATIVO"
 
         if problema_bloqueante:
             bloqueantes.append({
@@ -286,6 +327,9 @@ def validar_ci(cierre):
             "importe": ci["importe"],
             "cuenta_contable": ci["cuenta_contable"],
             "asignacion": asignacion,
+            # Fecha propia de la CI (ETAPA 2), None si la hoja no la trae.
+            # Nunca se sustituye por la fecha del cierre.
+            "fecha_ci": ci.get("fecha_ci"),
         })
 
     importe_alquileres = sum((Decimal(ci["importe"]) for ci in alquileres), Decimal("0"))
@@ -299,6 +343,10 @@ def validar_ci(cierre):
         "advertencias": advertencias,
         "alquileres_cantidad": len(alquileres),
         "alquileres_importe": io.money_str(importe_alquileres),
+        # ALQUILERES separado por SFC: se excluye del asiento pero se
+        # conserva el importe por SFC para ajustar el HABER (ver
+        # _detalle_para_asiento y construir_asiento).
+        "alquileres_por_sfc": {k: io.money_str(v) for k, v in alquileres_por_sfc.items()},
     }
 
 
@@ -369,9 +417,11 @@ def calcular_componentes(cierre, cruces):
     """
     VOUCHERS_VALIDOS = suma de vouchers ya resueltos (MATCH_EXACTO o
         AUTOCORRECCION_0_O); vouchers en excepción no se suman.
-    CI_OPERATIVAS = CI válidas menos ALQUILERES (alquileres ya excluidos
-        del importe operativo por validar_ci, se restan aquí explícitamente
-        del total de CI válidas para dejar la fórmula trazable).
+    CI_OPERATIVAS = suma de detalle_validas de validar_ci: CI realmente
+        válidas y operativas (excluye ALQUILERES y excluye cualquier CI
+        bloqueante -cuenta/asignación faltante, importe negativo-, que no
+        puede explicar recaudación contabilizable aunque el cierre termine
+        bloqueado por otra excepción).
     ATC_BRUTO = ATC SFC101 + ATC SFC102 (ya calculado por cruzar_atc).
     DOLARES = DOLARES SFC101 + DOLARES SFC102 si > 0; si no, "0.00" (no
         activo, no se trata como faltante).
@@ -385,7 +435,10 @@ def calcular_componentes(cierre, cruces):
         Decimal("0"),
     )
 
-    ci_operativas = Decimal(cruces["ci"]["importe"]) - Decimal(cruces["ci"]["alquileres_importe"])
+    ci_operativas = sum(
+        (Decimal(ci["importe"]) for ci in cruces["ci"]["detalle_validas"]),
+        Decimal("0"),
+    )
 
     atc_bruto = Decimal(cruces["atc"]["bruto"])
 
@@ -400,53 +453,56 @@ def calcular_componentes(cierre, cruces):
     }
 
 
-def ejecutar_v2(ruta_cierre, ruta_macros, ruta_atc):
-    """
-    ETAPA 4: orquesta ETAPA 2 (extracción) + ETAPA 3 (cruces) + ETAPA 4
-    (universo, ALQUILERES, componentes, recaudación explicada, cuadre)
-    en una sola corrida. Cada archivo se abre UNA sola vez.
+def _ejecutar_v2_sobre_cierre(cierre, macros_idx, atc_idx):
+    """Aplica ETAPA 3 (cruces) + ETAPA 4 (universo, ALQUILERES,
+    componentes, recaudación explicada, cuadre) sobre un `cierre` y unos
+    índices `macros_idx`/`atc_idx` YA cargados en memoria. No abre ningún
+    archivo ni repite ninguna regla: es exactamente el mismo
+    procesamiento que hacía ejecutar_v2() después de leer sus tres
+    archivos, factorizado aquí para que ejecutar_lote_v2() pueda
+    reutilizar macros_idx/atc_idx entre varios cierres del mismo mes sin
+    reabrir MACROS ni ATC por cada uno.
 
-    Si falta un componente imprescindible (p. ej. el CIERRE no tiene las
-    hojas o campos requeridos), el estado resultante es INDETERMINADO en
-    lugar de propagar la excepción, para que el llamador reciba siempre
-    un resumen estructurado.
+    Devuelve EXACTAMENTE la misma estructura que ejecutar_v2().
     """
     try:
-        cierre = io.leer_cierre(ruta_cierre)
-        macros_idx = io.leer_macros_bnb(ruta_macros)   # UNA sola apertura
-        atc_idx = io.leer_atc_mensual(ruta_atc)         # UNA sola apertura
-    except (ValueError, KeyError) as exc:
+        cruces = _cruzar_sobre_cierre(cierre, macros_idx, atc_idx)
+
+        universo_original = calcular_universo(cierre)
+        alquileres = cruces["ci"]["alquileres_importe"]
+        universo_ajustado = io.money_str(Decimal(universo_original) - Decimal(alquileres))
+
+        componentes = calcular_componentes(cierre, cruces)
+
+        recaudacion_explicada = io.money_str(
+            Decimal(componentes["vouchers"])
+            + Decimal(componentes["ci_operativas"])
+            + Decimal(componentes["atc_bruto"])
+            + Decimal(componentes["dolares"])
+        )
+
+        diferencia = io.money_str(Decimal(universo_ajustado) - Decimal(recaudacion_explicada))
+
+        excepciones_bloqueantes = cruces["excepciones_bloqueantes_total"]
+        dolares_pendiente = Decimal(componentes["dolares"]) > 0
+
+        if excepciones_bloqueantes > 0:
+            estado = "BLOQUEADO_EXCEPCION"
+        elif dolares_pendiente:
+            estado = "USD_CUENTA_PENDIENTE"
+        elif Decimal(diferencia) != 0:
+            estado = "DIFERENCIA"
+        else:
+            estado = "OK"
+
+        detalle = _detalle_para_asiento(cierre, cruces, componentes)
+    except (ValueError, KeyError, TypeError, ArithmeticError, InvalidOperation) as exc:
         return {
-            "fecha": None,
-            "estado": "INDETERMINADO",
+            "fecha": cierre.get("fecha_cierre"),
+            "estado": "ERROR",
             "error": str(exc),
+            "etapa": "CRUCES_O_CUADRE",
         }
-
-    cruces = _cruzar_sobre_cierre(cierre, macros_idx, atc_idx)
-
-    universo_original = calcular_universo(cierre)
-    alquileres = cruces["ci"]["alquileres_importe"]
-    universo_ajustado = io.money_str(Decimal(universo_original) - Decimal(alquileres))
-
-    componentes = calcular_componentes(cierre, cruces)
-
-    recaudacion_explicada = io.money_str(
-        Decimal(componentes["vouchers"])
-        + Decimal(componentes["ci_operativas"])
-        + Decimal(componentes["atc_bruto"])
-        + Decimal(componentes["dolares"])
-    )
-
-    diferencia = io.money_str(Decimal(universo_ajustado) - Decimal(recaudacion_explicada))
-
-    excepciones_bloqueantes = cruces["excepciones_bloqueantes_total"]
-
-    if excepciones_bloqueantes > 0:
-        estado = "BLOQUEADO_EXCEPCION"
-    elif Decimal(diferencia) != 0:
-        estado = "DIFERENCIA"
-    else:
-        estado = "OK"
 
     return {
         "fecha": cierre["fecha_cierre"],
@@ -458,8 +514,45 @@ def ejecutar_v2(ruta_cierre, ruta_macros, ruta_atc):
         "diferencia": diferencia,
         "excepciones_bloqueantes": excepciones_bloqueantes,
         "estado": estado,
-        "detalle": _detalle_para_asiento(cierre, cruces, componentes),
+        "detalle": detalle,
     }
+
+
+def ejecutar_v2(ruta_cierre, ruta_macros, ruta_atc):
+    """
+    ETAPA 4: orquesta ETAPA 2 (extracción) + ETAPA 3 (cruces) + ETAPA 4
+    (universo, ALQUILERES, componentes, recaudación explicada, cuadre)
+    en una sola corrida. Cada archivo se abre UNA sola vez.
+
+    Nunca deja escapar una excepción sin respuesta: tanto un fallo de
+    extracción como un fallo durante cruces/cuadre/armado del detalle
+    devuelven un estado estructurado (INDETERMINADO o ERROR) con motivo,
+    en lugar de reventar la corrida o esconder el problema como si el
+    cierre estuviera OK.
+
+    Si DOLARES > 0.00 el estado nunca puede ser "OK": se devuelve
+    "USD_CUENTA_PENDIENTE" de forma explícita (la cuenta USD no está
+    parametrizada), para que un cierre con USD pendiente no pueda
+    marcarse después como procesado normal.
+
+    API pública sin cambios: internamente solo abre los tres archivos y
+    delega el procesamiento a _ejecutar_v2_sobre_cierre(). Para procesar
+    varios cierres del mismo mes reutilizando MACROS/ATC ya cargados, ver
+    ejecutar_lote_v2().
+    """
+    try:
+        cierre = io.leer_cierre(ruta_cierre)
+        macros_idx = io.leer_macros_bnb(ruta_macros)   # UNA sola apertura
+        atc_idx = io.leer_atc_mensual(ruta_atc)         # UNA sola apertura
+    except (ValueError, KeyError) as exc:
+        return {
+            "fecha": None,
+            "estado": "INDETERMINADO",
+            "error": str(exc),
+            "etapa": "EXTRACCION",
+        }
+
+    return _ejecutar_v2_sobre_cierre(cierre, macros_idx, atc_idx)
 
 
 def _detalle_para_asiento(cierre, cruces, componentes):
@@ -467,7 +560,22 @@ def _detalle_para_asiento(cierre, cruces, componentes):
     ETAPA 2 (cierre) y la ETAPA 3 (cruces) que la ETAPA 5 necesita para
     construir el asiento: totales HABER por SFC, vouchers ya confirmados,
     CI ya validadas y ATC ya cruzado contra MACROS.
+
+    ALQUILERES se excluye del asiento (no se crea partida ALQUILERES ni se
+    compensa con otra cuenta), pero su importe se conserva separado por
+    SFC para ajustar el HABER: HABER SFCxxx = TOTAL SFCxxx - ALQUILERES de
+    ese SFC. El total HABER resultante coincide con el UNIVERSO_AJUSTADO.
     """
+    alquileres_por_sfc = cruces["ci"]["alquileres_por_sfc"]
+    sfc101_total = cierre["sfc101"]["total_movimiento"]
+    sfc102_total = cierre["sfc102"]["total_movimiento"]
+    sfc101_haber = io.money_str(
+        Decimal(sfc101_total) - Decimal(alquileres_por_sfc.get("SFC101", "0.00"))
+    )
+    sfc102_haber = io.money_str(
+        Decimal(sfc102_total) - Decimal(alquileres_por_sfc.get("SFC102", "0.00"))
+    )
+
     vouchers_confirmados = [
         {
             "sfc": v["sfc"],
@@ -482,7 +590,12 @@ def _detalle_para_asiento(cierre, cruces, componentes):
     ]
 
     atc = cruces["atc"]
-    if not atc["excepcion"] and atc["estado_match_macros"] == "ATC_MATCH_EXACTO":
+    # ATC_NO_APLICA (bruto=0.00) nunca es excepción, pero tampoco genera
+    # atc_neto/atc_comision: es una ausencia legítima de componente ATC,
+    # distinta de un ATC que sí aplica y no pudo determinarse. atc_aplica
+    # es lo que permite a construir_asiento() distinguir ambos casos.
+    atc_aplica = Decimal(atc["bruto"]) > 0
+    if atc_aplica and not atc["excepcion"] and atc["estado_match_macros"] == "ATC_MATCH_EXACTO":
         atc_neto = {
             "importe": atc["neto"],
             "codigo_confirmado": atc["codigo_encontrado"],
@@ -494,12 +607,18 @@ def _detalle_para_asiento(cierre, cruces, componentes):
         atc_comision = None
 
     return {
-        "sfc101_total": cierre["sfc101"]["total_movimiento"],
-        "sfc102_total": cierre["sfc102"]["total_movimiento"],
+        "sfc101_total": sfc101_total,
+        "sfc102_total": sfc102_total,
+        "sfc101_haber": sfc101_haber,
+        "sfc102_haber": sfc102_haber,
+        "alquileres_sfc101": alquileres_por_sfc.get("SFC101", "0.00"),
+        "alquileres_sfc102": alquileres_por_sfc.get("SFC102", "0.00"),
         "vouchers_confirmados": vouchers_confirmados,
         "ci_validas": cruces["ci"]["detalle_validas"],
         "atc_neto": atc_neto,
         "atc_comision": atc_comision,
+        "atc_aplica": atc_aplica,
+        "atc_estado": atc["estado_validacion"],
         "dolares": componentes["dolares"],
     }
 
@@ -606,6 +725,14 @@ def construir_asiento(resultado_v2):
     """
     fecha_cierre = resultado_v2.get("fecha")
 
+    if resultado_v2.get("estado") == "USD_CUENTA_PENDIENTE":
+        return {
+            "fecha_cierre": fecha_cierre,
+            "estado": "USD_CUENTA_PENDIENTE",
+            "motivo": "DOLARES > 0.00 y la cuenta USD no está parametrizada.",
+            "partidas": [],
+        }
+
     condiciones_ok = (
         resultado_v2.get("estado") == "OK"
         and resultado_v2.get("excepciones_bloqueantes") == 0
@@ -632,7 +759,14 @@ def construir_asiento(resultado_v2):
             "partidas": [],
         }
 
-    if detalle.get("atc_neto") is None or detalle.get("atc_comision") is None:
+    # atc_aplica=False (ATC BRUTO=0.00, ATC_NO_APLICA) significa que este
+    # cierre no tiene componente ATC: el asiento se construye sin las 2
+    # líneas ATC_NETO/ATC_COMISION, sin que eso sea NO_ASIENTO. Solo es
+    # NO_ASIENTO cuando ATC sí aplica (bruto>0) y no quedó determinado.
+    atc_aplica = detalle.get("atc_aplica", True)
+    atc_neto = detalle.get("atc_neto")
+    atc_comision = detalle.get("atc_comision")
+    if atc_aplica and (atc_neto is None or atc_comision is None):
         return {
             "fecha_cierre": fecha_cierre,
             "estado": "NO_ASIENTO",
@@ -644,11 +778,11 @@ def construir_asiento(resultado_v2):
     correcciones_aplicadas = []
 
     partidas.append(_partida(
-        cuenta_mayor=_CUENTA_HABER, cargo="0.00", haber=detalle["sfc101_total"],
+        cuenta_mayor=_CUENTA_HABER, cargo="0.00", haber=detalle["sfc101_haber"],
         asignacion="SFC101", origen="UNIVERSO_SFC101", sfc_origen="SFC101",
     ))
     partidas.append(_partida(
-        cuenta_mayor=_CUENTA_HABER, cargo="0.00", haber=detalle["sfc102_total"],
+        cuenta_mayor=_CUENTA_HABER, cargo="0.00", haber=detalle["sfc102_haber"],
         asignacion="SFC102", origen="UNIVERSO_SFC102", sfc_origen="SFC102",
     ))
 
@@ -673,20 +807,22 @@ def construir_asiento(resultado_v2):
             cuenta_mayor=ci["cuenta_contable"], cargo=ci["importe"], haber="0.00",
             asignacion=ci["asignacion"], texto_posicion=ci.get("referencia"),
             origen="CI", sfc_origen=ci["sfc"],
+            # Fecha propia de la CI si existe; None si no la trae la hoja
+            # (nunca se usa la fecha del cierre como reemplazo).
+            fecha_valor=ci.get("fecha_ci"),
         ))
 
-    atc_neto = detalle["atc_neto"]
-    partidas.append(_partida(
-        cuenta_mayor=_CUENTA_VOUCHER_ATC, cargo=atc_neto["importe"], haber="0.00",
-        asignacion=atc_neto["codigo_confirmado"], fecha_valor=atc_neto.get("fecha_bancaria"),
-        origen="ATC_NETO", sfc_origen=None,
-    ))
+    if atc_aplica:
+        partidas.append(_partida(
+            cuenta_mayor=_CUENTA_VOUCHER_ATC, cargo=atc_neto["importe"], haber="0.00",
+            asignacion=atc_neto["codigo_confirmado"], fecha_valor=atc_neto.get("fecha_bancaria"),
+            origen="ATC_NETO", sfc_origen=None,
+        ))
 
-    atc_comision = detalle["atc_comision"]
-    partidas.append(_partida(
-        cuenta_mayor=_CUENTA_ATC_COMISION, cargo=atc_comision["importe"], haber="0.00",
-        asignacion=_asignacion_comision(fecha_cierre), origen="ATC_COMISION", sfc_origen=None,
-    ))
+        partidas.append(_partida(
+            cuenta_mayor=_CUENTA_ATC_COMISION, cargo=atc_comision["importe"], haber="0.00",
+            asignacion=_asignacion_comision(fecha_cierre), origen="ATC_COMISION", sfc_origen=None,
+        ))
 
     total_cargo = sum((Decimal(p["cargo"]) for p in partidas), Decimal("0"))
     total_haber = sum((Decimal(p["haber"]) for p in partidas), Decimal("0"))
@@ -694,18 +830,110 @@ def construir_asiento(resultado_v2):
 
     problemas = _validar_partidas(partidas, total_cargo, total_haber, diferencia)
 
+    # Si el asiento construido no pasa la validación (importes negativos,
+    # cargo y haber simultáneos, ALQUILERES colado, cuentas inválidas,
+    # etc.) nunca se devuelven partidas utilizables: estado ERROR y
+    # partidas vacías, para que ETAPA 6 no pueda serializar nada inválido.
+    # Los totales y el diagnóstico se conservan para investigar la causa.
+    partidas_salida = partidas if not problemas else []
+
     return {
         "fecha_cierre": fecha_cierre,
         "sociedad": _SOCIEDAD,
         "centro_beneficio": _CENTRO_BENEFICIO,
-        "partidas": partidas,
-        "cantidad_partidas": len(partidas),
+        "partidas": partidas_salida,
+        "cantidad_partidas": len(partidas_salida),
         "total_cargo": io.money_str(total_cargo),
         "total_haber": io.money_str(total_haber),
         "diferencia": io.money_str(diferencia),
         "correcciones_aplicadas": correcciones_aplicadas,
         "estado": "OK" if not problemas else "ERROR",
         "problemas": problemas,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Optimización PRE-SAP: procesamiento de un lote de cierres del mismo mes
+# ---------------------------------------------------------------------------
+#
+# Únicamente reutiliza aperturas y evita repetir cruces/reglas cuando se
+# procesan varios cierres contra el mismo MACROS/ATC mensual. No cambia
+# ninguna regla de negocio: cada cierre del lote produce exactamente el
+# mismo resultado_v2 y asiento que ejecutar_v2()+construir_asiento()
+# llamados individualmente sobre esa misma ruta.
+
+def ejecutar_lote_v2(rutas_cierres, ruta_macros, ruta_atc):
+    """Procesa varios cierres del mismo mes reutilizando MACROS y ATC ya
+    cargados en memoria.
+
+    - MACROS se abre UNA sola vez para todo el lote.
+    - ATC se abre UNA sola vez para todo el lote.
+    - Cada CIERRE se abre UNA sola vez.
+    - Los cruces/reglas de ETAPA 3-5 se aplican tal cual (mismas funciones
+      que usa el flujo individual, vía _ejecutar_v2_sobre_cierre()), sin
+      repetirse entre cierres.
+
+    Un fallo técnico al leer MACROS o ATC (archivos compartidos por todo
+    el lote) bloquea el lote completo de forma estructurada: sin esos
+    índices ningún cierre del lote puede procesarse de forma confiable.
+
+    Un problema puntual de un cierre —bloqueado por excepción, con
+    diferencia, USD pendiente, o incluso un error técnico al leer o
+    procesar ESE cierre en particular— NUNCA detiene el resto del lote:
+    cada cierre conserva su propio resultado_v2, asiento y error de forma
+    aislada, sin contaminar a los demás.
+
+    Devuelve:
+    {
+      "estado": "LOTE_OK" | "LOTE_ERROR_MAESTROS",
+      "error": "..."            (solo si LOTE_ERROR_MAESTROS),
+      "cantidad": N,
+      "cierres": [
+        {"ruta": "...", "resultado_v2": {...}, "asiento": {...} | None},
+        ...
+      ],
+    }
+    """
+    try:
+        macros_idx = io.leer_macros_bnb(ruta_macros)   # UNA sola apertura para todo el lote
+        atc_idx = io.leer_atc_mensual(ruta_atc)         # UNA sola apertura para todo el lote
+    except (ValueError, KeyError) as exc:
+        return {
+            "estado": "LOTE_ERROR_MAESTROS",
+            "error": str(exc),
+            "cantidad": 0,
+            "cierres": [],
+        }
+
+    resultados = []
+    for ruta_cierre in rutas_cierres:
+        try:
+            cierre = io.leer_cierre(ruta_cierre)  # UNA sola apertura por cierre
+        except (ValueError, KeyError) as exc:
+            resultado_v2 = {
+                "fecha": None,
+                "estado": "INDETERMINADO",
+                "error": str(exc),
+                "etapa": "EXTRACCION",
+            }
+            resultados.append({
+                "ruta": ruta_cierre,
+                "resultado_v2": resultado_v2,
+                "asiento": construir_asiento(resultado_v2),
+            })
+            continue
+
+        resultado_v2 = _ejecutar_v2_sobre_cierre(cierre, macros_idx, atc_idx)
+        resultados.append({
+            "ruta": ruta_cierre,
+            "resultado_v2": resultado_v2,
+            "asiento": construir_asiento(resultado_v2),
+        })
+
+    return {
+        "estado": "LOTE_OK",
+        "cantidad": len(resultados),
+        "cierres": resultados,
     }
 
 
