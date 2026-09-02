@@ -58,11 +58,23 @@ def _llenar_resumen(ws, datos):
 
 
 def _llenar_ci(ws, filas):
+    """`fecha` -> columna FECHA (fallback legado). `fecha2` -> columna
+    FECHA2 (autoritativa para fecha_valor/VALUT). `glosa` -> columna
+    GLOSA ASIENTO COMUNICACIONES INTERNAS (autoritativa para
+    texto_posicion/SGTXT). Cada columna solo se agrega si al menos una
+    fila la usa, para no afectar los fixtures existentes que no las
+    necesitan."""
     con_fecha = any("fecha" in f for f in filas)
+    con_fecha2 = any("fecha2" in f for f in filas)
+    con_glosa = any("glosa" in f for f in filas)
     header = ["N°", "N° DE FACTURA", "TOTAL C.I.", "CUENTA CONTABLE BANCO",
                "ASIGNACION", "BANCO"]
     if con_fecha:
         header.append("FECHA")
+    if con_fecha2:
+        header.append("FECHA2")
+    if con_glosa:
+        header.append("GLOSA ASIENTO COMUNICACIONES INTERNAS")
     ws.append(header)
     for i, f in enumerate(filas, start=1):
         row = [
@@ -71,6 +83,10 @@ def _llenar_ci(ws, filas):
         ]
         if con_fecha:
             row.append(f.get("fecha"))
+        if con_fecha2:
+            row.append(f.get("fecha2"))
+        if con_glosa:
+            row.append(f.get("glosa"))
         ws.append(row)
 
 
@@ -99,4 +115,79 @@ def crear_atc(ruta, filas):
                 "CÓDIGO ASIENTO", "ASIGNACION"])
     for fecha, tipo, monto in filas:
         ws.append([fecha, tipo, None, None, monto, None, None])
+    wb.save(ruta)
+
+
+def _llenar_atc_preconciliado(ws, filas):
+    """filas: [(fecha, tipo, cuenta_contable, detalle, monto, asignacion), ...]
+    ASIGNACION puede ser "REVISAR" para probar esa regla."""
+    ws.append(["FECHA", "TIPO", "CUENTA CONTABLE", "DETALLE", "MONTO", "ASIGNACION"])
+    for fila in filas:
+        ws.append(list(fila))
+
+
+def crear_atc_preconciliado(ruta, filas, hoja="ATC TIQUIPAYA"):
+    """ATC TIQUIPAYA (ETAPA 6) como archivo separado, mismo esquema de
+    columnas que dentro del maestro único. Sirve para probar el lector
+    en aislamiento (excel_io.leer_atc_mensual) y para el "flujo anterior
+    con ATC separado" ahora en formato preconciliado."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = hoja
+    _llenar_atc_preconciliado(ws, filas)
+    wb.save(ruta)
+
+
+def crear_maestro_unico(ruta, macros_filas, atc_filas, header_repetido_en=None,
+                         hoja_macros="Tablas Dinamicas Profesional",
+                         hoja_atc="ATC TIQUIPAYA"):
+    """MAESTRO MENSUAL ÚNICO (ETAPA 6): un solo workbook con las dos hojas
+    relevantes. macros_filas: igual formato que crear_macros(). atc_filas:
+    igual formato que crear_atc_preconciliado()."""
+    wb = openpyxl.Workbook()
+    ws_macros = wb.active
+    ws_macros.title = hoja_macros
+    header_macros = ["Fecha", "Código de Asignación", "Créditos"]
+    ws_macros.append(header_macros)
+    for i, (fecha, codigo, credito) in enumerate(macros_filas):
+        if header_repetido_en is not None and i == header_repetido_en:
+            ws_macros.append(header_macros)
+        ws_macros.append([fecha, codigo, credito])
+
+    ws_atc = wb.create_sheet(hoja_atc)
+    _llenar_atc_preconciliado(ws_atc, atc_filas)
+
+    wb.save(ruta)
+
+
+def crear_plantilla_sap(ruta, hoja="1"):
+    """Plantilla SAP sintética mínima (ETAPA 6), sin datos contables reales.
+
+    Reproduce solo la estructura exigida por sap_writer.py: hoja EXACTA
+    "1", cabecera en fila 10 (columnas B/C/D/E/F/G/H/L) y partidas desde
+    fila 16 (columnas B/C/D/E/F/L/O/R/U/V/W), todo vacío para que
+    sap_writer.py lo complete. Incluye contenido de ejemplo en columnas
+    NO autorizadas (A, I, K, N, P, Q, S, T, X) para poder probar que
+    sap_writer.py nunca las toca.
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = hoja
+
+    ws["A9"] = "PLANTILLA SAP SINTETICA DE PRUEBA"
+    ws["A10"] = "FILA CABECERA"
+    ws["I10"] = "NO TOCAR"
+    ws["K10"] = "NO TOCAR"
+    ws["N10"] = "NO TOCAR"
+
+    ws["A16"] = "FILA PRIMERA PARTIDA"
+    ws["I16"] = "NO TOCAR"
+    ws["K16"] = "NO TOCAR"
+    ws["N16"] = "NO TOCAR"
+    ws["P16"] = "NO TOCAR"
+    ws["Q16"] = "NO TOCAR"
+    ws["S16"] = "NO TOCAR"
+    ws["T16"] = "NO TOCAR"
+    ws["X16"] = "NO TOCAR"
+
     wb.save(ruta)
