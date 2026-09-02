@@ -529,75 +529,205 @@ def leer_macros_bnb(ruta_archivo, hoja=_MACROS_HOJA_BNB):
 # ATC mensual — NETO y COMISIÓN por fecha
 # ---------------------------------------------------------------------------
 #
-# Fuente: archivo ATC mensual (.xlsx), hoja única con columnas:
-#   FECHA, TIPO, CUENTA CONTABLE, DETALLE, MONTO, CÓDIGO ASIENTO, ASIGNACION
-# TIPO ∈ {"BANCO (NETO)", "COMISIÓN ATC"}
+# Dos formatos posibles, detectados por el NOMBRE de hoja (nunca por un
+# parámetro que el llamador deba adivinar):
 #
-# Se abre UNA sola vez y se construye un índice en memoria por fecha.
+# LEGADO (comportamiento histórico, sin cambios): archivo ATC mensual
+#   separado, hoja única (la primera del workbook) con columnas FECHA,
+#   TIPO, MONTO (CUENTA CONTABLE/DETALLE/ASIGNACION pueden estar
+#   presentes pero no se usan). Activo cuando el archivo NO trae una
+#   hoja llamada exactamente "ATC TIQUIPAYA". Este ATC se cruza después
+#   contra MACROS (ver motor_tiquipaya.cruzar_atc): NO trae cuenta ni
+#   asignación resueltas.
+#
+# PRECONCILIADO (ETAPA 6 — maestro único): activo cuando el archivo SÍ
+#   trae una hoja "ATC TIQUIPAYA" (puede ser el mismo archivo mensual de
+#   MACROS: "MAESTRO MENSUAL"). El ATC ya viene conciliado con columnas
+#   FECHA, TIPO, CUENTA CONTABLE, DETALLE, MONTO, ASIGNACION: NUNCA se
+#   vuelve a cruzar contra MACROS (ver motor_tiquipaya.cruzar_atc_preconciliado).
+#
+# TIPO ∈ {"BANCO (NETO)", "COMISIÓN ATC"} en ambos formatos.
+
+_ATC_HOJA_PRECONCILIADA = "ATC TIQUIPAYA"
+
 
 def leer_atc_mensual(ruta_archivo):
     """
-    Abre ATC mensual UNA sola vez (read_only, data_only) y devuelve:
+    Abre el archivo ATC UNA sola vez (read_only, data_only) y devuelve:
 
-    { "YYYY-MM-DD": {"neto": "0.00" | None, "comision": "0.00" | None} }
+    {
+      "modo": "LEGADO" | "PRECONCILIADO",
+      "por_fecha": { "YYYY-MM-DD": {...} },
+    }
+
+    LEGADO — por_fecha:
+      { "YYYY-MM-DD": {"neto": "0.00" | None, "comision": "0.00" | None} }
+
+    PRECONCILIADO — por_fecha:
+      { "YYYY-MM-DD": {
+          "neto": {"monto": "0.00", "cuenta_contable": "...",
+                    "detalle": "...", "asignacion": "..."} | None,
+          "comision": {...misma forma...} | None,
+      } }
+
+    La ASIGNACION de PRECONCILIADO se conserva literal (incluido el
+    valor "REVISAR"): esta capa de lectura no la interpreta ni la
+    reemplaza.
     """
-    por_fecha = {}
-
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         wb = openpyxl.load_workbook(
             ruta_archivo, read_only=True, data_only=True, keep_vba=False
         )
         try:
-            ws = wb[wb.sheetnames[0]]
-            rows = ws.iter_rows(values_only=True)
-            header = next(rows, None)
-            if header is None:
-                raise ValueError("ATC mensual: hoja vacía.")
-
-            idx = {normalize_text(h): j for j, h in enumerate(header) if h is not None}
-            idx_fecha = idx.get("FECHA")
-            idx_tipo = idx.get("TIPO")
-            idx_monto = idx.get("MONTO")
-            faltantes = []
-            if idx_fecha is None:
-                faltantes.append("FECHA")
-            if idx_tipo is None:
-                faltantes.append("TIPO")
-            if idx_monto is None:
-                faltantes.append("MONTO")
-            if faltantes:
-                raise ValueError(f"ATC mensual: faltan columnas: {faltantes}")
-
-            for row in rows:
-                fecha_val = row[idx_fecha] if idx_fecha < len(row) else None
-                tipo_val = row[idx_tipo] if idx_tipo < len(row) else None
-                monto_val = row[idx_monto] if idx_monto < len(row) else None
-                if fecha_val is None or tipo_val is None or monto_val is None:
-                    continue
-
-                fecha_iso = _fecha_iso(fecha_val)
-                tipo_norm = normalize_text(tipo_val)
-                importe = money_str(to_decimal(monto_val))
-
-                registro = por_fecha.setdefault(fecha_iso, {"neto": None, "comision": None})
-                if "NETO" in tipo_norm:
-                    if registro["neto"] is not None:
-                        # Fila NETO duplicada para la misma fecha: no hay
-                        # regla inequívoca para consolidarlas (no se suma,
-                        # no se usa "la última fila"). Falla cerrado.
-                        raise ValueError(
-                            f"ATC mensual: fila NETO duplicada para fecha {fecha_iso}."
-                        )
-                    registro["neto"] = importe
-                elif "COMISION" in tipo_norm:
-                    if registro["comision"] is not None:
-                        raise ValueError(
-                            f"ATC mensual: fila COMISIÓN duplicada para fecha {fecha_iso}."
-                        )
-                    registro["comision"] = importe
+            ws_preconciliada = _find_atc_preconciliado_sheet(wb)
+            if ws_preconciliada is not None:
+                por_fecha = _leer_atc_preconciliado(ws_preconciliada)
+                modo = "PRECONCILIADO"
+            else:
+                por_fecha = _leer_atc_legado(wb[wb.sheetnames[0]])
+                modo = "LEGADO"
         finally:
             wb.close()
+
+    return {"modo": modo, "por_fecha": por_fecha}
+
+
+def _find_atc_preconciliado_sheet(wb):
+    """Busca la hoja "ATC TIQUIPAYA" por nombre normalizado (mayúsculas,
+    sin tildes, espacios colapsados), igual que _find_sfc_sheet/
+    _find_ci_sheet, para no depender de mayúsculas/espacios exactos.
+    None si el workbook no la trae (flujo LEGADO)."""
+    objetivo = normalize_compact(_ATC_HOJA_PRECONCILIADA)
+    for ws in wb.worksheets:
+        if normalize_compact(ws.title) == objetivo:
+            return ws
+    return None
+
+
+def _leer_atc_legado(ws):
+    """Comportamiento histórico, sin ningún cambio de reglas."""
+    por_fecha = {}
+
+    rows = ws.iter_rows(values_only=True)
+    header = next(rows, None)
+    if header is None:
+        raise ValueError("ATC mensual: hoja vacía.")
+
+    idx = {normalize_text(h): j for j, h in enumerate(header) if h is not None}
+    idx_fecha = idx.get("FECHA")
+    idx_tipo = idx.get("TIPO")
+    idx_monto = idx.get("MONTO")
+    faltantes = []
+    if idx_fecha is None:
+        faltantes.append("FECHA")
+    if idx_tipo is None:
+        faltantes.append("TIPO")
+    if idx_monto is None:
+        faltantes.append("MONTO")
+    if faltantes:
+        raise ValueError(f"ATC mensual: faltan columnas: {faltantes}")
+
+    for row in rows:
+        fecha_val = row[idx_fecha] if idx_fecha < len(row) else None
+        tipo_val = row[idx_tipo] if idx_tipo < len(row) else None
+        monto_val = row[idx_monto] if idx_monto < len(row) else None
+        if fecha_val is None or tipo_val is None or monto_val is None:
+            continue
+
+        fecha_iso = _fecha_iso(fecha_val)
+        tipo_norm = normalize_text(tipo_val)
+        importe = money_str(to_decimal(monto_val))
+
+        registro = por_fecha.setdefault(fecha_iso, {"neto": None, "comision": None})
+        if "NETO" in tipo_norm:
+            if registro["neto"] is not None:
+                # Fila NETO duplicada para la misma fecha: no hay
+                # regla inequívoca para consolidarlas (no se suma,
+                # no se usa "la última fila"). Falla cerrado.
+                raise ValueError(
+                    f"ATC mensual: fila NETO duplicada para fecha {fecha_iso}."
+                )
+            registro["neto"] = importe
+        elif "COMISION" in tipo_norm:
+            if registro["comision"] is not None:
+                raise ValueError(
+                    f"ATC mensual: fila COMISIÓN duplicada para fecha {fecha_iso}."
+                )
+            registro["comision"] = importe
+
+    return por_fecha
+
+
+def _leer_atc_preconciliado(ws):
+    """Hoja "ATC TIQUIPAYA": ATC ya conciliado. Cuenta contable, detalle,
+    monto y asignación se toman literalmente de la hoja, fila por fila,
+    sin cruzar contra MACROS ni interpretar la asignación."""
+    por_fecha = {}
+
+    rows = ws.iter_rows(values_only=True)
+    header = next(rows, None)
+    if header is None:
+        raise ValueError("ATC TIQUIPAYA: hoja vacía.")
+
+    idx = {normalize_text(h): j for j, h in enumerate(header) if h is not None}
+    idx_fecha = idx.get("FECHA")
+    idx_tipo = idx.get("TIPO")
+    idx_cuenta = idx.get("CUENTA CONTABLE")
+    idx_detalle = idx.get("DETALLE")
+    idx_monto = idx.get("MONTO")
+    idx_asignacion = idx.get("ASIGNACION")
+    faltantes = []
+    if idx_fecha is None:
+        faltantes.append("FECHA")
+    if idx_tipo is None:
+        faltantes.append("TIPO")
+    if idx_cuenta is None:
+        faltantes.append("CUENTA CONTABLE")
+    if idx_detalle is None:
+        faltantes.append("DETALLE")
+    if idx_monto is None:
+        faltantes.append("MONTO")
+    if idx_asignacion is None:
+        faltantes.append("ASIGNACION")
+    if faltantes:
+        raise ValueError(f"ATC TIQUIPAYA: faltan columnas: {faltantes}")
+
+    for row in rows:
+        fecha_val = row[idx_fecha] if idx_fecha < len(row) else None
+        tipo_val = row[idx_tipo] if idx_tipo < len(row) else None
+        monto_val = row[idx_monto] if idx_monto < len(row) else None
+        if fecha_val is None or tipo_val is None or monto_val is None:
+            continue
+
+        fecha_iso = _fecha_iso(fecha_val)
+        tipo_norm = normalize_text(tipo_val)
+        cuenta_val = row[idx_cuenta] if idx_cuenta < len(row) else None
+        detalle_val = row[idx_detalle] if idx_detalle < len(row) else None
+        asignacion_val = row[idx_asignacion] if idx_asignacion < len(row) else None
+
+        entrada = {
+            "monto": money_str(to_decimal(monto_val)),
+            "cuenta_contable": _texto_o_none(cuenta_val),
+            "detalle": _texto_o_none(detalle_val),
+            # Literal, incluido "REVISAR": no se interpreta ni se
+            # reemplaza en esta capa de lectura.
+            "asignacion": _texto_o_none(asignacion_val),
+        }
+
+        registro = por_fecha.setdefault(fecha_iso, {"neto": None, "comision": None})
+        if "NETO" in tipo_norm:
+            if registro["neto"] is not None:
+                raise ValueError(
+                    f"ATC TIQUIPAYA: fila NETO duplicada para fecha {fecha_iso}."
+                )
+            registro["neto"] = entrada
+        elif "COMISION" in tipo_norm:
+            if registro["comision"] is not None:
+                raise ValueError(
+                    f"ATC TIQUIPAYA: fila COMISIÓN duplicada para fecha {fecha_iso}."
+                )
+            registro["comision"] = entrada
 
     return por_fecha
 

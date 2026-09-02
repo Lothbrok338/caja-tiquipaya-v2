@@ -35,6 +35,7 @@ import warnings
 from decimal import Decimal
 
 import openpyxl
+from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 
 import excel_io as io
@@ -63,6 +64,12 @@ _CAMPOS_CABECERA_OBLIGATORIOS = (
 # de la que ya aplica ETAPA 5 en _validar_partidas). Una CI legítima puede
 # usar esta cuenta sin problema.
 _CUENTA_ATC_COMISION_PROHIBIDA = "110201003"
+
+# ATC preconciliado (ETAPA 6 — maestro único): una asignación "REVISAR"
+# nunca es blocker, se escribe literal en R y solo recibe relleno
+# amarillo (puramente visual, no afecta estado contable ni importes).
+_ASIGNACION_REVISAR = "REVISAR"
+_RELLENO_REVISAR = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +189,10 @@ def _escribir_partidas(ws, partidas):
         if p.get("fecha_valor") is not None:
             ws[f"O{fila}"] = p["fecha_valor"]
         if p.get("asignacion") is not None:
-            ws[f"R{fila}"] = p["asignacion"]
+            celda_asignacion = ws[f"R{fila}"]
+            celda_asignacion.value = p["asignacion"]
+            if p["asignacion"] == _ASIGNACION_REVISAR:
+                celda_asignacion.fill = _RELLENO_REVISAR
         if p.get("xref1") is not None:
             ws[f"U{fila}"] = p["xref1"]
         if p.get("xref2") is not None:

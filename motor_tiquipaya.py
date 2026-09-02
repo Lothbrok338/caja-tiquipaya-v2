@@ -272,6 +272,90 @@ def cruzar_atc(cierre, atc_idx, macros_idx):
 
 
 # ---------------------------------------------------------------------------
+# 2b y 3b. ATC PRECONCILIADO (ETAPA 6 — maestro único, hoja "ATC TIQUIPAYA")
+# ---------------------------------------------------------------------------
+#
+# A diferencia de cruzar_atc() (arriba), aquí el ATC YA VIENE CONCILIADO:
+# NUNCA se cruza contra MACROS (no se recibe macros_idx, no se buscan
+# candidatos, no se busca el NETO por importe, no se aplica ventana de
+# fechas bancarias). Cuenta contable, detalle, monto y asignación del
+# NETO y de la COMISIÓN se toman literalmente de "ATC TIQUIPAYA" para la
+# fecha del cierre. Único control: NETO + COMISIÓN debe reconstruir el
+# ATC BRUTO del cierre (Decimal, 2 decimales); si no coincide, o si
+# faltan las líneas necesarias, es blocker. cruzar_atc() (legado, ATC
+# mensual separado + cruce contra MACROS) no se toca ni se usa aquí.
+
+_ATC_ASIGNACION_REVISAR = "REVISAR"
+
+
+def cruzar_atc_preconciliado(cierre, atc_preconciliado_por_fecha):
+    """Si una asignación (NETO o COMISION) llega como "REVISAR" se
+    conserva literal, NUNCA es blocker y se registra como advertencia
+    "ATC_ASIGNACION_REVISAR" (no bloqueante, no se busca ni se inventa
+    un código alternativo)."""
+    fecha_cierre = cierre["fecha_cierre"]
+    bruto_cierre = Decimal(cierre["sfc101"]["cobros_atc"]) + Decimal(cierre["sfc102"]["cobros_atc"])
+    bruto_str = io.money_str(bruto_cierre)
+
+    base = {
+        "modo": "PRECONCILIADO",
+        "bruto": bruto_str,
+        "neto_cuenta_contable": None, "neto_detalle": None, "neto_asignacion": None,
+        "comision_cuenta_contable": None, "comision_detalle": None, "comision_asignacion": None,
+        "advertencias": [],
+    }
+
+    if bruto_cierre == 0:
+        # Misma regla que cruzar_atc(): día sin cobros con tarjeta, ATC
+        # inactivo/no aplica. Nunca es excepción, no exige filas en
+        # "ATC TIQUIPAYA".
+        return {
+            **base,
+            "neto": "0.00", "comision": "0.00", "diferencia": "0.00",
+            "estado_validacion": "ATC_NO_APLICA",
+            "excepcion": False,
+        }
+
+    registro = atc_preconciliado_por_fecha.get(fecha_cierre)
+    if registro is None or registro.get("neto") is None or registro.get("comision") is None:
+        # Faltan las líneas necesarias para reconstruir el bruto.
+        return {
+            **base,
+            "neto": None, "comision": None, "diferencia": None,
+            "estado_validacion": "ATC_FECHA_NO_ENCONTRADA",
+            "excepcion": True,
+        }
+
+    neto_row = registro["neto"]
+    comision_row = registro["comision"]
+    neto = Decimal(neto_row["monto"])
+    comision = Decimal(comision_row["monto"])
+    suma = neto + comision
+    diferencia = suma - bruto_cierre
+    valida = diferencia == 0
+
+    advertencias = []
+    if _ATC_ASIGNACION_REVISAR in (neto_row.get("asignacion"), comision_row.get("asignacion")):
+        advertencias.append("ATC_ASIGNACION_REVISAR")
+
+    return {
+        **base,
+        "neto": io.money_str(neto),
+        "comision": io.money_str(comision),
+        "diferencia": io.money_str(diferencia),
+        "estado_validacion": "OK" if valida else "ATC_DIFERENCIA",
+        "excepcion": not valida,
+        "neto_cuenta_contable": neto_row.get("cuenta_contable"),
+        "neto_detalle": neto_row.get("detalle"),
+        "neto_asignacion": neto_row.get("asignacion"),
+        "comision_cuenta_contable": comision_row.get("cuenta_contable"),
+        "comision_detalle": comision_row.get("detalle"),
+        "comision_asignacion": comision_row.get("asignacion"),
+        "advertencias": advertencias,
+    }
+
+
+# ---------------------------------------------------------------------------
 # 4. Validación mínima de Comunicaciones Internas
 # ---------------------------------------------------------------------------
 
@@ -361,9 +445,22 @@ def _cruzar_sobre_cierre(cierre, macros_idx, atc_idx):
     cargados por el llamador. Factoriza la lógica compartida entre
     ejecutar_cruces() (ETAPA 3 standalone) y ejecutar_v2() (ETAPA 4, que
     necesita los mismos cruces pero sin volver a abrir el CIERRE).
+
+    `atc_idx` es siempre el resultado de io.leer_atc_mensual():
+    {"modo": "LEGADO"|"PRECONCILIADO", "por_fecha": {...}}. Según el modo
+    (decidido por io.leer_atc_mensual() según el NOMBRE de hoja
+    encontrado, nunca por un flag explícito) se despacha a cruzar_atc()
+    (legado, cruza contra MACROS) o a cruzar_atc_preconciliado() (ATC ya
+    conciliado, nunca cruza contra MACROS).
     """
     vouchers = cruzar_vouchers(cierre, macros_idx)
-    atc = cruzar_atc(cierre, atc_idx, macros_idx)
+
+    datos_atc = atc_idx["por_fecha"]
+    if atc_idx.get("modo") == "PRECONCILIADO":
+        atc = cruzar_atc_preconciliado(cierre, datos_atc)
+    else:
+        atc = cruzar_atc(cierre, datos_atc, macros_idx)
+
     ci = validar_ci(cierre)
 
     excepciones_bloqueantes = (
@@ -595,16 +692,47 @@ def _detalle_para_asiento(cierre, cruces, componentes):
     # distinta de un ATC que sí aplica y no pudo determinarse. atc_aplica
     # es lo que permite a construir_asiento() distinguir ambos casos.
     atc_aplica = Decimal(atc["bruto"]) > 0
-    if atc_aplica and not atc["excepcion"] and atc["estado_match_macros"] == "ATC_MATCH_EXACTO":
-        atc_neto = {
-            "importe": atc["neto"],
-            "codigo_confirmado": atc["codigo_encontrado"],
-            "fecha_bancaria": atc["fecha_bancaria_encontrada"],
-        }
-        atc_comision = {"importe": atc["comision"]}
-    else:
+    atc_advertencias = []
+
+    if not atc_aplica:
         atc_neto = None
         atc_comision = None
+    elif atc.get("modo") == "PRECONCILIADO":
+        # ATC ya conciliado (hoja "ATC TIQUIPAYA"): cuenta, detalle y
+        # asignación se toman literalmente de cruzar_atc_preconciliado(),
+        # sin cruzar contra MACROS. Sin fuente real de fecha bancaria en
+        # este formato: fecha_bancaria siempre None (ver sección D,
+        # nunca se usa la fecha de cierre como reemplazo).
+        atc_advertencias = atc.get("advertencias", [])
+        if not atc["excepcion"] and atc["estado_validacion"] == "OK":
+            atc_neto = {
+                "importe": atc["neto"],
+                "codigo_confirmado": atc["neto_asignacion"],
+                "fecha_bancaria": None,
+                "cuenta_contable": atc["neto_cuenta_contable"],
+                "texto_detalle": atc["neto_detalle"],
+            }
+            atc_comision = {
+                "importe": atc["comision"],
+                "asignacion": atc["comision_asignacion"],
+                "cuenta_contable": atc["comision_cuenta_contable"],
+                "texto_detalle": atc["comision_detalle"],
+            }
+        else:
+            atc_neto = None
+            atc_comision = None
+    else:
+        # LEGADO: comportamiento histórico, sin cambios.
+        if not atc["excepcion"] and atc["estado_match_macros"] == "ATC_MATCH_EXACTO":
+            atc_neto = {
+                "importe": atc["neto"],
+                "codigo_confirmado": atc["codigo_encontrado"],
+                "fecha_bancaria": atc["fecha_bancaria_encontrada"],
+            }
+            atc_comision = {"importe": atc["comision"]}
+        else:
+            atc_neto = None
+            atc_comision = None
 
     return {
         "sfc101_total": sfc101_total,
@@ -619,6 +747,7 @@ def _detalle_para_asiento(cierre, cruces, componentes):
         "atc_comision": atc_comision,
         "atc_aplica": atc_aplica,
         "atc_estado": atc["estado_validacion"],
+        "atc_advertencias": atc_advertencias,
         "dolares": componentes["dolares"],
     }
 
@@ -776,6 +905,7 @@ def construir_asiento(resultado_v2):
 
     partidas = []
     correcciones_aplicadas = []
+    advertencias = list(detalle.get("atc_advertencias") or [])
 
     partidas.append(_partida(
         cuenta_mayor=_CUENTA_HABER, cargo="0.00", haber=detalle["sfc101_haber"],
@@ -813,15 +943,34 @@ def construir_asiento(resultado_v2):
         ))
 
     if atc_aplica:
+        # cuenta_contable/asignacion/texto_detalle solo están presentes
+        # cuando el ATC viene de la hoja preconciliada "ATC TIQUIPAYA"
+        # (ver _detalle_para_asiento): se usan literalmente, tal como
+        # vienen de esa hoja (sección B.3: "usar directamente de la
+        # hoja"). En el flujo legado (ATC mensual + cruce contra MACROS)
+        # esas claves no existen y el comportamiento histórico se
+        # conserva exactamente igual (cuenta fija + asignación calculada).
+        # _validar_partidas() (más abajo, sin cambios) sigue exigiendo
+        # que ATC_NETO/ATC_COMISION usen _CUENTA_VOUCHER_ATC/
+        # _CUENTA_ATC_COMISION: eso es justamente lo que hace cumplir la
+        # "cuenta esperada" (sección B.10) también para el ATC
+        # preconciliado, sin duplicar la regla — una cuenta distinta en
+        # la hoja (fuera de la comisión 110201003, ya cubierta por su
+        # propia defensa) bloquea el asiento en vez de aceptarse a ciegas.
         partidas.append(_partida(
-            cuenta_mayor=_CUENTA_VOUCHER_ATC, cargo=atc_neto["importe"], haber="0.00",
+            cuenta_mayor=atc_neto.get("cuenta_contable") or _CUENTA_VOUCHER_ATC,
+            cargo=atc_neto["importe"], haber="0.00",
             asignacion=atc_neto["codigo_confirmado"], fecha_valor=atc_neto.get("fecha_bancaria"),
             origen="ATC_NETO", sfc_origen=None,
+            texto_posicion=atc_neto.get("texto_detalle"),
         ))
 
         partidas.append(_partida(
-            cuenta_mayor=_CUENTA_ATC_COMISION, cargo=atc_comision["importe"], haber="0.00",
-            asignacion=_asignacion_comision(fecha_cierre), origen="ATC_COMISION", sfc_origen=None,
+            cuenta_mayor=atc_comision.get("cuenta_contable") or _CUENTA_ATC_COMISION,
+            cargo=atc_comision["importe"], haber="0.00",
+            asignacion=atc_comision.get("asignacion") or _asignacion_comision(fecha_cierre),
+            origen="ATC_COMISION", sfc_origen=None,
+            texto_posicion=atc_comision.get("texto_detalle"),
         ))
 
     total_cargo = sum((Decimal(p["cargo"]) for p in partidas), Decimal("0"))
@@ -847,6 +996,7 @@ def construir_asiento(resultado_v2):
         "total_haber": io.money_str(total_haber),
         "diferencia": io.money_str(diferencia),
         "correcciones_aplicadas": correcciones_aplicadas,
+        "advertencias": advertencias,
         "estado": "OK" if not problemas else "ERROR",
         "problemas": problemas,
     }

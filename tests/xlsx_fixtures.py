@@ -102,6 +102,48 @@ def crear_atc(ruta, filas):
     wb.save(ruta)
 
 
+def _llenar_atc_preconciliado(ws, filas):
+    """filas: [(fecha, tipo, cuenta_contable, detalle, monto, asignacion), ...]
+    ASIGNACION puede ser "REVISAR" para probar esa regla."""
+    ws.append(["FECHA", "TIPO", "CUENTA CONTABLE", "DETALLE", "MONTO", "ASIGNACION"])
+    for fila in filas:
+        ws.append(list(fila))
+
+
+def crear_atc_preconciliado(ruta, filas, hoja="ATC TIQUIPAYA"):
+    """ATC TIQUIPAYA (ETAPA 6) como archivo separado, mismo esquema de
+    columnas que dentro del maestro único. Sirve para probar el lector
+    en aislamiento (excel_io.leer_atc_mensual) y para el "flujo anterior
+    con ATC separado" ahora en formato preconciliado."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = hoja
+    _llenar_atc_preconciliado(ws, filas)
+    wb.save(ruta)
+
+
+def crear_maestro_unico(ruta, macros_filas, atc_filas, header_repetido_en=None,
+                         hoja_macros="Tablas Dinamicas Profesional",
+                         hoja_atc="ATC TIQUIPAYA"):
+    """MAESTRO MENSUAL ÚNICO (ETAPA 6): un solo workbook con las dos hojas
+    relevantes. macros_filas: igual formato que crear_macros(). atc_filas:
+    igual formato que crear_atc_preconciliado()."""
+    wb = openpyxl.Workbook()
+    ws_macros = wb.active
+    ws_macros.title = hoja_macros
+    header_macros = ["Fecha", "Código de Asignación", "Créditos"]
+    ws_macros.append(header_macros)
+    for i, (fecha, codigo, credito) in enumerate(macros_filas):
+        if header_repetido_en is not None and i == header_repetido_en:
+            ws_macros.append(header_macros)
+        ws_macros.append([fecha, codigo, credito])
+
+    ws_atc = wb.create_sheet(hoja_atc)
+    _llenar_atc_preconciliado(ws_atc, atc_filas)
+
+    wb.save(ruta)
+
+
 def crear_plantilla_sap(ruta, hoja="1"):
     """Plantilla SAP sintética mínima (ETAPA 6), sin datos contables reales.
 

@@ -26,7 +26,11 @@ import openpyxl
 
 import motor_tiquipaya as motor
 import sap_writer as sap
+from tests import xlsx_fixtures as fx
 from tests.xlsx_fixtures import crear_plantilla_sap
+from tests.test_regresion_sintetica import (
+    NOMBRE_CIERRE, _baseline_sfc101, _baseline_sfc102,
+)
 
 
 FECHA_CIERRE = "2026-08-19"
@@ -438,6 +442,114 @@ class TestRendimiento(_SapTestBase):
 
         self.assertEqual(generacion["estado"], "OK")
         self.assertEqual(validacion["estado"], "OK")
+
+
+# ---------------------------------------------------------------------------
+# ATC preconciliado (OPTIMIZACIÓN MAESTRO ÚNICO): asignación "REVISAR" ->
+# se escribe literal en R y recibe relleno amarillo (solo visual).
+# ---------------------------------------------------------------------------
+
+def _asiento_ok_con_revisar():
+    resultado_v2 = _resultado_v2_ok()
+    resultado_v2["detalle"]["atc_neto"]["codigo_confirmado"] = "REVISAR"
+    return motor.construir_asiento(resultado_v2)
+
+
+class TestAtcRevisarEnSap(_SapTestBase):
+    """Una partida ATC con asignación "REVISAR" (ver ETAPA 6 OPTIMIZACIÓN
+    — ATC preconciliado) se escribe literal en columna R y recibe relleno
+    amarillo. El amarillo es puramente visual: no afecta cargo/haber ni
+    el cuadre del asiento."""
+
+    def setUp(self):
+        super().setUp()
+        self.asiento = _asiento_ok_con_revisar()
+        self.assertEqual(self.asiento["estado"], "OK")
+
+    def test_revisar_se_escribe_literal_y_con_relleno_amarillo(self):
+        self._generar()
+
+        atc_neto = next(p for p in self.asiento["partidas"] if p["origen"] == "ATC_NETO")
+        idx = self.asiento["partidas"].index(atc_neto)
+        fila = 16 + idx
+        self.assertEqual(atc_neto["asignacion"], "REVISAR")
+
+        wb = openpyxl.load_workbook(self.ruta_salida)  # sin data_only: hace falta el estilo
+        ws = wb["1"]
+        celda = ws[f"R{fila}"]
+        self.assertEqual(celda.value, "REVISAR")
+        self.assertEqual(celda.fill.fill_type, "solid")
+        self.assertEqual(celda.fill.fgColor.rgb, "00FFFF00")
+        wb.close()
+
+        validacion = sap.validar_sap(
+            self.ruta_salida, self.asiento, self.metadata, ruta_plantilla=self.ruta_plantilla
+        )
+        self.assertEqual(validacion["estado"], "OK")
+        self.assertEqual(validacion["diferencia"], "0.00")
+
+    def test_asignacion_distinta_de_revisar_no_recibe_relleno(self):
+        self._generar()
+        atc_comision = next(p for p in self.asiento["partidas"] if p["origen"] == "ATC_COMISION")
+        idx = self.asiento["partidas"].index(atc_comision)
+        fila = 16 + idx
+
+        wb = openpyxl.load_workbook(self.ruta_salida)
+        ws = wb["1"]
+        celda = ws[f"R{fila}"]
+        self.assertNotEqual(celda.value, "REVISAR")
+        self.assertIsNone(celda.fill.fill_type)
+        wb.close()
+
+
+# ---------------------------------------------------------------------------
+# Integración completa: MAESTRO ÚNICO (MACROS + ATC TIQUIPAYA en un solo
+# archivo) -> ejecutar_v2 -> construir_asiento -> generar_y_validar_sap.
+# ---------------------------------------------------------------------------
+
+class TestPipelineMaestroUnicoHastaSap(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="sap_pipeline_")
+        self.ruta_plantilla = os.path.join(self.tmpdir, "plantilla.xlsx")
+        self.ruta_salida = os.path.join(self.tmpdir, "salida.xlsx")
+        crear_plantilla_sap(self.ruta_plantilla)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_pipeline_completo_ok(self):
+        ruta_cierre = os.path.join(self.tmpdir, NOMBRE_CIERRE)
+        ruta_maestro = os.path.join(self.tmpdir, "MACROS AGOSTO 2026.xlsm")
+        fx.crear_cierre(ruta_cierre, _baseline_sfc101(), _baseline_sfc102())
+        fx.crear_maestro_unico(
+            ruta_maestro,
+            macros_filas=[
+                (FECHA_CIERRE, "VCH1001", "20000.00"),
+                (FECHA_CIERRE, "VCH1002", "20805.00"),
+                (FECHA_CIERRE, "VCH1003", "20000.00"),
+                (FECHA_CIERRE, "VCH1004", "20000.00"),
+            ],
+            atc_filas=[
+                (FECHA_CIERRE, "BANCO (NETO)", "110103012",
+                 "ATC COCHABAMBA 19/08/2026", "130246.43", "3P02891953"),
+                (FECHA_CIERRE, "COMISION ATC", "110201008",
+                 "COMISION ATC 19/08/2026", "636.57", "TIQUIPAYA AGO"),
+            ],
+        )
+
+        # Un solo archivo hace de MACROS y de ATC: la "segunda descarga"
+        # queda eliminada (ruta_macros == ruta_atc).
+        resultado_v2 = motor.ejecutar_v2(ruta_cierre, ruta_maestro, ruta_maestro)
+        self.assertEqual(resultado_v2["estado"], "OK")
+        asiento = motor.construir_asiento(resultado_v2)
+        self.assertEqual(asiento["estado"], "OK")
+
+        metadata = _metadata_cabecera()
+        resumen = sap.generar_y_validar_sap(asiento, self.ruta_plantilla, self.ruta_salida, metadata)
+        self.assertEqual(resumen["estado_sap"], "OK", resumen)
+        self.assertEqual(resumen["validacion"]["problemas"], [])
+        self.assertEqual(resumen["validacion"]["diferencia"], "0.00")
 
 
 if __name__ == "__main__":
