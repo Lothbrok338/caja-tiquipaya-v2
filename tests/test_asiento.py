@@ -80,6 +80,11 @@ def _resultado_v2_ok():
     detalle = {
         "sfc101_total": SFC101_TOTAL,
         "sfc102_total": SFC102_TOTAL,
+        # Sin ALQUILERES en el fixture base: HABER ajustado == total.
+        "sfc101_haber": SFC101_TOTAL,
+        "sfc102_haber": SFC102_TOTAL,
+        "alquileres_sfc101": "0.00",
+        "alquileres_sfc102": "0.00",
         "vouchers_confirmados": _fixture_vouchers(),
         "ci_validas": _fixture_ci(),
         "atc_neto": {
@@ -240,6 +245,221 @@ class TestValidarCiExcluyeAlquileres(unittest.TestCase):
         self.assertEqual(resultado["alquileres_cantidad"], 1)
         self.assertEqual(len(resultado["detalle_validas"]), 1)
         self.assertEqual(resultado["detalle_validas"][0]["referencia"], "F-1")
+
+
+# ---------------------------------------------------------------------------
+# ALQUILERES por SFC: HABER ajustado (correción obligatoria A)
+# ---------------------------------------------------------------------------
+
+def _resultado_v2_con_alquileres(alq_sfc101="0.00", alq_sfc102="0.00"):
+    """Parte de _resultado_v2_ok() y simula que ALQUILERES ya estaba
+    incluido en el TOTAL MOVIMIENTO crudo de cada SFC (como en un Excel
+    real): se suma al total crudo y se resta al HABER ajustado, dejando
+    el universo_ajustado y la recaudación explicada iguales al baseline
+    (el alquiler nunca fue parte de CI_OPERATIVAS)."""
+    resultado = _resultado_v2_ok()
+    alq101 = Decimal(alq_sfc101)
+    alq102 = Decimal(alq_sfc102)
+
+    sfc101_total_crudo = Decimal(SFC101_TOTAL) + alq101
+    sfc102_total_crudo = Decimal(SFC102_TOTAL) + alq102
+
+    resultado["detalle"]["sfc101_total"] = motor.io.money_str(sfc101_total_crudo)
+    resultado["detalle"]["sfc102_total"] = motor.io.money_str(sfc102_total_crudo)
+    resultado["detalle"]["sfc101_haber"] = SFC101_TOTAL
+    resultado["detalle"]["sfc102_haber"] = SFC102_TOTAL
+    resultado["detalle"]["alquileres_sfc101"] = motor.io.money_str(alq101)
+    resultado["detalle"]["alquileres_sfc102"] = motor.io.money_str(alq102)
+    return resultado
+
+
+class TestAlquileresPorSFC(unittest.TestCase):
+    """2-4. ALQUILERES excluido del asiento, HABER ajustado por SFC, el
+    asiento sigue cuadrando y no aparece ninguna partida ALQUILERES."""
+
+    def test_alquileres_sfc101(self):
+        resultado = _resultado_v2_con_alquileres(alq_sfc101="1000.00")
+        asiento = motor.construir_asiento(resultado)
+        self.assertEqual(asiento["estado"], "OK")
+        haber101 = next(p for p in asiento["partidas"] if p["origen"] == "UNIVERSO_SFC101")
+        haber102 = next(p for p in asiento["partidas"] if p["origen"] == "UNIVERSO_SFC102")
+        self.assertEqual(haber101["haber"], "137504.96")
+        self.assertEqual(haber102["haber"], "144552.00")
+        self.assertEqual(asiento["total_cargo"], asiento["total_haber"])
+        self.assertEqual(asiento["diferencia"], "0.00")
+        self.assertFalse(any(p["origen"] == "ALQUILERES" for p in asiento["partidas"]))
+
+    def test_alquileres_sfc102(self):
+        resultado = _resultado_v2_con_alquileres(alq_sfc102="2000.00")
+        asiento = motor.construir_asiento(resultado)
+        self.assertEqual(asiento["estado"], "OK")
+        haber101 = next(p for p in asiento["partidas"] if p["origen"] == "UNIVERSO_SFC101")
+        haber102 = next(p for p in asiento["partidas"] if p["origen"] == "UNIVERSO_SFC102")
+        self.assertEqual(haber101["haber"], "137504.96")
+        self.assertEqual(haber102["haber"], "144552.00")
+        self.assertEqual(asiento["total_cargo"], asiento["total_haber"])
+        self.assertFalse(any(p["origen"] == "ALQUILERES" for p in asiento["partidas"]))
+
+    def test_alquileres_en_ambos_sfc(self):
+        resultado = _resultado_v2_con_alquileres(alq_sfc101="500.00", alq_sfc102="700.00")
+        asiento = motor.construir_asiento(resultado)
+        self.assertEqual(asiento["estado"], "OK")
+        haber101 = next(p for p in asiento["partidas"] if p["origen"] == "UNIVERSO_SFC101")
+        haber102 = next(p for p in asiento["partidas"] if p["origen"] == "UNIVERSO_SFC102")
+        self.assertEqual(haber101["haber"], "137504.96")
+        self.assertEqual(haber102["haber"], "144552.00")
+        self.assertEqual(asiento["total_cargo"], "282056.96")
+        self.assertEqual(asiento["total_haber"], "282056.96")
+        self.assertEqual(asiento["diferencia"], "0.00")
+        self.assertFalse(any(p["origen"] == "ALQUILERES" for p in asiento["partidas"]))
+
+
+class TestValidarCiAlquileresPorSFC(unittest.TestCase):
+    """validar_ci debe exponer el importe de ALQUILERES separado por SFC,
+    no solo el total global."""
+
+    def test_alquileres_por_sfc_en_validar_ci(self):
+        cierre = {
+            "comunicaciones_internas": [
+                {
+                    "sfc": "SFC101", "referencia": "F-1", "importe": "100.00",
+                    "cuenta_contable": "210201005", "asignacion": "CI0001",
+                    "banco": "BNB", "alquileres": False,
+                },
+                {
+                    "sfc": "SFC101", "referencia": "F-2", "importe": "300.00",
+                    "cuenta_contable": None, "asignacion": None,
+                    "banco": "ALQUILERES", "alquileres": True,
+                },
+                {
+                    "sfc": "SFC102", "referencia": "F-3", "importe": "450.00",
+                    "cuenta_contable": None, "asignacion": None,
+                    "banco": "ALQUILERES", "alquileres": True,
+                },
+            ]
+        }
+        resultado = motor.validar_ci(cierre)
+        self.assertEqual(resultado["alquileres_por_sfc"]["SFC101"], "300.00")
+        self.assertEqual(resultado["alquileres_por_sfc"]["SFC102"], "450.00")
+        self.assertEqual(resultado["alquileres_importe"], "750.00")
+
+
+# ---------------------------------------------------------------------------
+# CI: bloqueantes, importe negativo, fecha propia (G, H, 3.12-3.14)
+# ---------------------------------------------------------------------------
+
+class TestCiBloqueantes(unittest.TestCase):
+    def test_ci_sin_cuenta_bloquea(self):
+        cierre = {"comunicaciones_internas": [{
+            "sfc": "SFC101", "referencia": "F-1", "importe": "100.00",
+            "cuenta_contable": None, "asignacion": "CI0001",
+            "banco": "BNB", "alquileres": False,
+        }]}
+        resultado = motor.validar_ci(cierre)
+        self.assertEqual(len(resultado["bloqueantes"]), 1)
+        self.assertEqual(resultado["bloqueantes"][0]["tipo"], "CI_CUENTA_FALTANTE")
+        self.assertEqual(resultado["detalle_validas"], [])
+
+    def test_ci_sin_asignacion_bloquea(self):
+        cierre = {"comunicaciones_internas": [{
+            "sfc": "SFC101", "referencia": "F-1", "importe": "100.00",
+            "cuenta_contable": "210201005", "asignacion": None,
+            "banco": "BNB", "alquileres": False,
+        }]}
+        resultado = motor.validar_ci(cierre)
+        self.assertEqual(len(resultado["bloqueantes"]), 1)
+        self.assertEqual(resultado["bloqueantes"][0]["tipo"], "CI_ASIGNACION_FALTANTE")
+        self.assertEqual(resultado["detalle_validas"], [])
+
+    def test_ci_importe_negativo_bloquea(self):
+        cierre = {"comunicaciones_internas": [{
+            "sfc": "SFC101", "referencia": "F-1", "importe": "-50.00",
+            "cuenta_contable": "210201005", "asignacion": "CI0001",
+            "banco": "BNB", "alquileres": False,
+        }]}
+        resultado = motor.validar_ci(cierre)
+        self.assertEqual(len(resultado["bloqueantes"]), 1)
+        self.assertEqual(resultado["bloqueantes"][0]["tipo"], "CI_IMPORTE_NEGATIVO")
+        self.assertEqual(resultado["detalle_validas"], [])
+
+
+def _resultado_v2_minimo_con_ci(ci_validas):
+    """resultado_v2 mínimo, autocontenido y cuadrado (CARGO==HABER), para
+    aislar el comportamiento de una sola CI sin arrastrar los totales del
+    fixture completo 19-08-2026."""
+    total_ci = sum((Decimal(ci["importe"]) for ci in ci_validas), Decimal("0"))
+    detalle = {
+        "sfc101_total": motor.io.money_str(total_ci),
+        "sfc102_total": "0.00",
+        "sfc101_haber": motor.io.money_str(total_ci),
+        "sfc102_haber": "0.00",
+        "alquileres_sfc101": "0.00",
+        "alquileres_sfc102": "0.00",
+        "vouchers_confirmados": [],
+        "ci_validas": ci_validas,
+        "atc_neto": {"importe": "0.00", "codigo_confirmado": "X", "fecha_bancaria": None},
+        "atc_comision": {"importe": "0.00"},
+        "dolares": "0.00",
+    }
+    return {
+        "fecha": "2026-08-19",
+        "estado": "OK",
+        "excepciones_bloqueantes": 0,
+        "diferencia": "0.00",
+        "detalle": detalle,
+    }
+
+
+class TestCiFechaPropia(unittest.TestCase):
+    """10-11. Fecha propia de CI: se preserva y se propaga como
+    fecha_valor; si no existe, fecha_valor queda en None (nunca se usa la
+    fecha del cierre como reemplazo)."""
+
+    def test_fecha_ci_preservada_hasta_la_partida(self):
+        cierre = {"comunicaciones_internas": [{
+            "sfc": "SFC101", "referencia": "F-1", "importe": "100.00",
+            "cuenta_contable": "210201005", "asignacion": "CI0001",
+            "banco": "BNB", "alquileres": False, "fecha_ci": "2026-08-15",
+        }]}
+        validado = motor.validar_ci(cierre)
+        self.assertEqual(validado["detalle_validas"][0]["fecha_ci"], "2026-08-15")
+
+        resultado = _resultado_v2_minimo_con_ci(validado["detalle_validas"])
+        asiento = motor.construir_asiento(resultado)
+        self.assertEqual(asiento["estado"], "OK")
+        ci_partida = next(p for p in asiento["partidas"] if p["origen"] == "CI")
+        self.assertEqual(ci_partida["fecha_valor"], "2026-08-15")
+
+    def test_sin_fecha_propia_fecha_valor_es_none(self):
+        cierre = {"comunicaciones_internas": [{
+            "sfc": "SFC101", "referencia": "F-1", "importe": "100.00",
+            "cuenta_contable": "210201005", "asignacion": "CI0001",
+            "banco": "BNB", "alquileres": False,
+            # sin clave "fecha_ci": simula una hoja sin esa columna
+        }]}
+        validado = motor.validar_ci(cierre)
+        self.assertIsNone(validado["detalle_validas"][0]["fecha_ci"])
+
+        resultado = _resultado_v2_minimo_con_ci(validado["detalle_validas"])
+        asiento = motor.construir_asiento(resultado)
+        self.assertEqual(asiento["estado"], "OK")
+        ci_partida = next(p for p in asiento["partidas"] if p["origen"] == "CI")
+        self.assertIsNone(ci_partida["fecha_valor"])
+
+
+# ---------------------------------------------------------------------------
+# Asiento inválido: ERROR -> partidas vacías (corrección obligatoria E)
+# ---------------------------------------------------------------------------
+
+class TestAsientoInvalidoLimpiaPartidas(unittest.TestCase):
+    def test_importe_negativo_en_voucher_bloquea_y_limpia_partidas(self):
+        resultado = _resultado_v2_ok()
+        resultado["detalle"]["vouchers_confirmados"][0]["importe"] = "-100.00"
+        asiento = motor.construir_asiento(resultado)
+        self.assertEqual(asiento["estado"], "ERROR")
+        self.assertEqual(asiento["partidas"], [])
+        self.assertEqual(asiento["cantidad_partidas"], 0)
+        self.assertTrue(any(p.startswith("IMPORTE_NEGATIVO") for p in asiento["problemas"]))
 
 
 if __name__ == "__main__":
