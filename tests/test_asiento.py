@@ -206,18 +206,36 @@ class TestPrecondicionesBloqueo(unittest.TestCase):
         asiento = motor.construir_asiento(resultado)
         self.assertEqual(asiento["estado"], "NO_ASIENTO")
 
-    def test_usd_cuenta_pendiente_si_dolares_mayor_a_cero(self):
+    def test_usd_mayor_a_cero_genera_partida_debe_caja_me(self):
+        # CORRECCIÓN USD/DOLARES (post-ETAPA 8): ya no bloquea el asiento;
+        # genera una partida DEBE 110101010 balanceando el HABER SFC101
+        # con el mismo importe (aislado del cuadre real de ejecutar_v2,
+        # que no se toca aquí).
         resultado = _resultado_v2_ok()
         resultado["detalle"]["dolares"] = "50.00"
+        resultado["detalle"]["sfc101_haber"] = motor.io.money_str(
+            Decimal(resultado["detalle"]["sfc101_haber"]) + Decimal("50.00")
+        )
         asiento = motor.construir_asiento(resultado)
-        self.assertEqual(asiento["estado"], "USD_CUENTA_PENDIENTE")
-        self.assertEqual(asiento["partidas"], [])
+        self.assertEqual(asiento["estado"], "OK", asiento)
+        self.assertNotEqual(asiento["estado"], "USD_CUENTA_PENDIENTE")
+
+        usd = next(p for p in asiento["partidas"] if p["origen"] == "DOLARES")
+        self.assertEqual(usd["cuenta_mayor"], "110101010")
+        self.assertEqual(usd["cargo"], "50.00")
+        self.assertEqual(usd["haber"], "0.00")
+        self.assertEqual(usd["texto_posicion"], "RECAUDACION DOLARES")
+        self.assertIsNone(usd["asignacion"])
+        self.assertEqual(usd["fecha_valor"], resultado["fecha"])
+        self.assertEqual(usd["sociedad"], "BO01")
+        self.assertEqual(usd["centro_beneficio"], "10010101")
 
     def test_dolares_cero_no_genera_partida(self):
         resultado = _resultado_v2_ok()
         resultado["detalle"]["dolares"] = "0.00"
         asiento = motor.construir_asiento(resultado)
         self.assertEqual(asiento["estado"], "OK")
+        self.assertNotEqual(asiento["estado"], "USD_CUENTA_PENDIENTE")
         for p in asiento["partidas"]:
             self.assertNotEqual(p["origen"], "DOLARES")
 

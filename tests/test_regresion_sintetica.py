@@ -150,22 +150,43 @@ class TestEncabezadosRepetidosMacros(TestRegresionSintetica190826):
         return 2
 
 
-class TestUsdBloqueaEjecutarV2(_BaseRegresion):
-    """9. DOLARES > 0.00 y cuenta USD no parametrizada: ejecutar_v2 nunca
-    devuelve "OK"; construir_asiento no genera partidas."""
+class TestUsdGeneraPartidaDebeCajaMe(_BaseRegresion):
+    """9. CORRECCIÓN USD/DOLARES (post-ETAPA 8, validada end-to-end por
+    Cowork con el cierre real 05-08-2026): DOLARES > 0.00 ya NO bloquea
+    ejecutar_v2 ni construir_asiento — genera una partida DEBE única,
+    cuenta 110101010 "Caja M/E"."""
+
+    _DOLARES = "50.00"
 
     def _sfc101(self):
         datos = _baseline_sfc101()
-        datos["dolares"] = "50.00"
+        datos["dolares"] = self._DOLARES
+        # USD no forma parte de TOTAL MOVIMIENTO DEL DIA en el cierre real:
+        # se suma aquí para que el universo siga cuadrando exactamente con
+        # recaudacion_explicada (que sí incluye "dolares"), sin tocar la
+        # fórmula de cuadre.
+        datos["total_movimiento"] = io.money_str(
+            Decimal(datos["total_movimiento"]) + Decimal(self._DOLARES)
+        )
         return datos
 
-    def test_usd_cuenta_pendiente(self):
+    def test_usd_no_bloquea_y_genera_partida_debe(self):
         resultado = self._ejecutar()
-        self.assertEqual(resultado["estado"], "USD_CUENTA_PENDIENTE")
-        self.assertNotEqual(resultado["estado"], "OK")
+        self.assertEqual(resultado["estado"], "OK", resultado)
+        self.assertNotEqual(resultado["estado"], "USD_CUENTA_PENDIENTE")
+        self.assertEqual(resultado["diferencia"], "0.00")
+
         asiento = motor.construir_asiento(resultado)
-        self.assertEqual(asiento["estado"], "USD_CUENTA_PENDIENTE")
-        self.assertEqual(asiento["partidas"], [])
+        self.assertEqual(asiento["estado"], "OK", asiento)
+        self.assertNotEqual(asiento["estado"], "USD_CUENTA_PENDIENTE")
+
+        usd = next(p for p in asiento["partidas"] if p["origen"] == "DOLARES")
+        self.assertEqual(usd["cuenta_mayor"], "110101010")
+        self.assertEqual(usd["cargo"], self._DOLARES)
+        self.assertEqual(usd["haber"], "0.00")
+        self.assertEqual(usd["texto_posicion"], "RECAUDACION DOLARES")
+        self.assertIsNone(usd["asignacion"])
+        self.assertEqual(usd["fecha_valor"], FECHA_CIERRE)
 
 
 class TestCierreBloqueadoPorExcepcion(_BaseRegresion):
