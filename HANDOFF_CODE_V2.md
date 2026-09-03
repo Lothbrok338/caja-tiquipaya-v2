@@ -245,3 +245,85 @@ no hay fecha real propia) cubre esta partida sin necesitar código nuevo.
 Sin cambios en: vouchers, CI, ATC, ALQUILERES, SFC101/SFC102, resto de
 reglas SAP (ETAPA 6/8) ni control inmutable por SHA256 (ETAPA 8 y su
 corrección).
+
+## 12. RUNNER BATCH CANÓNICO
+
+Elimina la necesidad de que Cowork escriba scripts ad hoc en cada batch.
+`run_batch.py` es el runner productivo genérico: orquesta
+`pipeline_tiquipaya.procesar_cierre_completo()` sobre un rango de fechas
+de UN MISMO MES, exclusivamente sobre archivos YA MATERIALIZADOS
+localmente. No reinterpreta contabilidad, no cambia ninguna regla de
+`excel_io.py`/`motor_tiquipaya.py`/`sap_writer.py`, y **nunca** se
+conecta a Google Drive.
+
+**División de responsabilidades:**
+
+- **Cowork:** Drive → localiza los cierres del rango, materializa el
+  CIERRE de cada día, materializa UNA VEZ el maestro mensual y UNA VEZ
+  la plantilla SAP, y obtiene/materializa los marcadores
+  `PROCESADO_<SHA256>.json` existentes en un directorio local
+  (`--controles-dir`).
+- **`run_batch.py`:** procesa el rango completo de forma local — nunca
+  lee ni escribe nada en Drive.
+- **Cowork:** publica SAP/RESULTADO/CONTROL en Drive solo tras
+  confirmación explícita del usuario (igual que el contrato operativo
+  de la sección 8; `run_batch.py` no crea marcadores PROCESADO ni mueve
+  cierres).
+
+**Uso:**
+
+```
+python run_batch.py \
+  --fecha-inicio 2026-09-01 \
+  --fecha-fin 2026-09-03 \
+  --cierres-dir /ruta/cierres \
+  --maestro /ruta/MACROS_SEPTIEMBRE.xlsm \
+  --plantilla /ruta/Plantilla_SAP_maestra.xlsx \
+  --salidas-dir /ruta/salidas \
+  --resultados-dir /ruta/resultados \
+  --controles-dir /ruta/controles
+```
+
+**Comportamiento clave:**
+
+- Rango dinámico (`--fecha-inicio`/`--fecha-fin`, sin fechas
+  hardcodeadas), exigiendo que ambas pertenezcan al mismo mes: si
+  cruzan de mes, se detiene con error claro (`RANGO_CRUZA_MES`) y nunca
+  combina maestros mensuales distintos. Un día sin `CIERRE
+  DD-MM-YYYY.xlsm` en `--cierres-dir` se reporta como `SIN_ARCHIVO` y el
+  batch continúa con el siguiente día.
+- Texto de cabecera SAP (G10) derivado automáticamente del mes de cada
+  cierre: `INGRESOS <MES_ABREV> CBBA` (ENE..DIC). L10/Referencia se
+  mantiene fija: `CAJA TIQUIPAYA`.
+- `--maestro` y `--plantilla` se reciben por ruta local, se validan una
+  vez (existencia, hoja `ATC TIQUIPAYA` en el maestro, coincidencia de
+  mes cuando es determinable por el nombre de archivo) y se reutilizan
+  tal cual para todos los cierres del rango.
+- Idempotencia dinámica: si se pasa `--controles-dir`, se leen todos los
+  `PROCESADO_<SHA256>.json` presentes (solo cuentan los que traen
+  `HashOrigen` y `Estado=PROCESADO`) y se arma `hashes_procesados`/
+  `registros_control` para `procesar_cierre_completo(...)`. Sin
+  `--controles-dir`, se usa un set vacío de forma explícita, indicado en
+  `resultado_batch.json["idempotencia"]`. Nunca se asume
+  `HASHES_PROCESADOS = set()` como supuesto fijo de producción.
+- Un blocker en un cierre individual se refleja como `ERROR_REVISAR` y
+  **no** detiene el batch: se continúa con el siguiente cierre.
+- Ejecuta exclusivamente `pipeline_tiquipaya.procesar_cierre_completo()`
+  — no duplica lógica contable ni llama funciones privadas del motor.
+- Salida: `resultado_batch.json` en `--resultados-dir`, con fecha,
+  archivo, hash, estado (`LISTO_PARA_PUBLICAR` / `YA_PROCESADO` /
+  `ERROR_REVISAR` / `SIN_ARCHIVO` / `ERROR_TECNICO`), diferencia,
+  blockers, líneas SAP, tiempos (batch total, por cierre, generación y
+  validación SAP cuando `sap_writer` los expone), rutas de SAP y
+  RESULTADO, y `detalle_error` cuando corresponde.
+- El runner **no** mueve cierres, **no** publica SAP, **no** crea
+  marcadores PROCESADO, **no** escribe en Google Drive, **no** modifica
+  archivos fuente, **no** corrige blockers y **no** inventa
+  cuentas/asignaciones: solo genera salidas locales pendientes de
+  publicación.
+
+Tests: `tests/test_run_batch.py` (23 pruebas: rango dinámico, cabecera
+automática por mes, rango cruzando mes, `SIN_ARCHIVO`, idempotencia
+dinámica vía marcadores, blocker sin detener el batch, reutilización de
+maestro/plantilla, validación de maestro, y ausencia de cualquier
+dependencia de Google Drive).
