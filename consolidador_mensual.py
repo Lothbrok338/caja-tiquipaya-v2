@@ -19,7 +19,11 @@ MUY IMPORTANTE — este módulo es de solo lectura sobre sus entradas:
     válido (cabecera, partidas, cuadre propio) y copia sus partidas TAL
     CUAL al SAP global, sin agrupar ni resumir;
   - no se conecta a Google Drive: opera exclusivamente sobre archivos ya
-    materializados localmente (por Cowork, en una etapa posterior).
+    materializados localmente (por Cowork, en una etapa posterior);
+  - en el SAP global, la columna Cargo/Haber que no corresponde a una
+    partida (DEBE con Haber, o HABER con Cargo) se escribe como celda
+    REALMENTE VACÍA (`None`), nunca como 0/0.00 explícito: SAP no acepta
+    ese cero en la columna opuesta (`_celda_importe_o_vacia`).
 
 Estructura de la plantilla SAP (idéntica a la usada por sap_writer.py — hoja
 EXACTA "1", cabecera fila 10, partidas desde fila 16, mismas columnas); ver
@@ -405,6 +409,17 @@ def construir_metadata_cabecera_global(anio, mes):
     }
 
 
+def _celda_importe_o_vacia(importe):
+    """SAP no acepta un 0/0.00 explícito en la columna Cargo/Haber que no
+    corresponde a la partida (partida DEBE con Haber=0, o partida HABER
+    con Cargo=0): esa celda debe quedar REALMENTE VACÍA. Devuelve el
+    importe tal cual si es > 0, o None (celda vacía) en caso contrario.
+    Nunca inventa ni ajusta el importe positivo real."""
+    if importe is not None and importe > 0:
+        return importe
+    return None
+
+
 def escribir_sap_global(partidas, ruta_plantilla, ruta_salida, metadata):
     """Copia `ruta_plantilla` a `ruta_salida` (nunca abre la plantilla en
     modo escritura) y escribe, sobre la copia, la cabecera global y TODAS
@@ -436,12 +451,18 @@ def escribir_sap_global(partidas, ruta_plantilla, ruta_salida, metadata):
             if p["texto_posicion"] is not None:
                 ws[f"D{fila_p}"] = p["texto_posicion"]
 
+            cargo_valor = _celda_importe_o_vacia(p["cargo"])
+            haber_valor = _celda_importe_o_vacia(p["haber"])
+
             celda_cargo = ws[f"E{fila_p}"]
-            celda_cargo.value = p["cargo"]
-            celda_cargo.number_format = "0.00"
+            celda_cargo.value = cargo_valor
+            if cargo_valor is not None:
+                celda_cargo.number_format = "0.00"
+
             celda_haber = ws[f"F{fila_p}"]
-            celda_haber.value = p["haber"]
-            celda_haber.number_format = "0.00"
+            celda_haber.value = haber_valor
+            if haber_valor is not None:
+                celda_haber.number_format = "0.00"
 
             ws[f"L{fila_p}"] = p["centro_beneficio"]
             if p["fecha_valor"] is not None:
