@@ -327,3 +327,97 @@ automática por mes, rango cruzando mes, `SIN_ARCHIVO`, idempotencia
 dinámica vía marcadores, blocker sin detener el batch, reutilización de
 maestro/plantilla, validación de maestro, y ausencia de cualquier
 dependencia de Google Drive).
+
+## 13. CONSOLIDADOR MENSUAL SAP
+
+Módulo **separado e independiente** (`consolidador_mensual.py`), **posterior**
+al V2 diario. No modifica ninguna regla contable ni ningún archivo del motor
+diario: toma SAP diarios **ya validados y publicados** por el flujo diario y
+produce un **nuevo archivo** SAP GLOBAL mensual.
+
+```
+SAP diarios validados
+        ↓
+consolidador_mensual.py
+        ↓
+NUEVO archivo: SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx
+```
+
+**Principios (no negociables):**
+
+- Los SAP diarios de origen son **solo lectura**: se abren siempre con
+  `read_only=True, data_only=True` y **nunca** reciben `.save()`. No se
+  modifican, no se renombran, no se mueven y no se vuelven a conciliar
+  (no repite vouchers/CI/ATC/USD ni ninguna regla de `motor_tiquipaya.py`).
+- La plantilla SAP maestra nunca se abre en modo escritura: se copia con
+  `shutil.copyfile` y solo esa copia (`--salida`) se escribe.
+- El SAP global es un **archivo nuevo**: la consolidación es detallada
+  (copia TODAS las partidas de TODOS los SAP diarios incluidos), **nunca
+  agrupa por cuenta ni suma partidas equivalentes**.
+- `FechaValor` de cada partida se **conserva tal cual** (nunca se
+  reemplaza por fin de mes). El fin de mes aplica únicamente a
+  `FechaRegistro`/`FechaContabilizacion` de la cabecera global.
+- **Riesgo de doble contabilización:** el SAP global y los SAP diarios que
+  lo componen representan la MISMA operación. No corresponde contabilizar
+  ambos simultáneamente: el global reemplaza a los diarios como fuente de
+  contabilización mensual una vez publicado (decisión operativa de
+  Cowork/usuario, fuera de este script).
+
+**Uso:**
+
+```
+python consolidador_mensual.py \
+  --anio 2026 --mes 8 \
+  --sap-dir /ruta/sap_diarios \
+  --plantilla /ruta/Plantilla_SAP_maestra.xlsx \
+  --salida /ruta/SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx
+```
+
+`--archivos-lista <ruta1> <ruta2> ...` consolida EXCLUSIVAMENTE esa lista
+explícita de SAP aprobados (ignora `--sap-dir` y el filtro de año/mes).
+`--force` permite reemplazar `--salida` si ya existe; nunca habilita
+reemplazar un SAP diario ni la plantilla (esos archivos jamás se abren en
+modo escritura, con o sin `--force`).
+
+**Selección y guardarraíles:**
+
+- Por defecto selecciona `SAP_TIQ_DD-MM-YYYY.xlsx` del año/mes pedido,
+  ordenados cronológicamente; ignora `SAP_GLOBAL_*`, temporales
+  (`~$...`, `.tmp`, ocultos) y nombres no compatibles.
+- Duplicados por nombre: SHA256 idéntico → se usa una sola copia
+  (`duplicados_identicos_ignorados`); SHA256 distinto → BLOQUEA la
+  consolidación (`DUPLICADO_SAP_DIFERENTE`), nunca elige arbitrariamente.
+- `--salida` no puede coincidir con la plantilla, con un SAP origen, ni
+  con el patrón de nombre de un SAP diario; sin `--force` no sobrescribe
+  una salida global existente.
+
+**Validación mínima por SAP diario (solo lectura, sección 5):** hoja
+exacta `"1"`, cabecera fija (`B10=BO01`, `C10=DB`, `H10=BOB`,
+`L10=CAJA TIQUIPAYA`), al menos una partida desde la fila 16, cuentas no
+vacías, Cargo/Haber consistentes por partida, y Cargo total = Haber total
+del propio SAP. Cualquier problema bloquea toda la consolidación
+(`ERROR_REVISAR`): no corrige nada automáticamente.
+
+**Cuadre global:** `CargoGlobal` = suma de Cargo de todos los SAP
+incluidos; `HaberGlobal` = suma de Haber. Si no coincide: `ERROR_REVISAR`,
+sin generar el `.xlsx` global.
+
+**Trazabilidad:** además del `.xlsx`, genera
+`RESULTADO_GLOBAL_TIQ_<MES>_<AÑO>.json` (junto a `--salida`) con año, mes,
+fecha de generación, SAP incluidos, SHA256 de cada uno, duplicados
+(idénticos/diferentes), cantidad total de partidas, CargoGlobal,
+HaberGlobal, diferencia, ruta del global generado, blockers y estado
+(`VALIDADO_PENDIENTE_PUBLICACION` / `ERROR_REVISAR`).
+
+No se conecta a Google Drive: opera solo sobre archivos ya materializados
+localmente (misma responsabilidad de Cowork que en la sección 12).
+
+Tests: `tests/test_consolidador_mensual.py` (41 pruebas: consolidación
+detallada sin agrupar, cabecera global por mes/fin de mes, febrero
+bisiesto, preservación de FechaValor/Asignacion/XREF/cuentas/importes,
+selección por año-mes, exclusión de `SAP_GLOBAL_*`/temporales/nombres no
+compatibles, orden cronológico, `--archivos-lista`, duplicados idénticos y
+diferentes, SAP descuadrado o estructuralmente inválido bloquea,
+guardarraíles de `--salida` (incluye `--force` solo sobre el global),
+inmutabilidad de orígenes y plantilla (hash/tamaño/mtime sin cambios),
+JSON de trazabilidad, y ausencia de dependencia de Google Drive).
