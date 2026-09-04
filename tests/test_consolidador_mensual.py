@@ -555,7 +555,74 @@ class TestTrazabilidad(_ConsolidadorTestBase):
 
 
 # ---------------------------------------------------------------------------
-# I: sin dependencia de Google Drive
+# I: celda vacía en Cargo/Haber (SAP no acepta 0/0.00 en la columna opuesta)
+# ---------------------------------------------------------------------------
+
+class TestCargoHaberCeldaVacia(_ConsolidadorTestBase):
+
+    def setUp(self):
+        super().setUp()
+        _crear_sap_diario(self._ruta_diaria(1), _dos_partidas_cuadradas("100.00"))
+        self.resultado = cm.ejecutar_consolidacion(self._args())
+        self.assertEqual(self.resultado["estado"], "VALIDADO_PENDIENTE_PUBLICACION", self.resultado)
+        self.wb = openpyxl.load_workbook(self.ruta_salida, data_only=True)
+        self.ws = self.wb["1"]
+
+    def tearDown(self):
+        self.wb.close()
+        super().tearDown()
+
+    def test_partida_debe_cargo_con_importe_haber_vacio(self):
+        # Fila 16: partida DEBE (Cargo=100.00, Haber=0.00 en el SAP diario).
+        self.assertEqual(cm.to_decimal(self.ws["E16"].value), Decimal("100.00"))
+        self.assertIsNone(self.ws["F16"].value)
+
+    def test_partida_haber_cargo_vacio_haber_con_importe(self):
+        # Fila 17: partida HABER (Cargo=0.00, Haber=100.00 en el SAP diario).
+        self.assertIsNone(self.ws["E17"].value)
+        self.assertEqual(cm.to_decimal(self.ws["F17"].value), Decimal("100.00"))
+
+    def test_ninguna_celda_sin_importe_contiene_cero(self):
+        for fila in (16, 17):
+            for col in ("E", "F"):
+                valor = self.ws[f"{col}{fila}"].value
+                self.assertNotEqual(valor, 0)
+                self.assertNotEqual(valor, "0")
+                self.assertNotEqual(valor, Decimal("0"))
+                self.assertNotEqual(valor, Decimal("0.00"))
+
+    def test_cuadre_global_sigue_correcto(self):
+        self.assertEqual(self.resultado["cargo_global"], "100.00")
+        self.assertEqual(self.resultado["haber_global"], "100.00")
+        self.assertEqual(self.resultado["diferencia"], "0.00")
+
+    def test_importes_positivos_no_cambian(self):
+        self.assertEqual(cm.to_decimal(self.ws["E16"].value), Decimal("100.00"))
+        self.assertEqual(cm.to_decimal(self.ws["F17"].value), Decimal("100.00"))
+
+    def test_fecha_valor_se_preserva(self):
+        self.assertEqual(_a_fecha(self.ws["O16"].value), datetime.date(2026, 8, 5))
+        self.assertEqual(_a_fecha(self.ws["O17"].value), datetime.date(2026, 8, 5))
+
+    def test_sap_origen_no_se_modifica(self):
+        hash_antes = cm._sha256_archivo(self._ruta_diaria(1))
+        cm.ejecutar_consolidacion(self._args(salida=os.path.join(self.tmpdir, "otra_salida.xlsx")))
+        self.assertEqual(cm._sha256_archivo(self._ruta_diaria(1)), hash_antes)
+
+    def test_plantilla_no_se_modifica(self):
+        hash_antes = cm._sha256_archivo(self.ruta_plantilla)
+        cm.ejecutar_consolidacion(self._args(salida=os.path.join(self.tmpdir, "otra_salida2.xlsx")))
+        self.assertEqual(cm._sha256_archivo(self.ruta_plantilla), hash_antes)
+
+    def test_helper_celda_importe_o_vacia(self):
+        self.assertEqual(cm._celda_importe_o_vacia(Decimal("100.00")), Decimal("100.00"))
+        self.assertIsNone(cm._celda_importe_o_vacia(Decimal("0.00")))
+        self.assertIsNone(cm._celda_importe_o_vacia(Decimal("0")))
+        self.assertIsNone(cm._celda_importe_o_vacia(None))
+
+
+# ---------------------------------------------------------------------------
+# J: sin dependencia de Google Drive
 # ---------------------------------------------------------------------------
 
 class TestSinDependenciaDrive(unittest.TestCase):

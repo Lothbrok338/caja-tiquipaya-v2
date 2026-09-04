@@ -402,6 +402,14 @@ del propio SAP. Cualquier problema bloquea toda la consolidación
 incluidos; `HaberGlobal` = suma de Haber. Si no coincide: `ERROR_REVISAR`,
 sin generar el `.xlsx` global.
 
+**Cargo/Haber: celda vacía, nunca cero explícito** (`escribir_sap_global`/
+`_celda_importe_o_vacia`): SAP no acepta un 0/0.00 en la columna que no
+corresponde a la partida. En el `.xlsx` global, una partida DEBE escribe
+Cargo=importe y Haber=`None` (celda realmente vacía); una partida HABER
+escribe Cargo=`None` y Haber=importe. Nunca se escribe `0`, `"0"`,
+`0.00` ni `Decimal("0")` en la columna opuesta. El importe positivo real
+nunca se altera.
+
 **Trazabilidad:** además del `.xlsx`, genera
 `RESULTADO_GLOBAL_TIQ_<MES>_<AÑO>.json` (junto a `--salida`) con año, mes,
 fecha de generación, SAP incluidos, SHA256 de cada uno, duplicados
@@ -412,7 +420,7 @@ HaberGlobal, diferencia, ruta del global generado, blockers y estado
 No se conecta a Google Drive: opera solo sobre archivos ya materializados
 localmente (misma responsabilidad de Cowork que en la sección 12).
 
-Tests: `tests/test_consolidador_mensual.py` (41 pruebas: consolidación
+Tests: `tests/test_consolidador_mensual.py` (50 pruebas: consolidación
 detallada sin agrupar, cabecera global por mes/fin de mes, febrero
 bisiesto, preservación de FechaValor/Asignacion/XREF/cuentas/importes,
 selección por año-mes, exclusión de `SAP_GLOBAL_*`/temporales/nombres no
@@ -420,4 +428,5 @@ compatibles, orden cronológico, `--archivos-lista`, duplicados idénticos y
 diferentes, SAP descuadrado o estructuralmente inválido bloquea,
 guardarraíles de `--salida` (incluye `--force` solo sobre el global),
 inmutabilidad de orígenes y plantilla (hash/tamaño/mtime sin cambios),
-JSON de trazabilidad, y ausencia de dependencia de Google Drive).
+celda vacía en Cargo/Haber sin cero explícito, JSON de trazabilidad, y
+ausencia de dependencia de Google Drive).
