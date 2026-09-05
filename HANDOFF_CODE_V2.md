@@ -430,3 +430,110 @@ guardarraíles de `--salida` (incluye `--force` solo sobre el global),
 inmutabilidad de orígenes y plantilla (hash/tamaño/mtime sin cambios),
 celda vacía en Cargo/Haber sin cero explícito, JSON de trazabilidad, y
 ausencia de dependencia de Google Drive).
+
+## 14. CONTROL 1 — ASIGNACIONES DUPLICADAS / HISTÓRICAS
+
+Módulo **separado e independiente** (`control_asignaciones.py`),
+**posterior** al SAP GLOBAL mensual (`consolidador_mensual.py`). Base
+tomada de la primera versión funcional creada por Cowork, endurecida en
+Claude Code con los ajustes de esta sección antes de oficializarse
+(rama → tests → revisión → commit → merge autorizado por separado).
+
+**Objetivo:** auditar la columna Asignacion (ZUONR, columna R) del SAP
+GLOBAL mensual, detectando repeticiones (1) dentro del mismo GLOBAL y (2)
+contra GLOBAL de meses anteriores vía `HISTORICO_ASIGNACIONES.csv`. Un
+duplicado **nunca** significa error contable: el estado que produce es
+siempre `REVISAR`, nunca una corrección automática. El control es de
+**solo lectura** sobre el GLOBAL: nunca lo modifica, nunca reinterpreta
+contabilidad y nunca vuelve a abrir un GLOBAL de un mes anterior (toda la
+memoria histórica vive en el CSV compacto).
+
+**Script oficial:** `control_asignaciones.py` — mismo layout que
+`sap_writer.py`/`consolidador_mensual.py` (hoja **EXACTA** `"1"`,
+partidas desde la fila 16; C=CuentaMayor, D=TextoPosicion/glosa,
+E=Cargo, F=Haber, O=FechaValor, R=Asignacion). La hoja `"1"` es
+**obligatoria**: si no existe, el control se detiene con
+`ERROR_TECNICO`/`GLOBAL_HOJA_1_NO_ENCONTRADA` — **nunca** hace fallback a
+`wb.sheetnames[0]` ni adivina otra hoja.
+
+**Histórico:** `HISTORICO_ASIGNACIONES.csv` (una fila por ocurrencia NO
+excluida de una asignación, en cualquier GLOBAL ya incorporado; columnas:
+`asignacion, fecha_valor, cuenta_mayor, glosa, monto, archivo_global,
+fila_sap, sha256_archivo, fecha_incorporacion`). La incorporación es
+siempre incremental y nunca reescribe filas existentes.
+
+**Exclusiones** (nunca se marcan como duplicado, ni dentro del mismo
+GLOBAL ni contra el histórico):
+
+- `asignacion == "SFC101"`
+- `asignacion == "SFC102"`
+- `asignacion == "TIQUIPAYA <MES>"` (una de las 12 abreviaturas
+  oficiales de `motor_tiquipaya._asignacion_comision()`, ENE..DIC)
+- **`cuenta_mayor == "110201008"`** (comisión ATC) — exclusión **POR
+  CUENTA**, independientemente del texto de Asignacion: una comisión ATC
+  puede traer `"REVISAR"` u otro valor cualquiera en ZUONR y sigue
+  siendo una comisión. `_normalizar_cuenta()` compara de forma segura
+  sin asumir el tipo de origen (Excel puede entregar la cuenta como
+  str/int/float, p. ej. `110201008.0`).
+
+**`"FORTALEZA"` SIEMPRE se evalúa** (nunca forma parte de las
+exclusiones): si se repite, se marca `REVISAR` igual que cualquier otra
+asignación no excluida. No existen exclusiones adicionales a las cuatro
+de arriba.
+
+**Estados posibles:**
+
+- `OK_SIN_DUPLICADOS` — sin hallazgos; si no es `--dry-run`, incorpora
+  las filas candidatas al histórico.
+- `REVISAR_DUPLICADOS_ENCONTRADOS` — hay hallazgos (mismo GLOBAL y/o
+  contra histórico); el JSON de detalle contiene todos los hallazgos con
+  glosa/fecha/monto/archivo/fila completos, tanto de la ocurrencia actual
+  como de la relacionada (`origen_relacionado`: `HISTORICO` |
+  `MISMO_GLOBAL`).
+- `YA_PROCESADO_SIN_CAMBIOS` — idempotencia CASO A: mismo SHA-256 ya
+  existe en el histórico; no se relee el GLOBAL ni se incorpora nada.
+- `GLOBAL_MODIFICADO_REQUIERE_REVISION` — idempotencia CASO B: existe una
+  fila en el histórico con el mismo `archivo_global` (mismo
+  nombre/periodo, convención `SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx`) pero un
+  `sha256_archivo` distinto. **No** se trata como GLOBAL nuevo: no se
+  leen partidas, no se incorpora nada, no se decide automáticamente cuál
+  versión es correcta — requiere decisión humana explícita.
+- `ERROR_TECNICO` — GLOBAL no encontrado, hoja `"1"` ausente
+  (`GLOBAL_HOJA_1_NO_ENCONTRADA`) o GLOBAL ilegible.
+
+**Duplicados NO se incorporan al histórico:** solo un GLOBAL
+`OK_SIN_DUPLICADOS` (y sin `--dry-run`) actualiza
+`HISTORICO_ASIGNACIONES.csv`. Un GLOBAL con hallazgos
+(`REVISAR_DUPLICADOS_ENCONTRADOS`) deja `historico_actualizado=false` y
+`filas_incorporadas_historico=0` — queda pendiente de revisión humana;
+no existe todavía ningún mecanismo de override para incorporarlo de
+todas formas (requiere autorización futura, fuera de este módulo).
+`--dry-run` nunca actualiza el histórico bajo ningún estado.
+
+**Seguridad de escritura:** el GLOBAL es solo lectura
+(`read_only=True, data_only=True`, nunca `.save()`). El script solo
+escribe `HISTORICO_ASIGNACIONES.csv` y el JSON de detalle (`--salida-json`).
+Nunca toca SAP GLOBAL/diarios, cierres, MACROS, plantilla, marcadores
+PROCESADO ni el motor diario.
+
+**Sin dependencias de Google Drive ni Base64:** opera exclusivamente
+sobre rutas de archivo locales ya materializadas; la responsabilidad de
+materializar/publicar en Drive es de quien invoca el script
+(Cowork/`auditor-caja-tiquipaya`), nunca de este módulo.
+
+**Integración futura:** pensado para ser invocado por la Skill
+`auditor-caja-tiquipaya` después de que `consolidador_mensual.py` genera
+el SAP GLOBAL del mes; la Skill se actualiza manualmente y por separado
+(no se edita desde Code).
+
+Tests: `tests/test_control_asignaciones.py` (28 pruebas: exclusiones
+SFC101/SFC102/TIQUIPAYA `<MES>`/cuenta 110201008 con cualquier
+asignación, normalización segura de cuenta float/str, FORTALEZA y otras
+asignaciones repetidas dentro del mismo GLOBAL → `REVISAR`, hallazgo
+contra histórico, preservación de glosa/fecha/monto/archivo/fila en el
+hallazgo, idempotencia SHA-256 exacta y `archivo_global` con SHA
+distinto, no incorporación de histórico ante duplicados o `--dry-run`,
+sí incorporación cuando no hay duplicados, hoja `"1"` obligatoria sin
+fallback, reproceso idéntico sin cambios en el histórico, inmutabilidad
+del GLOBAL origen, preservación de filas históricas previas, y ausencia
+de dependencias de Google Drive/Base64/módulos del V2 diario).
