@@ -481,15 +481,31 @@ exclusiones): si se repite, se marca `REVISAR` igual que cualquier otra
 asignación no excluida. No existen exclusiones adicionales a las cuatro
 de arriba.
 
-**Estados posibles:**
+**Estados posibles (`estado` — mantiene la semántica previa a la
+validación humana, para no romper consumidores existentes como
+auditor-caja-tiquipaya):**
 
-- `OK_SIN_DUPLICADOS` — sin hallazgos; si no es `--dry-run`, incorpora
-  las filas candidatas al histórico.
-- `REVISAR_DUPLICADOS_ENCONTRADOS` — hay hallazgos (mismo GLOBAL y/o
-  contra histórico); el JSON de detalle contiene todos los hallazgos con
-  glosa/fecha/monto/archivo/fila completos, tanto de la ocurrencia actual
-  como de la relacionada (`origen_relacionado`: `HISTORICO` |
-  `MISMO_GLOBAL`).
+- `OK_SIN_DUPLICADOS` — sin alertas; si no es `--dry-run`, incorpora las
+  filas candidatas al histórico (`alerta_duplicado="SIN_ALERTA"`).
+  `estado_validacion` viene `None` (no aplica).
+- `REVISAR_DUPLICADOS_ENCONTRADOS` — hay una o más alertas (mismo GLOBAL
+  y/o contra histórico), **hayan sido ya validadas por el auditor o
+  no**. Este campo por sí solo no dice si el mes puede cerrarse: para
+  eso está el campo nuevo `estado_validacion`:
+  - `PENDIENTE_VALIDACION_AUDITOR` — al menos una fila de
+    `REVISION_ASIGNACIONES_<PERIODO>.csv` sigue sin `VALIDACION_AUDITOR`
+    completa; el histórico **no** se modifica.
+  - `CERRADO_CON_VALIDACION_AUDITOR` — TODAS las alertas de este periodo
+    están validadas (`CORRECTA` o `INCORRECTA`); se incorporan al
+    histórico las ocurrencias evaluadas, llevando consigo esa
+    validación/observación.
+
+  El JSON de detalle conserva los hallazgos "por par" (`hallazgos`,
+  formato anterior sin cambios) y agrega `alertas` (una entrada por
+  asignación, igual a las filas de `REVISION_ASIGNACIONES_*`). El
+  resumen también expone los conteos `alertas_mismo_mes`,
+  `alertas_contra_historico`, `alertas_pendientes_validacion`,
+  `alertas_correctas` y `alertas_incorrectas`.
 - `YA_PROCESADO_SIN_CAMBIOS` — idempotencia CASO A: mismo SHA-256 ya
   existe en el histórico; no se relee el GLOBAL ni se incorpora nada.
 - `GLOBAL_MODIFICADO_REQUIERE_REVISION` — idempotencia CASO B: existe una
@@ -498,17 +514,103 @@ de arriba.
   `sha256_archivo` distinto. **No** se trata como GLOBAL nuevo: no se
   leen partidas, no se incorpora nada, no se decide automáticamente cuál
   versión es correcta — requiere decisión humana explícita.
-- `ERROR_TECNICO` — GLOBAL no encontrado, hoja `"1"` ausente
+- `ERROR_TECNICO` — GLOBAL no encontrado, nombre no canónico
+  (`GLOBAL_NOMBRE_NO_CANONICO`, ver más abajo), hoja `"1"` ausente
   (`GLOBAL_HOJA_1_NO_ENCONTRADA`) o GLOBAL ilegible.
 
-**Duplicados NO se incorporan al histórico:** solo un GLOBAL
-`OK_SIN_DUPLICADOS` (y sin `--dry-run`) actualiza
-`HISTORICO_ASIGNACIONES.csv`. Un GLOBAL con hallazgos
-(`REVISAR_DUPLICADOS_ENCONTRADOS`) deja `historico_actualizado=false` y
-`filas_incorporadas_historico=0` — queda pendiente de revisión humana;
-no existe todavía ningún mecanismo de override para incorporarlo de
-todas formas (requiere autorización futura, fuera de este módulo).
-`--dry-run` nunca actualiza el histórico bajo ningún estado.
+**Duplicados NO se incorporan al histórico mientras existan alertas sin
+validar** (reemplaza la regla anterior "si hay duplicados, nunca se
+incorpora"; ver subsección "Validación humana" más abajo).
+`--dry-run` nunca actualiza el histórico ni escribe el archivo de
+revisión bajo ningún estado.
+
+### Nombre canónico del GLOBAL — OBLIGATORIO, sin fallback
+
+El periodo (usado para nombrar `REVISION_ASIGNACIONES_<PERIODO>.csv` y
+para el campo `periodo` del resumen) se deriva ÚNICAMENTE de
+`archivo_global` con la convención `SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx`. Si
+el nombre no calza con esa convención, **ya no hay fallback** al nombre
+de archivo sin extensión: el control se detiene con `ERROR_TECNICO` /
+`GLOBAL_NOMBRE_NO_CANONICO`, ANTES de leer partidas y sin escribir
+`REVISION_ASIGNACIONES_*.csv` ni tocar `HISTORICO_ASIGNACIONES.csv`.
+Esta validación ocurre incluso antes que los CASO A/B de idempotencia.
+(Para mostrar de forma legible el antecedente de una fila ya existente
+en el histórico que hubiera sido grabada antes de exigir esta
+convención, el `DETALLE` de una alerta usa una variante NO estricta
+—`_periodo_para_mostrar()`— que nunca se usa para decidir el periodo del
+GLOBAL que se está auditando ahora.)
+
+### Validación humana (CIERRE DEL MES)
+
+La coincidencia de la Asignacion por sí sola es suficiente para generar
+alerta — **una validación humana anterior NUNCA evita una alerta
+futura**: si `3P66536982` fue validada `CORRECTA` en agosto y vuelve a
+aparecer en septiembre, septiembre vuelve a salir `REVISAR`/pendiente
+(la validación de agosto queda solo como antecedente informativo en el
+`DETALLE`).
+
+Cuando `construir_alertas_asignaciones()` detecta alertas (repetición
+dentro del mismo GLOBAL y/o contra el histórico), se crea/actualiza:
+
+```
+REVISION_ASIGNACIONES_<PERIODO>.csv
+```
+
+(mismo directorio que `--historico` por defecto, o `--revision-dir`),
+con **una fila por ASIGNACION observada** (nunca una fila por cada
+par/combinación). Columnas: `PERIODO, ASIGNACION, TIPO_ALERTA
+(DUPLICADA_MISMO_MES|DUPLICADA_CON_HISTORICO|AMBAS), DETALLE,
+VALIDACION_AUDITOR, OBSERVACION_AUDITOR, FECHA_VALIDACION,
+SHA256_GLOBAL`. `DETALLE` resume filas/fechas/cuenta/glosa/importes de
+las ocurrencias del GLOBAL actual y, si hay antecedente histórico, el
+periodo/validación/observación anteriores. El auditor completa
+manualmente `VALIDACION_AUDITOR` (`CORRECTA`/`INCORRECTA`) y
+`OBSERVACION_AUDITOR`; el módulo **nunca** decide esos valores por su
+cuenta.
+
+Al reejecutar sobre el mismo SHA-256, `fusionar_revision()` conserva las
+validaciones humanas ya escritas (emparejando por `ASIGNACION`) y:
+
+- si queda alguna fila sin `VALIDACION_AUDITOR` completa →
+  `estado_validacion = PENDIENTE_VALIDACION_AUDITOR` (con `estado`
+  siempre en `REVISAR_DUPLICADOS_ENCONTRADOS`), histórico **no** se
+  modifica;
+- si TODAS están validadas (`CORRECTA` o `INCORRECTA`) →
+  `estado_validacion = CERRADO_CON_VALIDACION_AUDITOR`, se incorporan al
+  histórico las ocurrencias evaluadas del GLOBAL actual, llevando
+  consigo esa validación/observación.
+
+**Guardarraíl SHA256_GLOBAL:** una fila de `REVISION_ASIGNACIONES_*.csv`
+solo se reutiliza si su `SHA256_GLOBAL` coincide con el GLOBAL actual —
+si el GLOBAL cambió de contenido antes de cerrarse, esa validación
+previa **nunca** se aplica en silencio; la alerta nace de nuevo sin
+validar.
+
+**Ciclo completo:**
+
+```
+GLOBAL
+  → CONTROL 1 (control_asignaciones.py)
+  → si hay alertas: REVISION_ASIGNACIONES_<PERIODO>.csv
+  → auditor completa CORRECTA/INCORRECTA + observación
+  → rerun (mismo SHA)
+  → si todo está revisado: cierra el mes y actualiza HISTORICO_ASIGNACIONES.csv
+  → mes siguiente vuelve a comparar contra el histórico (validaciones incluidas)
+```
+
+**HISTORICO_ASIGNACIONES.csv — esquema extendido, compatible con
+archivos existentes:** columnas nuevas agregadas AL FINAL —
+`alerta_duplicado, validacion_auditor, observacion_auditor,
+fecha_validacion` — para que un CSV con el esquema anterior (9 columnas)
+se siga leyendo sin perder ninguna fila; al reescribirse, esas columnas
+quedan vacías para las filas viejas. Para una fila sin alerta,
+`alerta_duplicado="SIN_ALERTA"` y los tres campos de validación quedan
+vacíos. Si una asignación duplicada fue validada `CORRECTA` o
+`INCORRECTA`, esa decisión se asocia en el histórico a TODAS las
+ocurrencias de esa asignación incorporadas ese periodo.
+
+No existe todavía ningún mecanismo de override que salte la validación
+humana (requiere autorización futura, fuera de este módulo).
 
 **Seguridad de escritura:** el GLOBAL es solo lectura
 (`read_only=True, data_only=True`, nunca `.save()`). El script solo
@@ -526,14 +628,27 @@ materializar/publicar en Drive es de quien invoca el script
 el SAP GLOBAL del mes; la Skill se actualiza manualmente y por separado
 (no se edita desde Code).
 
-Tests: `tests/test_control_asignaciones.py` (28 pruebas: exclusiones
-SFC101/SFC102/TIQUIPAYA `<MES>`/cuenta 110201008 con cualquier
-asignación, normalización segura de cuenta float/str, FORTALEZA y otras
-asignaciones repetidas dentro del mismo GLOBAL → `REVISAR`, hallazgo
-contra histórico, preservación de glosa/fecha/monto/archivo/fila en el
-hallazgo, idempotencia SHA-256 exacta y `archivo_global` con SHA
-distinto, no incorporación de histórico ante duplicados o `--dry-run`,
-sí incorporación cuando no hay duplicados, hoja `"1"` obligatoria sin
-fallback, reproceso idéntico sin cambios en el histórico, inmutabilidad
-del GLOBAL origen, preservación de filas históricas previas, y ausencia
-de dependencias de Google Drive/Base64/módulos del V2 diario).
+Tests: `tests/test_control_asignaciones.py` (41 pruebas — conserva y
+adapta las 28 de la versión anterior, sin reducir cobertura, y agrega la
+etapa de validación humana: exclusiones SFC101/SFC102/TIQUIPAYA `<MES>`/
+cuenta 110201008 sin cambios, FORTALEZA siempre evaluada, `estado`
+mantiene la semántica previa `OK_SIN_DUPLICADOS`/
+`REVISAR_DUPLICADOS_ENCONTRADOS` con el nuevo `estado_validacion`
+(`PENDIENTE_VALIDACION_AUDITOR`/`CERRADO_CON_VALIDACION_AUDITOR`)
+informado aparte, mes sin duplicados actualiza histórico, alerta mismo
+mes/contra histórico/parcialmente revisada bloquea el cierre, todas
+`CORRECTA` o mezcla `CORRECTA`/`INCORRECTA` con todo revisado cierra el
+mes y registra hechos+decisiones, una validación `CORRECTA` anterior NO
+evita una alerta futura sobre la misma asignación en un periodo
+posterior, conservación de la observación humana al reejecutar,
+`--dry-run` nunca escribe revisión ni histórico (con o sin duplicados),
+idempotencia SHA-256 exacta / `archivo_global` con SHA distinto /
+revisión de un SHA anterior que no se aplica en silencio, hoja `"1"`
+obligatoria sin fallback, nombre de GLOBAL no canónico detiene el
+control sin escribir REVISION/HISTORICO (`GLOBAL_NOMBRE_NO_CANONICO`),
+reproceso idéntico sin cambios en el histórico, inmutabilidad del GLOBAL
+origen, preservación de filas históricas previas, migración de
+histórico con esquema antiguo sin perder información, ausencia de
+dependencias de Google Drive/Base64/módulos del V2 diario, y
+compatibilidad del JSON de detalle — hallazgos "por par" + alertas por
+asignación).
