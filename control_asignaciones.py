@@ -20,6 +20,16 @@ La hoja "1" es OBLIGATORIA: si el GLOBAL no la trae, el control se detiene
 con ERROR_TECNICO (GLOBAL_HOJA_1_NO_ENCONTRADA). Nunca hace fallback a
 wb.sheetnames[0] ni a ninguna otra hoja.
 
+NOMBRE CANÓNICO DEL GLOBAL (OBLIGATORIO, sin fallback):
+
+    SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx
+
+Si `archivo_global` (basename de --global, o --nombre-archivo si se
+pasa explícito) no calza con esa convención, el control se detiene con
+ERROR_TECNICO (GLOBAL_NOMBRE_NO_CANONICO) ANTES de leer partidas o de
+tocar REVISION/HISTORICO. Nunca se infiere ni se inventa un periodo a
+partir de otra cosa (p. ej. el nombre de archivo sin extensión).
+
 EXCLUSIONES (nunca se marcan como duplicado aunque se repitan una y otra
 vez dentro del mismo GLOBAL o contra el histórico) — SIN CAMBIOS:
 
@@ -36,14 +46,30 @@ asignación por sí sola es suficiente para generar una alerta: una
 validación humana anterior (CORRECTA o INCORRECTA) NUNCA evita que la
 misma asignación vuelva a alertar en un periodo posterior.
 
-VALIDACIÓN HUMANA (nueva etapa, reemplaza la protección anterior):
+ESTADOS (`estado` mantiene la semántica previa a la validación humana,
+para no romper consumidores existentes como auditor-caja-tiquipaya):
 
-    Antes: "si hay duplicados, no se actualiza el histórico" (punto final).
-    Ahora: "no se actualiza el histórico MIENTRAS existan alertas sin
-    validar por el auditor".
+    - OK_SIN_DUPLICADOS — no hay alertas.
+    - REVISAR_DUPLICADOS_ENCONTRADOS — hay una o más alertas (mismo
+      GLOBAL y/o contra histórico), HAYAN SIDO YA VALIDADAS POR EL
+      AUDITOR O NO. Este campo por sí solo NO dice si el mes ya puede
+      cerrarse — para eso está `estado_validacion`.
+    - YA_PROCESADO_SIN_CAMBIOS / GLOBAL_MODIFICADO_REQUIERE_REVISION /
+      ERROR_TECNICO — sin cambios (ver idempotencia más abajo).
 
-    Cuando se detectan asignaciones con alerta (repetidas dentro del
-    mismo GLOBAL y/o contra el histórico) se crea/actualiza un archivo:
+    `estado_validacion` (nuevo, solo presente cuando `estado ==
+    REVISAR_DUPLICADOS_ENCONTRADOS`; None en cualquier otro caso):
+
+    - PENDIENTE_VALIDACION_AUDITOR — queda al menos una alerta sin
+      VALIDACION_AUDITOR completa; el histórico NO se modifica.
+    - CERRADO_CON_VALIDACION_AUDITOR — TODAS las alertas de este periodo
+      están validadas (CORRECTA o INCORRECTA); se incorporan al
+      histórico las ocurrencias evaluadas del GLOBAL actual, junto con
+      esa validación/observación.
+
+VALIDACIÓN HUMANA:
+
+    Cuando se detectan asignaciones con alerta se crea/actualiza:
 
         REVISION_ASIGNACIONES_<PERIODO>.csv
 
@@ -51,16 +77,6 @@ VALIDACIÓN HUMANA (nueva etapa, reemplaza la protección anterior):
     combinación/par). El auditor completa manualmente VALIDACION_AUDITOR
     ("CORRECTA"/"INCORRECTA") y, opcionalmente, OBSERVACION_AUDITOR. Este
     módulo nunca decide automáticamente esos valores.
-
-    Al reejecutar el control sobre el MISMO GLOBAL (mismo SHA-256):
-
-    - si queda alguna fila de REVISION sin VALIDACION_AUDITOR completa,
-      el estado es PENDIENTE_VALIDACION_AUDITOR y el histórico NO se
-      modifica;
-    - si TODAS las filas de REVISION de este periodo están validadas
-      (CORRECTA o INCORRECTA), el estado es CERRADO_CON_VALIDACION_AUDITOR
-      y las ocurrencias evaluadas del GLOBAL actual se incorporan al
-      histórico, llevando consigo esa validación/observación.
 
     Las validaciones humanas ya escritas en el archivo REVISION nunca se
     pisan al regenerarlo: solo se reutilizan si corresponden al MISMO
@@ -159,8 +175,13 @@ _CUENTA_COMISION_ATC = "110201008"
 
 _ESTADO_REVISAR = "REVISAR"
 
-# Estados de cierre del mes (etapa de validación humana).
+# Estados de `estado` (semántica previa a la validación humana, se
+# mantiene por compatibilidad).
 _ESTADO_OK_SIN_DUPLICADOS = "OK_SIN_DUPLICADOS"
+_ESTADO_REVISAR_DUPLICADOS = "REVISAR_DUPLICADOS_ENCONTRADOS"
+
+# Estados de `estado_validacion` (nuevo, solo relevante cuando `estado ==
+# REVISAR_DUPLICADOS_ENCONTRADOS`).
 _ESTADO_PENDIENTE_VALIDACION = "PENDIENTE_VALIDACION_AUDITOR"
 _ESTADO_CERRADO_CON_VALIDACION = "CERRADO_CON_VALIDACION_AUDITOR"
 
@@ -190,6 +211,9 @@ _TIPO_ALERTA_MISMO_MES = "DUPLICADA_MISMO_MES"
 _TIPO_ALERTA_HISTORICO = "DUPLICADA_CON_HISTORICO"
 _TIPO_ALERTA_AMBAS = "AMBAS"
 
+# Convención canónica OBLIGATORIA del nombre del GLOBAL mensual. Sin esto
+# no se puede derivar el periodo, y sin periodo el control se detiene
+# (ver _derivar_periodo / GLOBAL_NOMBRE_NO_CANONICO).
 _RE_NOMBRE_GLOBAL = re.compile(r"^SAP_GLOBAL_TIQ_([A-Za-z]+)_(\d{4})\.xlsx$", re.IGNORECASE)
 
 
@@ -435,21 +459,37 @@ def detectar_duplicados(candidatas_nuevas, historico, nombre_archivo_global):
 
 
 # ---------------------------------------------------------------------------
-# Periodo (para nombrar REVISION_ASIGNACIONES_<PERIODO>.csv y para mostrar
-# antecedentes históricos de forma legible).
+# Periodo (para nombrar REVISION_ASIGNACIONES_<PERIODO>.csv). OBLIGATORIO
+# a partir del nombre canónico del GLOBAL — SIN fallback.
 # ---------------------------------------------------------------------------
 
 def _derivar_periodo(nombre_archivo_global):
-    """Convención SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx -> "<MES>_<AÑO>". Si el
-    nombre no sigue esa convención, usa el nombre de archivo (sin
-    extensión) como periodo — nunca falla, solo degrada a un nombre
-    menos prolijo."""
+    """Convención canónica OBLIGATORIA: SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx.
+    Devuelve "<MES>_<AÑO>" en mayúsculas, o None si el nombre no calza
+    con esa convención. SIN fallback: un nombre no canónico detiene el
+    control (ver GLOBAL_NOMBRE_NO_CANONICO en ejecutar_control) — nunca
+    se infiere ni se inventa un periodo a partir de otra cosa."""
     if not nombre_archivo_global:
-        return "SIN_PERIODO"
+        return None
     m = _RE_NOMBRE_GLOBAL.match(nombre_archivo_global)
-    if m:
-        mes, anio = m.groups()
-        return f"{mes.upper()}_{anio}"
+    if not m:
+        return None
+    mes, anio = m.groups()
+    return f"{mes.upper()}_{anio}"
+
+
+def _periodo_para_mostrar(nombre_archivo_global):
+    """Variante NO estricta, usada ÚNICAMENTE para mostrar contexto
+    legible de un antecedente histórico (una fila de HISTORICO puede
+    referenciar un archivo_global grabado antes de exigir el nombre
+    canónico). Nunca se usa para decidir el periodo/nombre de REVISION
+    del GLOBAL que se está auditando ahora — eso siempre exige
+    _derivar_periodo(), sin excepción."""
+    periodo = _derivar_periodo(nombre_archivo_global)
+    if periodo:
+        return periodo
+    if not nombre_archivo_global:
+        return "PERIODO_DESCONOCIDO"
     return os.path.splitext(nombre_archivo_global)[0]
 
 
@@ -470,7 +510,7 @@ def _resumen_ocurrencia_actual(p):
 
 
 def _resumen_antecedente_historico(fila_hist):
-    periodo_previo = _derivar_periodo(fila_hist.get("archivo_global") or "")
+    periodo_previo = _periodo_para_mostrar(fila_hist.get("archivo_global") or "")
     validacion = fila_hist.get("validacion_auditor") or "SIN_VALIDACION"
     observacion = fila_hist.get("observacion_auditor") or ""
     texto = (
@@ -611,6 +651,24 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
 
     nombre_archivo_global = nombre_archivo_global or os.path.basename(ruta_global)
     sha256_global = _hash_archivo(ruta_global)
+
+    # Nombre canónico OBLIGATORIO, sin fallback: se detiene ANTES de leer
+    # historico/partidas y antes de tocar REVISION/HISTORICO.
+    periodo = _derivar_periodo(nombre_archivo_global)
+    if periodo is None:
+        return {
+            "estado": "ERROR_TECNICO",
+            "problemas": ["GLOBAL_NOMBRE_NO_CANONICO"],
+            "archivo_global": nombre_archivo_global,
+            "sha256_archivo": sha256_global,
+            "mensaje": (
+                f"'{nombre_archivo_global}' no sigue la convención canónica "
+                "SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx; no se puede derivar el "
+                "periodo de forma segura. El control se detiene sin leer "
+                "partidas ni tocar REVISION/HISTORICO."
+            ),
+        }
+
     historico = cargar_historico(ruta_historico)
 
     if ya_procesado(historico, sha256_global):
@@ -671,7 +729,6 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
     hallazgos = detectar_duplicados(candidatas_nuevas, historico, nombre_archivo_global)
     asignaciones_duplicadas = sorted({h["asignacion"] for h in hallazgos})
 
-    periodo = _derivar_periodo(nombre_archivo_global)
     directorio_revision = directorio_revision or os.path.dirname(os.path.abspath(ruta_historico)) or "."
     ruta_revision = ruta_revision_asignaciones(directorio_revision, periodo)
 
@@ -685,10 +742,15 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
     alertas_pendientes = alertas_correctas = alertas_incorrectas = 0
     alertas_mismo_mes = alertas_contra_historico = 0
     decisiones_por_asignacion = {}
+    estado_validacion = None
 
     if not alertas_nuevas:
         estado = _ESTADO_OK_SIN_DUPLICADOS
     else:
+        # `estado` conserva la semántica previa a la validación humana:
+        # "hay alertas" es independiente de si ya se validaron o no.
+        estado = _ESTADO_REVISAR_DUPLICADOS
+
         for alerta in alertas_nuevas:
             if alerta["TIPO_ALERTA"] in (_TIPO_ALERTA_MISMO_MES, _TIPO_ALERTA_AMBAS):
                 alertas_mismo_mes += 1
@@ -699,10 +761,10 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
         filas_revision = fusionar_revision(alertas_nuevas, filas_revision_existentes, sha256_global)
 
         for fila in filas_revision:
-            estado_validacion = _validacion_normalizada(fila.get("VALIDACION_AUDITOR"))
-            if estado_validacion == "CORRECTA":
+            estado_fila = _validacion_normalizada(fila.get("VALIDACION_AUDITOR"))
+            if estado_fila == "CORRECTA":
                 alertas_correctas += 1
-            elif estado_validacion == "INCORRECTA":
+            elif estado_fila == "INCORRECTA":
                 alertas_incorrectas += 1
             else:
                 alertas_pendientes += 1
@@ -712,9 +774,9 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
             revision_actualizada = True
 
         if alertas_pendientes > 0:
-            estado = _ESTADO_PENDIENTE_VALIDACION
+            estado_validacion = _ESTADO_PENDIENTE_VALIDACION
         else:
-            estado = _ESTADO_CERRADO_CON_VALIDACION
+            estado_validacion = _ESTADO_CERRADO_CON_VALIDACION
             decisiones_por_asignacion = {
                 fila["ASIGNACION"]: {
                     "alerta_duplicado": fila["TIPO_ALERTA"],
@@ -725,7 +787,11 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
                 for fila in filas_revision
             }
 
-    if not dry_run and estado in (_ESTADO_OK_SIN_DUPLICADOS, _ESTADO_CERRADO_CON_VALIDACION):
+    puede_incorporar_historico = (
+        estado == _ESTADO_OK_SIN_DUPLICADOS or estado_validacion == _ESTADO_CERRADO_CON_VALIDACION
+    )
+
+    if not dry_run and puede_incorporar_historico:
         nuevas_filas_historico = []
         for p in candidatas_nuevas:
             decision = decisiones_por_asignacion.get(p["asignacion"])
@@ -747,13 +813,11 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
         guardar_historico(ruta_historico, historico + nuevas_filas_historico)
         filas_incorporadas = len(nuevas_filas_historico)
 
-    historico_actualizado = (not dry_run) and estado in (
-        _ESTADO_OK_SIN_DUPLICADOS, _ESTADO_CERRADO_CON_VALIDACION
-    )
+    historico_actualizado = (not dry_run) and puede_incorporar_historico
 
     resumen = {
         "estado": estado,
-        "estado_cierre_mes": estado,
+        "estado_validacion": estado_validacion,
         "archivo_global": nombre_archivo_global,
         "sha256_archivo": sha256_global,
         "periodo": periodo,
@@ -800,7 +864,8 @@ def _parse_args(argv=None):
     parser.add_argument("--historico", dest="ruta_historico", required=True,
                          help="Ruta local a HISTORICO_ASIGNACIONES.csv (se crea si no existe).")
     parser.add_argument("--nombre-archivo", dest="nombre_archivo_global", default=None,
-                         help="Nombre a registrar como archivo_global (por defecto, basename de --global).")
+                         help="Nombre a registrar como archivo_global (por defecto, basename de --global). "
+                              "Debe seguir SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx.")
     parser.add_argument("--salida-json", dest="ruta_detalle_json", default=None,
                          help="Ruta donde escribir el detalle técnico completo (JSON).")
     parser.add_argument("--revision-dir", dest="directorio_revision", default=None,
