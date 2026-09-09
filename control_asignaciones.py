@@ -785,6 +785,102 @@ def cargar_decisiones_csv_legado(ruta_csv, sha256_global):
     return decisiones
 
 
+def cargar_decisiones_json(ruta_json):
+    """Lee el JSON PUENTE de decisiones humanas (--revision-json). Nunca
+    lanza: devuelve None si el archivo no existe o no es JSON válido —
+    el llamador lo trata como "sin decisiones" (todo queda pendiente)."""
+    if not ruta_json or not os.path.isfile(ruta_json):
+        return None
+    try:
+        with open(ruta_json, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def validar_y_construir_filas_desde_json(datos, periodo, sha256_global, filas_pass1):
+    """Valida el JSON puente contra el estado ACTUAL del GLOBAL (nunca es
+    confianza ciega) y, si pasa, construye filas con la MISMA forma que
+    fusionar_filas_revision() para reutilizar exactamente la misma lógica
+    de cierre/corrección. Si CUALQUIER decisión falla cualquier regla, se
+    rechaza el lote COMPLETO (nunca una corrección parcial): devuelve
+    (False, problemas, None). Si todo es válido: (True, [], filas)."""
+    problemas = []
+    if not isinstance(datos, dict):
+        return False, ["JSON_MAL_FORMADO"], None
+
+    if datos.get("periodo") != periodo:
+        problemas.append(f"PERIODO_NO_COINCIDE:esperado={periodo!r}:recibido={datos.get('periodo')!r}")
+    if datos.get("sha256_global") != sha256_global:
+        problemas.append("SHA256_GLOBAL_NO_COINCIDE")
+    if problemas:
+        # El JSON corresponde a otro estado del GLOBAL: no tiene sentido
+        # seguir validando fila por fila.
+        return False, problemas, None
+
+    decisiones = datos.get("decisiones")
+    if not isinstance(decisiones, list):
+        return False, ["DECISIONES_MAL_FORMADO"], None
+
+    esperadas = {f["FILA_GLOBAL"]: f for f in filas_pass1}
+    vistas = set()
+    filas_construidas = []
+
+    for decision in decisiones:
+        if not isinstance(decision, dict):
+            problemas.append("DECISION_MAL_FORMADA")
+            continue
+
+        try:
+            fila_global = int(decision.get("fila_global"))
+        except (TypeError, ValueError):
+            problemas.append(f"FILA_GLOBAL_INVALIDA:{decision.get('fila_global')!r}")
+            continue
+
+        if fila_global in vistas:
+            problemas.append(f"DECISION_DUPLICADA:fila={fila_global}")
+            continue
+        vistas.add(fila_global)
+
+        base = esperadas.get(fila_global)
+        if base is None:
+            problemas.append(f"FILA_GLOBAL_NO_ES_ALERTA_ACTUAL:fila={fila_global}")
+            continue
+
+        asignacion_original = _texto_o_vacio(decision.get("asignacion_original")).strip()
+        if asignacion_original != _texto_o_vacio(base["ASIGNACION_ORIGINAL"]).strip():
+            problemas.append(f"ASIGNACION_ORIGINAL_NO_COINCIDE:fila={fila_global}")
+            continue
+
+        validacion = _texto_o_vacio(decision.get("validacion_auditor")).strip().upper()
+        if validacion not in _VALIDACIONES_VALIDAS:
+            problemas.append(f"VALIDACION_AUDITOR_INVALIDA:fila={fila_global}:valor={validacion!r}")
+            continue
+
+        asignacion_correcta = _texto_o_vacio(decision.get("asignacion_correcta")).strip()
+        if validacion == "INCORRECTA":
+            if not asignacion_correcta or asignacion_correcta == asignacion_original:
+                problemas.append(f"ASIGNACION_CORRECTA_INVALIDA:fila={fila_global}")
+                continue
+        else:  # CORRECTA: nunca aplica corrección, se ignora cualquier valor recibido.
+            asignacion_correcta = ""
+
+        fila = dict(base)
+        fila["VALIDACION_AUDITOR"] = validacion
+        fila["ASIGNACION_CORRECTA"] = asignacion_correcta
+        fila["OBSERVACION_AUDITOR"] = _texto_o_vacio(decision.get("observacion_auditor"))
+        fila["FECHA_VALIDACION"] = ""
+        filas_construidas.append(fila)
+
+    faltantes = set(esperadas) - {f["FILA_GLOBAL"] for f in filas_construidas}
+    for fila_global in sorted(faltantes):
+        problemas.append(f"DECISION_FALTANTE:fila={fila_global}")
+
+    if problemas:
+        return False, problemas, None
+    return True, [], filas_construidas
+
+
 def fusionar_filas_revision(filas_nuevas, filas_existentes_xlsx, decisiones_legado, sha256_global):
     """Preserva VALIDACION_AUDITOR/ASIGNACION_CORRECTA/OBSERVACION_AUDITOR/
     FECHA_VALIDACION ya escritas por el auditor, emparejando por
@@ -863,7 +959,8 @@ def _resoluciones_por_fila(filas):
 # ---------------------------------------------------------------------------
 
 def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
-                      dry_run=False, ruta_detalle_json=None, directorio_revision=None):
+                      dry_run=False, ruta_detalle_json=None, directorio_revision=None,
+                      ruta_revision_json=None):
     if not ruta_global or not os.path.isfile(ruta_global):
         return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_NO_ENCONTRADO"],
                 "ruta_global": ruta_global}
@@ -964,6 +1061,9 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
     sha256_global_final = sha256_actual
     estado_validacion = None
     ruta_revision_reportada = None
+    fuente_revision = None
+    problemas_revision_json = []
+    nuevas_alertas_generadas = 0
     filas_correctas = filas_incorrectas = filas_pendientes = 0
     alertas_mismo_mes = sum(1 for f in filas_pass1 if f["TIPO_ALERTA"] in (_TIPO_ALERTA_MISMO_MES, _TIPO_ALERTA_AMBAS))
     alertas_contra_historico = sum(1 for f in filas_pass1 if f["TIPO_ALERTA"] in (_TIPO_ALERTA_HISTORICO, _TIPO_ALERTA_AMBAS))
@@ -980,15 +1080,39 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
             filas_incorporadas = len(nuevas_filas_historico)
     else:
         estado = _ESTADO_REVISAR_DUPLICADOS
-        ruta_revision_reportada = ruta_xlsx
 
-        filas_existentes_xlsx = cargar_revision_xlsx(ruta_xlsx)
-        decisiones_legado = (
-            {} if filas_existentes_xlsx else cargar_decisiones_csv_legado(ruta_csv_legado, sha256_actual)
-        )
-        filas_merged = fusionar_filas_revision(
-            filas_pass1, filas_existentes_xlsx, decisiones_legado, sha256_actual
-        )
+        if ruta_revision_json:
+            # Vía PUENTE: las decisiones humanas llegan por JSON pequeño
+            # (generado por Cowork a partir de lo que YA leyó del .xlsx en
+            # Drive), para no tener que materializar ese binario vía
+            # base64. El XLSX sigue siendo la interfaz del auditor: esta
+            # vía NUNCA lo lee ni lo escribe. El JSON NO es confianza
+            # ciega — se valida contra el estado actual del GLOBAL antes
+            # de construir filas con la MISMA forma que la vía XLSX, para
+            # reutilizar exactamente la misma lógica de cierre/corrección.
+            fuente_revision = "json"
+            ruta_revision_reportada = ruta_revision_json
+            filas_existentes_xlsx = []
+            datos_json = cargar_decisiones_json(ruta_revision_json)
+            if datos_json is None:
+                filas_merged = filas_pass1
+                problemas_revision_json = ["REVISION_JSON_NO_LEGIBLE_O_INEXISTENTE"]
+            else:
+                ok, problemas_revision_json, filas_validas = validar_y_construir_filas_desde_json(
+                    datos_json, periodo, sha256_actual, filas_pass1
+                )
+                filas_merged = filas_validas if ok else filas_pass1
+        else:
+            fuente_revision = "xlsx"
+            ruta_revision_reportada = ruta_xlsx
+            problemas_revision_json = []
+            filas_existentes_xlsx = cargar_revision_xlsx(ruta_xlsx)
+            decisiones_legado = (
+                {} if filas_existentes_xlsx else cargar_decisiones_csv_legado(ruta_csv_legado, sha256_actual)
+            )
+            filas_merged = fusionar_filas_revision(
+                filas_pass1, filas_existentes_xlsx, decisiones_legado, sha256_actual
+            )
 
         resoluciones = _resoluciones_por_fila(filas_merged)
         filas_pendientes = sum(1 for r in resoluciones.values() if not r["resuelta"])
@@ -1000,58 +1124,89 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
         filas_a_escribir = filas_merged
         cerrar = filas_pendientes == 0
 
+        nuevas_filas_pass2 = []
         if cerrar:
             # Reevaluar con las asignaciones FINALES antes de comprometerse
             # a cerrar: una corrección no puede introducir silenciosamente
-            # otra duplicidad.
-            candidatas_finales = []
-            for p in candidatas_nuevas:
-                resolucion = resoluciones.get(p["fila_sap"])
-                valor_final = resolucion["final"] if resolucion else p["asignacion"]
-                if es_excluida(valor_final, p["cuenta_mayor"]):
-                    continue
-                nueva = dict(p)
-                nueva["asignacion"] = valor_final
-                candidatas_finales.append(nueva)
+            # otra duplicidad. Si la ocurrencia nueva YA tenía una decisión
+            # guardada en el .xlsx de una corrida anterior (el auditor la
+            # validó directamente ahí tras una corrida previa que la agregó
+            # sin validar), se recupera esa decisión en vez de dejarla en
+            # blanco — y se vuelve a reevaluar por si esa nueva decisión
+            # genera, a su vez, otra duplicidad (límite defensivo de 5
+            # vueltas: un caso real jamás encadena tantas).
+            previas_pass2 = {
+                f["FILA_GLOBAL"]: f for f in filas_existentes_xlsx
+                if f.get("SHA256_GLOBAL") == sha256_actual
+            }
+            for _ in range(5):
+                candidatas_finales = []
+                for p in candidatas_nuevas:
+                    resolucion = resoluciones.get(p["fila_sap"])
+                    valor_final = resolucion["final"] if resolucion else p["asignacion"]
+                    if es_excluida(valor_final, p["cuenta_mayor"]):
+                        continue
+                    nueva = dict(p)
+                    nueva["asignacion"] = valor_final
+                    candidatas_finales.append(nueva)
 
-            alertas_finales = detectar_ocurrencias_alertadas(candidatas_finales, historico)
-            fila_globales_conocidas = set(resoluciones.keys())
-            occ_original_por_fila = {p["fila_sap"]: p for p in candidatas_nuevas}
+                alertas_finales = detectar_ocurrencias_alertadas(candidatas_finales, historico)
+                fila_globales_conocidas = set(resoluciones.keys())
+                occ_original_por_fila = {p["fila_sap"]: p for p in candidatas_nuevas}
 
-            nuevas_filas_pass2 = []
-            for fila_sap, info in alertas_finales.items():
-                if fila_sap in fila_globales_conocidas:
-                    continue
-                occ_original = occ_original_por_fila.get(fila_sap)
-                if occ_original is None:
-                    continue
-                antecedente_txt = _texto_antecedentes(info["antecedentes"])
-                if not antecedente_txt:
-                    antecedente_txt = (
-                        "(alerta generada tras aplicar una corrección: coincide "
-                        "con otra ocurrencia corregida en este mismo GLOBAL)"
-                    )
-                nuevas_filas_pass2.append({
-                    "PERIODO": periodo,
-                    "FILA_GLOBAL": fila_sap,
-                    "ASIGNACION_ORIGINAL": occ_original["asignacion"],
-                    "TIPO_ALERTA": info["tipo"],
-                    "FECHA_VALOR": occ_original["fecha_valor"] or "",
-                    "CUENTA_MAYOR": occ_original["cuenta_mayor"] or "",
-                    "GLOSA": occ_original["glosa"] or "",
-                    "IMPORTE": occ_original["monto"] or "",
-                    "ANTECEDENTE_HISTORICO": antecedente_txt,
-                    "VALIDACION_AUDITOR": "",
-                    "ASIGNACION_CORRECTA": "",
-                    "OBSERVACION_AUDITOR": "",
-                    "FECHA_VALIDACION": "",
-                    "SHA256_GLOBAL": sha256_actual,
-                })
+                filas_nuevas_iter = []
+                for fila_sap, info in alertas_finales.items():
+                    if fila_sap in fila_globales_conocidas:
+                        continue
+                    occ_original = occ_original_por_fila.get(fila_sap)
+                    if occ_original is None:
+                        continue
+                    antecedente_txt = _texto_antecedentes(info["antecedentes"])
+                    if not antecedente_txt:
+                        antecedente_txt = (
+                            "(alerta generada tras aplicar una corrección: coincide "
+                            "con otra ocurrencia corregida en este mismo GLOBAL)"
+                        )
+                    previa = previas_pass2.get(fila_sap)
+                    filas_nuevas_iter.append({
+                        "PERIODO": periodo,
+                        "FILA_GLOBAL": fila_sap,
+                        "ASIGNACION_ORIGINAL": occ_original["asignacion"],
+                        "TIPO_ALERTA": info["tipo"],
+                        "FECHA_VALOR": occ_original["fecha_valor"] or "",
+                        "CUENTA_MAYOR": occ_original["cuenta_mayor"] or "",
+                        "GLOSA": occ_original["glosa"] or "",
+                        "IMPORTE": occ_original["monto"] or "",
+                        "ANTECEDENTE_HISTORICO": antecedente_txt,
+                        "VALIDACION_AUDITOR": previa.get("VALIDACION_AUDITOR", "") if previa else "",
+                        "ASIGNACION_CORRECTA": previa.get("ASIGNACION_CORRECTA", "") if previa else "",
+                        "OBSERVACION_AUDITOR": previa.get("OBSERVACION_AUDITOR", "") if previa else "",
+                        "FECHA_VALIDACION": previa.get("FECHA_VALIDACION", "") if previa else "",
+                        "SHA256_GLOBAL": sha256_actual,
+                    })
+
+                if not filas_nuevas_iter:
+                    break
+
+                nuevas_filas_pass2.extend(filas_nuevas_iter)
+                resoluciones.update(_resoluciones_por_fila(filas_nuevas_iter))
+
+                if any(not resoluciones[f["FILA_GLOBAL"]]["resuelta"] for f in filas_nuevas_iter):
+                    break
+                # Todas las alertas nuevas de esta vuelta ya estaban
+                # decididas (recuperadas del .xlsx existente): se reevalúa
+                # de nuevo por si, a su vez, generan otra duplicidad.
 
             if nuevas_filas_pass2:
-                cerrar = False
-                filas_a_escribir = filas_merged + nuevas_filas_pass2
-                filas_pendientes += len(nuevas_filas_pass2)
+                filas_merged = filas_merged + nuevas_filas_pass2
+                filas_a_escribir = filas_merged
+                nuevas_alertas_generadas = len(nuevas_filas_pass2)
+                filas_pendientes = sum(1 for r in resoluciones.values() if not r["resuelta"])
+                filas_correctas = sum(1 for r in resoluciones.values() if r["validacion"] == "CORRECTA")
+                filas_incorrectas = sum(
+                    1 for r in resoluciones.values() if r["validacion"] == "INCORRECTA" and r["resuelta"]
+                )
+                cerrar = filas_pendientes == 0
 
         if cerrar:
             correcciones = []
@@ -1091,15 +1246,25 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
                 guardar_historico(ruta_historico, historico + nuevas_filas_historico)
                 filas_incorporadas = len(nuevas_filas_historico)
 
-                guardar_revision_xlsx(ruta_xlsx, filas_a_escribir)
-                revision_actualizada = True
+                if fuente_revision == "xlsx":
+                    guardar_revision_xlsx(ruta_xlsx, filas_a_escribir)
+                    revision_actualizada = True
 
             estado_validacion = _ESTADO_CERRADO_CON_VALIDACION
         else:
             estado_validacion = _ESTADO_PENDIENTE_VALIDACION
-            if not dry_run:
+            # Vía JSON + nueva duplicidad generada por una corrección: Cowork
+            # no puede decidir esa alerta nueva por sí solo, así que aquí SÍ
+            # se genera/actualiza localmente el .xlsx (con la nueva ocurrencia
+            # sin validar, preservando las decisiones ya recibidas por JSON)
+            # para que Cowork lo publique en Drive. Fuera de este caso, la
+            # vía JSON nunca lee ni escribe el .xlsx.
+            escribir_xlsx_por_nueva_alerta = fuente_revision == "json" and nuevas_alertas_generadas > 0
+            if not dry_run and (fuente_revision == "xlsx" or escribir_xlsx_por_nueva_alerta):
                 guardar_revision_xlsx(ruta_xlsx, filas_a_escribir)
                 revision_actualizada = True
+                if escribir_xlsx_por_nueva_alerta:
+                    ruta_revision_reportada = ruta_xlsx
 
     puede_incorporar = (
         estado == _ESTADO_OK_SIN_DUPLICADOS or estado_validacion == _ESTADO_CERRADO_CON_VALIDACION
@@ -1137,7 +1302,10 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
         "historico_actualizado": historico_actualizado,
         "filas_incorporadas_historico": filas_incorporadas,
         "ruta_revision": ruta_revision_reportada,
+        "fuente_revision": fuente_revision,
+        "problemas_revision_json": problemas_revision_json,
         "revision_actualizada": revision_actualizada,
+        "nuevas_alertas_generadas": nuevas_alertas_generadas,
         "detalle_json": None,
     }
 
@@ -1171,6 +1339,13 @@ def _parse_args(argv=None):
     parser.add_argument("--revision-dir", dest="directorio_revision", default=None,
                          help="Directorio donde leer/escribir REVISION_ASIGNACIONES_<PERIODO>.xlsx "
                               "(por defecto, el mismo directorio de --historico).")
+    parser.add_argument("--revision-json", dest="ruta_revision_json", default=None,
+                         help="Ruta a un JSON PUENTE de decisiones humanas (formato "
+                              "REVISION_ASIGNACIONES_<PERIODO>_DECISIONES.json), como vía "
+                              "alterna a leer/escribir el .xlsx. El auditor sigue trabajando "
+                              "SOLO en el .xlsx; este JSON lo genera Cowork a partir de lo que "
+                              "ya leyó de ese .xlsx. Si se pasa, --revision-dir/.xlsx se ignoran "
+                              "para esta corrida (nunca se leen ni se escriben).")
     parser.add_argument("--dry-run", action="store_true",
                          help="No incorpora nada al histórico, no corrige el GLOBAL ni escribe REVISION; solo reporta.")
     return parser.parse_args(argv)
@@ -1185,6 +1360,7 @@ def main(argv=None):
         dry_run=args.dry_run,
         ruta_detalle_json=args.ruta_detalle_json,
         directorio_revision=args.directorio_revision,
+        ruta_revision_json=args.ruta_revision_json,
     )
     print(json.dumps(resumen, ensure_ascii=False))
     return 0 if resumen.get("estado") != "ERROR_TECNICO" else 1
