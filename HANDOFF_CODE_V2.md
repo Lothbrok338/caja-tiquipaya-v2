@@ -652,3 +652,137 @@ histórico con esquema antiguo sin perder información, ausencia de
 dependencias de Google Drive/Base64/módulos del V2 diario, y
 compatibilidad del JSON de detalle — hallazgos "por par" + alertas por
 asignación).
+
+## 15. GUARDARRAÍLES CLAUDE CODE — HOOKS
+
+Infraestructura de Claude Code (nunca lógica contable): convierte en
+hooks técnicos reales varias reglas que antes solo vivían como texto de
+prompt. Son hooks DE PROYECTO, versionados en el repo, tipo `command`
+puro en Node.js (sin dependencias externas de npm, sin llamadas de red,
+sin `prompt`/`agent`), pensados para Windows/Linux/CI por igual.
+
+**Ubicación:**
+
+```
+.claude/
+  settings.json          -- registra los hooks (PreToolUse)
+  hooks/
+    guard-write.js        -- HOOK 1 (parcial) + HOOK 2 + HOOK 3
+    guard-bash.js          -- HOOK 1 (parcial) + HOOK 4 + HOOK 5 + HOOK 6
+    test-hooks.js           -- prueba específica de los hooks (ver "Cómo probarlos")
+    lib/
+      git-utils.js          -- rama actual / raíz del repo (lee .git/HEAD, sin invocar `git`)
+      base64-guard.js        -- detección de payload base64 inline
+      respond.js              -- allow/deny/ask + lectura de stdin
+```
+
+Ambos hooks están registrados en `PreToolUse` (`Write|Edit` y `Bash`
+respectivamente). Si una acción no tiene ningún problema, el hook
+termina en silencio con `exit 0` — sin overhead, sin logs.
+
+**Qué BLOQUEA (DENY):**
+
+- **HOOK 1 (crítico) — base64 inline.** Cualquier tira de ≥512
+  caracteres del alfabeto base64 pegada inline en el contenido de
+  `Write`/`Edit` o en un comando `Bash`. Cubre por igual `echo | base64
+  -d`, `printf | base64 --decode`, `base64.b64decode("...")`,
+  `[Convert]::FromBase64String("...")`, `atob("...")` — el chequeo es
+  solo "¿hay un blob largo pegado?", así que no importa qué decodificador
+  se use alrededor. **No** bloquea `base64 -d archivo.b64 > salida.bin`
+  ni leer/decodificar un base64 ya materializado en un archivo, porque
+  ahí nunca aparece el blob largo en el texto del comando/contenido.
+- **HOOK 2 — archivos productivos críticos en `main`.** Editar/crear
+  `motor_tiquipaya.py`, `pipeline_tiquipaya.py`, `run_batch.py`,
+  `sap_writer.py`, `excel_io.py`, `consolidador_mensual.py` o
+  `control_asignaciones.py` estando en la rama `main`.
+- **HOOK 5 — force push a main.** `git push --force`/`-f`/
+  `--force-with-lease` cuando el push apunta a `main` (explícito en el
+  comando, o implícito si la rama actual es `main` y no se especifica
+  otra).
+- **HOOK 5 — push normal a main con la suite fallando.** Antes de un
+  `git push` normal (sin force) a `main`, el hook ejecuta localmente
+  `python3 -m unittest discover -s tests -p "test_*.py"` (fallback a
+  `python` si `python3` no existe en el PATH); si falla, DENY.
+- **HOOK 6 — comandos destructivos claros.** `git reset --hard`
+  (cualquier variante), `git clean` con flag de fuerza (`-f`, `-fd`,
+  `-fdx`, `--force`... — `git clean -n`/`--dry-run` SÍ se permite),
+  `rm -rf`/`-fr` apuntando a la raíz del proyecto o a una ruta amplia
+  (`.`, `/`, `~`, `*`, un ancestro del proyecto), y el equivalente
+  PowerShell `Remove-Item ... -Recurse ...` sobre esas mismas rutas.
+  Un `rm -rf` sobre un archivo/carpeta temporal puntual **no** se
+  bloquea.
+
+**Qué pide CONFIRMACIÓN (ASK, nunca silencioso):**
+
+- **HOOK 2 — archivos productivos críticos en una feature branch.**
+  Mismo listado de 7 archivos que arriba, pero fuera de `main`: se deja
+  avanzar solo con confirmación explícita, nunca en silencio.
+- **HOOK 3 — nuevo `.py` en la raíz del repo.** Crear (con `Write`) un
+  archivo `.py` nuevo cuyo directorio padre sea la raíz del repositorio
+  y que no exista todavía. No aplica a archivos `.py` ya existentes, a
+  `tests/*.py`, a `.claude/hooks/*.js`, ni a nada fuera del repo.
+- **HOOK 4 — `git clone` dentro de un checkout ya existente.** Si el
+  comando corre dentro de un directorio que ya es un repo Git. Un
+  `git clone` fuera de cualquier repo se permite sin pedir nada.
+- **HOOK 5 — push normal a main con la suite en verde.** Tras confirmar
+  que la suite completa pasa, igual pide confirmación antes de dejar
+  pasar el push (`"Suite completa PASS. Confirmar push a main."`).
+
+**Decisión técnica — por qué `unittest` y no `pytest -q` literal:** el
+proyecto no declara `pytest` como dependencia en ningún lado (no hay
+`requirements.txt` ni configuración de pytest) y toda la suite se ha
+ejecutado siempre con `python3 -m unittest discover` a lo largo de este
+proyecto. Usar ese mismo comando evita depender de un paquete que podría
+no estar instalado en el entorno del usuario y mantiene el guardarraíl
+sin dependencias externas. Si se prefiere `pytest` literal, es un único
+cambio de línea en `guard-bash.js` (`runFullTestSuite`).
+
+**Cómo probarlos:**
+
+```
+node .claude/hooks/test-hooks.js
+```
+
+Prueba con entradas JSON sintéticas por stdin (igual que las invoca
+Claude Code) sobre repos Git aislados en un directorio temporal — nunca
+toca el repo real ni sus datos. Cubre las 18 combinaciones mínimas
+pedidas (base64 en Write/Edit/Bash, archivos críticos en `main`/feature
+branch, `.py` nuevo en raíz, `git clone` dentro/fuera de un repo, force
+push, push normal con suite roja/verde, y los comandos destructivos) más
+algunos casos límite adicionales. No forma parte de `tests/` (suite
+contable): es una prueba de infraestructura, deliberadamente separada.
+
+**Posibles falsos positivos conocidos:**
+
+- Un blob base64 real de ≥512 caracteres que sea legítimamente necesario
+  pegar inline (caso excepcional) quedará bloqueado — la salida indica
+  la alternativa (leer/decodificar desde archivo).
+- HOOK 6 revisa cada sub-comando de una línea compuesta partiéndola por
+  `&&`, `||`, `;` y `|` con una heurística simple (no un parser de shell
+  completo): un `rm -rf` peligroso disfrazado con comillas/expansión de
+  variables poco comunes podría no detectarse. Cubre los patrones
+  "claros" pedidos, no pretende ser exhaustivo.
+- HOOK 5 asume que "sin rama explícita en el comando, se empuja la rama
+  actual": si algún flujo usa un alias/remote inusual sin nombrar la
+  rama, la detección de "apunta a main" se apoya en la rama actual leída
+  de `.git/HEAD`.
+- **Falso positivo detectado y corregido durante el desarrollo:** las
+  primeras versiones de HOOK 6/5/4 buscaban los patrones peligrosos en
+  CUALQUIER parte del sub-comando, no solo al inicio. Eso bloqueaba, por
+  ejemplo, el propio `git commit` que documenta este guardarraíl, porque
+  el mensaje de commit (dentro de un heredoc) *menciona* como texto
+  "git reset --hard" o "rm -rf". Se corrigió anclando cada detección al
+  INICIO del sub-comando (`startsWith()` en `guard-bash.js`, con un
+  pequeño listado de envoltorios habituales como `sudo`/`time`/`nice` que
+  se descuentan antes de anclar) — así solo el comando que realmente va
+  a ejecutarse activa el guardarraíl, nunca un argumento de texto que lo
+  menciona. Cubierto por el caso de regresión `18e` en
+  `test-hooks.js`. Contrapartida conocida: un comando destructivo
+  precedido por un envoltorio no listado (distinto de sudo/time/nice)
+  podría no detectarse — se prefirió esto a bloquear texto legítimo.
+
+**Cómo deshabilitarlos manualmente (nunca automático):** borrar o
+comentar el bloque `"hooks"` de `.claude/settings.json` (o el archivo
+completo), o mover temporalmente `.claude/hooks/` fuera del repo. Estos
+guardarraíles **no** se autodeshabilitan bajo ninguna condición — cualquier
+desactivación es una acción humana explícita.
