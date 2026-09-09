@@ -105,6 +105,17 @@ def _marcar_decisiones(ruta_xlsx, decisiones):
     wb.save(ruta_xlsx)
 
 
+def _escribir_decisiones_json(ruta, periodo, sha256_global, decisiones):
+    """decisiones: lista de dicts con fila_global/asignacion_original/
+    validacion_auditor/asignacion_correcta/observacion_auditor — simula el
+    JSON PUENTE que Cowork genera a partir de lo que ya leyó del .xlsx en
+    Drive (el auditor nunca edita este JSON)."""
+    datos = {"periodo": periodo, "sha256_global": sha256_global, "decisiones": decisiones}
+    with open(ruta, "w", encoding="utf-8") as f:
+        json.dump(datos, f, ensure_ascii=False, indent=2)
+    return ruta
+
+
 class _ControlAsignacionesTestBase(unittest.TestCase):
     NOMBRE_GLOBAL_AGOSTO = "SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx"
     NOMBRE_GLOBAL_SEPTIEMBRE = "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx"
@@ -124,6 +135,9 @@ class _ControlAsignacionesTestBase(unittest.TestCase):
 
     def _ruta_csv_legado(self, periodo="AGOSTO_2026"):
         return ca.ruta_revision_asignaciones(self.tmpdir, periodo)
+
+    def _ruta_json_decisiones(self, periodo="AGOSTO_2026"):
+        return os.path.join(self.tmpdir, f"REVISION_ASIGNACIONES_{periodo}_DECISIONES.json")
 
     def _ejecutar(self, partidas, ruta_global=None, **kwargs):
         ruta_global = ruta_global or self._ruta_global()
@@ -821,6 +835,373 @@ class TestDetalleJson(_ControlAsignacionesTestBase):
         self.assertIn("sha256_global_final", detalle)
         self.assertIn("filas_revisadas", detalle)
         self.assertEqual(detalle["filas_revisadas"], 2)
+
+
+# ---------------------------------------------------------------------------
+# JSON PUENTE (--revision-json): vía alterna a las decisiones humanas para
+# cuando Cowork no puede materializar el .xlsx de Drive sin base64. El
+# auditor SIGUE trabajando solo en el .xlsx; el JSON lo genera Cowork a
+# partir de lo que ya leyó de ese .xlsx, y NUNCA es confianza ciega: se
+# valida contra el estado ACTUAL del GLOBAL antes de construir filas con la
+# MISMA forma que la vía xlsx (misma lógica de cierre/corrección).
+# ---------------------------------------------------------------------------
+
+class TestRevisionJson(_ControlAsignacionesTestBase):
+    def test_1_cierre_correcto_via_revision_json(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("A1"), _partida("A1")], ruta_global=ruta_global)
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "A1", "validacion_auditor": "INCORRECTA",
+                 "asignacion_correcta": "A2", "observacion_auditor": "Ajuste de digitación"},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json)
+        self.assertEqual(resumen2["estado_validacion"], "CERRADO_CON_VALIDACION_AUDITOR")
+        self.assertEqual(resumen2["fuente_revision"], "json")
+        self.assertEqual(resumen2["problemas_revision_json"], [])
+        self.assertTrue(resumen2["global_modificado"])
+        self.assertEqual(resumen2["correcciones_aplicadas"], 1)
+        self.assertTrue(resumen2["historico_actualizado"])
+        self.assertEqual(_celda_global(ruta_global, "R", 16), "A1")
+        self.assertEqual(_celda_global(ruta_global, "R", 17), "A2")
+
+    def test_2_correcta_por_json_no_modifica_fila(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("FORTALEZA"), _partida("FORTALEZA")], ruta_global=ruta_global)
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "FORTALEZA", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "FORTALEZA", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json)
+        self.assertEqual(resumen2["estado_validacion"], "CERRADO_CON_VALIDACION_AUDITOR")
+        self.assertFalse(resumen2["global_modificado"])
+        self.assertEqual(resumen2["correcciones_aplicadas"], 0)
+        self.assertEqual(_celda_global(ruta_global, "R", 16), "FORTALEZA")
+        self.assertEqual(_celda_global(ruta_global, "R", 17), "FORTALEZA")
+
+    def test_3_incorrecta_por_json_corrige_solo_columna_r(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([
+            _partida("ASIG-A", cuenta_mayor="110101005", glosa="GLOSA UNO", cargo="123.45"),
+            _partida("ASIG-A", cuenta_mayor="110101006", glosa="GLOSA DOS", cargo="678.90"),
+        ], ruta_global=ruta_global)
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "ASIG-A", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "ASIG-A", "validacion_auditor": "INCORRECTA",
+                 "asignacion_correcta": "ASIG-A2", "observacion_auditor": "Ajuste"},
+            ],
+        )
+        ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                             ruta_revision_json=ruta_json)
+
+        wb = openpyxl.load_workbook(ruta_global)
+        ws = wb["1"]
+        self.assertEqual(ws["C16"].value, "110101005")
+        self.assertEqual(ws["D16"].value, "GLOSA UNO")
+        self.assertEqual(ws["C17"].value, "110101006")
+        self.assertEqual(ws["D17"].value, "GLOSA DOS")
+        self.assertEqual(float(ws["E17"].value), 678.90)
+        self.assertEqual(ws["R16"].value, "ASIG-A")
+        self.assertEqual(ws["R17"].value, "ASIG-A2")
+        wb.close()
+
+    def test_4_sha_incorrecto_bloquea(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("A1"), _partida("A1")], ruta_global=ruta_global)
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], "sha256_que_no_coincide",
+            [
+                {"fila_global": 16, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "A1", "validacion_auditor": "INCORRECTA",
+                 "asignacion_correcta": "A2", "observacion_auditor": ""},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json)
+        self.assertEqual(resumen2["estado_validacion"], "PENDIENTE_VALIDACION_AUDITOR")
+        self.assertIn("SHA256_GLOBAL_NO_COINCIDE", resumen2["problemas_revision_json"])
+        self.assertFalse(resumen2["global_modificado"])
+        self.assertFalse(os.path.isfile(self.ruta_historico))
+        self.assertEqual(_celda_global(ruta_global, "R", 17), "A1")
+
+    def test_5_fila_inexistente_bloquea(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("A1"), _partida("A1")], ruta_global=ruta_global)
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 999, "asignacion_original": "A1", "validacion_auditor": "INCORRECTA",
+                 "asignacion_correcta": "A2", "observacion_auditor": ""},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json)
+        self.assertEqual(resumen2["estado_validacion"], "PENDIENTE_VALIDACION_AUDITOR")
+        self.assertTrue(any("FILA_GLOBAL_NO_ES_ALERTA_ACTUAL" in p for p in resumen2["problemas_revision_json"]))
+        self.assertFalse(resumen2["global_modificado"])
+        self.assertEqual(_celda_global(ruta_global, "R", 17), "A1")
+
+    def test_6_asignacion_original_distinta_bloquea(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("A1"), _partida("A1")], ruta_global=ruta_global)
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "VALOR_QUE_NO_ES", "validacion_auditor": "INCORRECTA",
+                 "asignacion_correcta": "A2", "observacion_auditor": ""},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json)
+        self.assertEqual(resumen2["estado_validacion"], "PENDIENTE_VALIDACION_AUDITOR")
+        self.assertTrue(any("ASIGNACION_ORIGINAL_NO_COINCIDE" in p for p in resumen2["problemas_revision_json"]))
+        self.assertEqual(_celda_global(ruta_global, "R", 17), "A1")
+
+    def test_7_decision_faltante_bloquea(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("A1"), _partida("A1")], ruta_global=ruta_global)
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json)
+        self.assertEqual(resumen2["estado_validacion"], "PENDIENTE_VALIDACION_AUDITOR")
+        self.assertTrue(any("DECISION_FALTANTE" in p for p in resumen2["problemas_revision_json"]))
+        self.assertFalse(resumen2["global_modificado"])
+
+    def test_8_decision_extra_bloquea(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar(
+            [_partida("A1"), _partida("A1"), _partida("B1")], ruta_global=ruta_global
+        )
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 18, "asignacion_original": "B1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json)
+        self.assertEqual(resumen2["estado_validacion"], "PENDIENTE_VALIDACION_AUDITOR")
+        self.assertTrue(
+            any("FILA_GLOBAL_NO_ES_ALERTA_ACTUAL:fila=18" in p for p in resumen2["problemas_revision_json"])
+        )
+        self.assertFalse(resumen2["global_modificado"])
+
+    def test_9_decision_duplicada_bloquea(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("A1"), _partida("A1")], ruta_global=ruta_global)
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "A1", "validacion_auditor": "INCORRECTA",
+                 "asignacion_correcta": "A2", "observacion_auditor": ""},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json)
+        self.assertEqual(resumen2["estado_validacion"], "PENDIENTE_VALIDACION_AUDITOR")
+        self.assertTrue(any("DECISION_DUPLICADA" in p for p in resumen2["problemas_revision_json"]))
+        self.assertEqual(_celda_global(ruta_global, "R", 17), "A1")
+
+    def test_10_incorrecta_sin_asignacion_correcta_bloquea(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("A1"), _partida("A1")], ruta_global=ruta_global)
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "A1", "validacion_auditor": "INCORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json)
+        self.assertEqual(resumen2["estado_validacion"], "PENDIENTE_VALIDACION_AUDITOR")
+        self.assertTrue(any("ASIGNACION_CORRECTA_INVALIDA" in p for p in resumen2["problemas_revision_json"]))
+        self.assertEqual(_celda_global(ruta_global, "R", 17), "A1")
+
+    def test_11_correcta_con_datos_validos_cierra(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("FORTALEZA"), _partida("FORTALEZA")], ruta_global=ruta_global)
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "FORTALEZA", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": "revisado"},
+                {"fila_global": 17, "asignacion_original": "FORTALEZA", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": "revisado"},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json)
+        self.assertEqual(resumen2["estado_validacion"], "CERRADO_CON_VALIDACION_AUDITOR")
+        self.assertTrue(resumen2["historico_actualizado"])
+        historico = _leer_csv(self.ruta_historico)
+        self.assertEqual(len(historico), 2)
+
+    def test_12_nueva_duplicidad_por_correccion_bloquea_cierre_json(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar(
+            [_partida("AAA111"), _partida("AAA111"), _partida("BBB222")], ruta_global=ruta_global
+        )
+        filas_previas = len(ca.cargar_revision_xlsx(resumen1["ruta_revision"]))
+        hash_xlsx_antes = ca._hash_archivo(resumen1["ruta_revision"])
+
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "AAA111", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "AAA111", "validacion_auditor": "INCORRECTA",
+                 "asignacion_correcta": "BBB222", "observacion_auditor": ""},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json)
+        self.assertEqual(resumen2["estado_validacion"], "PENDIENTE_VALIDACION_AUDITOR")
+        self.assertFalse(resumen2["global_modificado"])
+        self.assertGreater(resumen2["nuevas_alertas_generadas"], 0)
+        self.assertFalse(os.path.isfile(self.ruta_historico))
+        self.assertEqual(_celda_global(ruta_global, "R", 17), "AAA111")
+        # El .xlsx del auditor NUNCA se toca en la vía JSON: la nueva alerta
+        # generada por la corrección debe volver a Drive por otro camino
+        # (nuevo JSON de Cowork tras releer el GLOBAL), no por escritura
+        # directa de CONTROL 1 sobre el xlsx local.
+        self.assertEqual(ca._hash_archivo(resumen1["ruta_revision"]), hash_xlsx_antes)
+        self.assertEqual(len(ca.cargar_revision_xlsx(resumen1["ruta_revision"])), filas_previas)
+
+    def test_13_historico_conserva_decision_y_asignacion_final_json(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("A1"), _partida("A1")], ruta_global=ruta_global)
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "A1", "validacion_auditor": "INCORRECTA",
+                 "asignacion_correcta": "A2", "observacion_auditor": "Ajuste por JSON"},
+            ],
+        )
+        ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                             ruta_revision_json=ruta_json)
+        historico = _leer_csv(self.ruta_historico)
+        fila17 = next(f for f in historico if f["fila_global"] == "17")
+        self.assertEqual(fila17["asignacion_original"], "A1")
+        self.assertEqual(fila17["asignacion_final"], "A2")
+        self.assertEqual(fila17["validacion_auditor"], "INCORRECTA")
+        self.assertEqual(fila17["observacion_auditor"], "Ajuste por JSON")
+
+    def test_14_idempotencia_global_final_tras_cierre_json(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("A1"), _partida("A1")], ruta_global=ruta_global)
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "A1", "validacion_auditor": "INCORRECTA",
+                 "asignacion_correcta": "A2", "observacion_auditor": ""},
+            ],
+        )
+        ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                             ruta_revision_json=ruta_json)
+        resumen3 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico)
+        self.assertEqual(resumen3["estado"], "YA_PROCESADO_SIN_CAMBIOS")
+
+    def test_15_flujo_xlsx_actual_sin_regresion(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("ASIG-A"), _partida("ASIG-A")], ruta_global=ruta_global)
+        self.assertEqual(resumen1["fuente_revision"], "xlsx")
+        _marcar_decisiones(resumen1["ruta_revision"], {
+            16: {"VALIDACION_AUDITOR": "CORRECTA"},
+            17: {"VALIDACION_AUDITOR": "INCORRECTA", "ASIGNACION_CORRECTA": "ASIG-A2"},
+        })
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico)
+        self.assertEqual(resumen2["fuente_revision"], "xlsx")
+        self.assertEqual(resumen2["estado_validacion"], "CERRADO_CON_VALIDACION_AUDITOR")
+        self.assertEqual(_celda_global(ruta_global, "R", 16), "ASIG-A")
+        self.assertEqual(_celda_global(ruta_global, "R", 17), "ASIG-A2")
+
+    def test_16_dry_run_con_revision_json_no_escribe_nada(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("A1"), _partida("A1")], ruta_global=ruta_global)
+        hash_global_antes = ca._hash_archivo(ruta_global)
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "A1", "validacion_auditor": "INCORRECTA",
+                 "asignacion_correcta": "A2", "observacion_auditor": ""},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json, dry_run=True)
+        self.assertTrue(resumen2["dry_run"])
+        self.assertFalse(resumen2["historico_actualizado"])
+        self.assertFalse(resumen2["global_modificado"])
+        self.assertFalse(os.path.isfile(self.ruta_historico))
+        self.assertEqual(ca._hash_archivo(ruta_global), hash_global_antes)
+
+    def test_17_revision_json_ignora_xlsx_y_csv_legado_existentes(self):
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar([_partida("A1"), _partida("A1")], ruta_global=ruta_global)
+        # Simula un xlsx desactualizado con una decisión que la vía JSON
+        # NUNCA debe leer ni usar (el JSON es la única fuente en este modo).
+        _marcar_decisiones(resumen1["ruta_revision"], {
+            16: {"VALIDACION_AUDITOR": "INCORRECTA", "ASIGNACION_CORRECTA": "NO_DEBE_USARSE"},
+        })
+        hash_xlsx_antes = ca._hash_archivo(resumen1["ruta_revision"])
+
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "A1", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": ""},
+                {"fila_global": 17, "asignacion_original": "A1", "validacion_auditor": "INCORRECTA",
+                 "asignacion_correcta": "A2", "observacion_auditor": ""},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json)
+        self.assertEqual(resumen2["fuente_revision"], "json")
+        self.assertEqual(_celda_global(ruta_global, "R", 16), "A1")
+        self.assertEqual(_celda_global(ruta_global, "R", 17), "A2")
+        self.assertEqual(ca._hash_archivo(resumen1["ruta_revision"]), hash_xlsx_antes)
 
 
 # ---------------------------------------------------------------------------

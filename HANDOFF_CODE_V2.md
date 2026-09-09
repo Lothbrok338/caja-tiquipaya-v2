@@ -704,12 +704,90 @@ sobre rutas de archivo locales ya materializadas; la responsabilidad de
 materializar/publicar en Drive es de quien invoca el script
 (Cowork/`auditor-caja-tiquipaya`), nunca de este módulo.
 
+**JSON PUENTE de decisiones (`--revision-json`) — vía alterna de
+producción:** el `.xlsx` (`REVISION_ASIGNACIONES_<PERIODO>.xlsx`) sigue
+siendo la **única interfaz del auditor humano**: es donde revisa cada
+ocurrencia y completa `VALIDACION_AUDITOR`/`ASIGNACION_CORRECTA`/
+`OBSERVACION_AUDITOR` directamente en Drive, sin descargar ni subir nada.
+El problema que resuelve `--revision-json` es puramente técnico: Cowork
+puede **leer** ese `.xlsx` vía su conector de Drive, pero no siempre
+puede materializar el binario en un filesystem accesible a Python sin
+recurrir a una transcripción Base64 (prohibida en todo el proyecto, y
+bloqueada además por el guardrail HOOK 1). La solución es que Cowork
+genere un **JSON pequeño** con las decisiones que ya leyó del `.xlsx.`
+Este JSON es un **puente técnico**, nunca una interfaz nueva para el
+auditor: el auditor jamás lo edita, jamás sabe que existe.
+
+Formato sugerido: `REVISION_ASIGNACIONES_<PERIODO>_DECISIONES.json`
+
+```json
+{
+  "periodo": "AGOSTO_2026",
+  "sha256_global": "...",
+  "decisiones": [
+    {
+      "fila_global": 278,
+      "asignacion_original": "3P66536982",
+      "validacion_auditor": "INCORRECTA",
+      "asignacion_correcta": "3P79981158",
+      "observacion_auditor": "ERROR DE TAIPEO EN VOUCHER"
+    },
+    {
+      "fila_global": 26,
+      "asignacion_original": "FORTALEZA",
+      "validacion_auditor": "CORRECTA",
+      "asignacion_correcta": "",
+      "observacion_auditor": "CUENTAS POR COBRAR FORTALEZA"
+    }
+  ]
+}
+```
+
+Uso: `python control_asignaciones.py --global ... --historico ...
+--revision-json /ruta/REVISION_ASIGNACIONES_AGOSTO_2026_DECISIONES.json`
+(mutuamente excluyente en cada corrida con `--revision-dir`/el `.xlsx`:
+si se pasa `--revision-json`, esa corrida **no lee ni escribe** el
+`.xlsx` ni el CSV legado — el `.xlsx` de Drive permanece exactamente
+como el auditor lo dejó). Ambas vías (`.xlsx` y JSON) convergen en la
+**misma** función de validación/fusión (`fusionar_filas_revision` para
+el `.xlsx`, `validar_y_construir_filas_desde_json` para el JSON, ambas
+produciendo filas con la misma forma) y comparten sin duplicación toda
+la lógica posterior: reevaluación de duplicados con asignaciones
+finales, aplicación todo-o-nada de correcciones sobre la columna R, y
+escritura del histórico.
+
+El JSON **no es confianza ciega**: antes de aceptar cualquier
+corrección se valida contra el estado ACTUAL del GLOBAL — periodo
+coincide, `sha256_global` coincide con el GLOBAL vigente, cada
+`fila_global` corresponde a una alerta real y vigente, `
+asignacion_original` coincide exactamente con la celda R de esa fila,
+`validacion_auditor` es `CORRECTA` o `INCORRECTA`, `INCORRECTA` exige
+`asignacion_correcta` no vacía y distinta de la original, no se
+aceptan filas que no correspondan a una alerta real, no se aceptan
+decisiones duplicadas para la misma ocurrencia, y deben estar
+representadas TODAS las alertas vigentes (ninguna puede quedar sin
+decisión). Si **cualquier** regla falla, se rechaza el lote **completo**
+(nunca una corrección parcial): no se toca el GLOBAL, no se toca el
+histórico, y el resumen queda `PENDIENTE_VALIDACION_AUDITOR` con el
+detalle de cada problema en `problemas_revision_json`. Si una
+corrección aplicada en memoria generara una nueva duplicidad, el cierre
+se aborta igual que en la vía `.xlsx` (`nuevas_alertas_generadas` en el
+resumen indica cuántas ocurrencias nuevas aparecieron); en la vía JSON
+el `.xlsx` de Drive **no se reescribe** en ese caso — es responsabilidad
+de Cowork releer el GLOBAL y regenerar un nuevo JSON tras la próxima
+lectura del `.xlsx` actualizado en Drive.
+
+Nuevos campos del resumen: `fuente_revision` (`"xlsx"` o `"json"`),
+`problemas_revision_json` (lista de problemas de validación, vacía si
+todo fue válido) y `nuevas_alertas_generadas`.
+
 **Integración futura:** pensado para ser invocado por la Skill
 `auditor-caja-tiquipaya` después de que `consolidador_mensual.py` genera
 el SAP GLOBAL del mes; la Skill se actualiza manualmente y por separado
 (no se edita desde Code).
 
-Tests: `tests/test_control_asignaciones.py` (46 pruebas — conserva y
+Tests: `tests/test_control_asignaciones.py` (63 pruebas: las 46
+anteriores sin cambios + 17 nuevas para `--revision-json` — conserva y
 adapta los escenarios de las etapas anteriores sin reducir cobertura, y
 agrega la validación humana en Excel + corrección del GLOBAL: se genera
 el `.xlsx` con una fila por ocurrencia (nunca agrupada por asignación) y
@@ -736,4 +814,14 @@ modifica el `.xlsx`, el GLOBAL ni el histórico; exclusiones
 SFC101/SFC102/TIQUIPAYA `<MES>`/cuenta 110201008 y FORTALEZA siempre
 evaluada permanecen intactas; hoja `"1"` y nombre canónico del GLOBAL
 siguen obligatorios sin fallback; y ausencia de dependencias de Google
-Drive/Base64/módulos del V2 diario).
+Drive/Base64/módulos del V2 diario). Las 17 pruebas nuevas cubren la vía
+`--revision-json`: cierre correcto, `CORRECTA` no modifica la fila,
+`INCORRECTA` corrige únicamente la columna R, SHA/fila/`
+ASIGNACION_ORIGINAL` inválidos bloquean, decisión faltante/extra/
+duplicada bloquean, `INCORRECTA` sin `ASIGNACION_CORRECTA` bloquea, una
+nueva duplicidad generada por una corrección sigue bloqueando el cierre
+(y no reescribe el `.xlsx`), el histórico conserva la decisión y la
+asignación final, la idempotencia sobre el GLOBAL final sigue
+funcionando, el flujo `.xlsx` existente no tiene regresión, `--dry-run`
+con `--revision-json` no escribe nada, y la vía JSON ignora por completo
+un `.xlsx`/CSV legado existente en el mismo directorio.
