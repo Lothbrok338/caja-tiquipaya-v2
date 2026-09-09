@@ -1092,6 +1092,7 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
             # reutilizar exactamente la misma lógica de cierre/corrección.
             fuente_revision = "json"
             ruta_revision_reportada = ruta_revision_json
+            filas_existentes_xlsx = []
             datos_json = cargar_decisiones_json(ruta_revision_json)
             if datos_json is None:
                 filas_merged = filas_pass1
@@ -1123,59 +1124,89 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
         filas_a_escribir = filas_merged
         cerrar = filas_pendientes == 0
 
+        nuevas_filas_pass2 = []
         if cerrar:
             # Reevaluar con las asignaciones FINALES antes de comprometerse
             # a cerrar: una corrección no puede introducir silenciosamente
-            # otra duplicidad.
-            candidatas_finales = []
-            for p in candidatas_nuevas:
-                resolucion = resoluciones.get(p["fila_sap"])
-                valor_final = resolucion["final"] if resolucion else p["asignacion"]
-                if es_excluida(valor_final, p["cuenta_mayor"]):
-                    continue
-                nueva = dict(p)
-                nueva["asignacion"] = valor_final
-                candidatas_finales.append(nueva)
+            # otra duplicidad. Si la ocurrencia nueva YA tenía una decisión
+            # guardada en el .xlsx de una corrida anterior (el auditor la
+            # validó directamente ahí tras una corrida previa que la agregó
+            # sin validar), se recupera esa decisión en vez de dejarla en
+            # blanco — y se vuelve a reevaluar por si esa nueva decisión
+            # genera, a su vez, otra duplicidad (límite defensivo de 5
+            # vueltas: un caso real jamás encadena tantas).
+            previas_pass2 = {
+                f["FILA_GLOBAL"]: f for f in filas_existentes_xlsx
+                if f.get("SHA256_GLOBAL") == sha256_actual
+            }
+            for _ in range(5):
+                candidatas_finales = []
+                for p in candidatas_nuevas:
+                    resolucion = resoluciones.get(p["fila_sap"])
+                    valor_final = resolucion["final"] if resolucion else p["asignacion"]
+                    if es_excluida(valor_final, p["cuenta_mayor"]):
+                        continue
+                    nueva = dict(p)
+                    nueva["asignacion"] = valor_final
+                    candidatas_finales.append(nueva)
 
-            alertas_finales = detectar_ocurrencias_alertadas(candidatas_finales, historico)
-            fila_globales_conocidas = set(resoluciones.keys())
-            occ_original_por_fila = {p["fila_sap"]: p for p in candidatas_nuevas}
+                alertas_finales = detectar_ocurrencias_alertadas(candidatas_finales, historico)
+                fila_globales_conocidas = set(resoluciones.keys())
+                occ_original_por_fila = {p["fila_sap"]: p for p in candidatas_nuevas}
 
-            nuevas_filas_pass2 = []
-            for fila_sap, info in alertas_finales.items():
-                if fila_sap in fila_globales_conocidas:
-                    continue
-                occ_original = occ_original_por_fila.get(fila_sap)
-                if occ_original is None:
-                    continue
-                antecedente_txt = _texto_antecedentes(info["antecedentes"])
-                if not antecedente_txt:
-                    antecedente_txt = (
-                        "(alerta generada tras aplicar una corrección: coincide "
-                        "con otra ocurrencia corregida en este mismo GLOBAL)"
-                    )
-                nuevas_filas_pass2.append({
-                    "PERIODO": periodo,
-                    "FILA_GLOBAL": fila_sap,
-                    "ASIGNACION_ORIGINAL": occ_original["asignacion"],
-                    "TIPO_ALERTA": info["tipo"],
-                    "FECHA_VALOR": occ_original["fecha_valor"] or "",
-                    "CUENTA_MAYOR": occ_original["cuenta_mayor"] or "",
-                    "GLOSA": occ_original["glosa"] or "",
-                    "IMPORTE": occ_original["monto"] or "",
-                    "ANTECEDENTE_HISTORICO": antecedente_txt,
-                    "VALIDACION_AUDITOR": "",
-                    "ASIGNACION_CORRECTA": "",
-                    "OBSERVACION_AUDITOR": "",
-                    "FECHA_VALIDACION": "",
-                    "SHA256_GLOBAL": sha256_actual,
-                })
+                filas_nuevas_iter = []
+                for fila_sap, info in alertas_finales.items():
+                    if fila_sap in fila_globales_conocidas:
+                        continue
+                    occ_original = occ_original_por_fila.get(fila_sap)
+                    if occ_original is None:
+                        continue
+                    antecedente_txt = _texto_antecedentes(info["antecedentes"])
+                    if not antecedente_txt:
+                        antecedente_txt = (
+                            "(alerta generada tras aplicar una corrección: coincide "
+                            "con otra ocurrencia corregida en este mismo GLOBAL)"
+                        )
+                    previa = previas_pass2.get(fila_sap)
+                    filas_nuevas_iter.append({
+                        "PERIODO": periodo,
+                        "FILA_GLOBAL": fila_sap,
+                        "ASIGNACION_ORIGINAL": occ_original["asignacion"],
+                        "TIPO_ALERTA": info["tipo"],
+                        "FECHA_VALOR": occ_original["fecha_valor"] or "",
+                        "CUENTA_MAYOR": occ_original["cuenta_mayor"] or "",
+                        "GLOSA": occ_original["glosa"] or "",
+                        "IMPORTE": occ_original["monto"] or "",
+                        "ANTECEDENTE_HISTORICO": antecedente_txt,
+                        "VALIDACION_AUDITOR": previa.get("VALIDACION_AUDITOR", "") if previa else "",
+                        "ASIGNACION_CORRECTA": previa.get("ASIGNACION_CORRECTA", "") if previa else "",
+                        "OBSERVACION_AUDITOR": previa.get("OBSERVACION_AUDITOR", "") if previa else "",
+                        "FECHA_VALIDACION": previa.get("FECHA_VALIDACION", "") if previa else "",
+                        "SHA256_GLOBAL": sha256_actual,
+                    })
+
+                if not filas_nuevas_iter:
+                    break
+
+                nuevas_filas_pass2.extend(filas_nuevas_iter)
+                resoluciones.update(_resoluciones_por_fila(filas_nuevas_iter))
+
+                if any(not resoluciones[f["FILA_GLOBAL"]]["resuelta"] for f in filas_nuevas_iter):
+                    break
+                # Todas las alertas nuevas de esta vuelta ya estaban
+                # decididas (recuperadas del .xlsx existente): se reevalúa
+                # de nuevo por si, a su vez, generan otra duplicidad.
 
             if nuevas_filas_pass2:
-                cerrar = False
-                filas_a_escribir = filas_merged + nuevas_filas_pass2
-                filas_pendientes += len(nuevas_filas_pass2)
+                filas_merged = filas_merged + nuevas_filas_pass2
+                filas_a_escribir = filas_merged
                 nuevas_alertas_generadas = len(nuevas_filas_pass2)
+                filas_pendientes = sum(1 for r in resoluciones.values() if not r["resuelta"])
+                filas_correctas = sum(1 for r in resoluciones.values() if r["validacion"] == "CORRECTA")
+                filas_incorrectas = sum(
+                    1 for r in resoluciones.values() if r["validacion"] == "INCORRECTA" and r["resuelta"]
+                )
+                cerrar = filas_pendientes == 0
 
         if cerrar:
             correcciones = []
@@ -1222,9 +1253,18 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
             estado_validacion = _ESTADO_CERRADO_CON_VALIDACION
         else:
             estado_validacion = _ESTADO_PENDIENTE_VALIDACION
-            if not dry_run and fuente_revision == "xlsx":
+            # Vía JSON + nueva duplicidad generada por una corrección: Cowork
+            # no puede decidir esa alerta nueva por sí solo, así que aquí SÍ
+            # se genera/actualiza localmente el .xlsx (con la nueva ocurrencia
+            # sin validar, preservando las decisiones ya recibidas por JSON)
+            # para que Cowork lo publique en Drive. Fuera de este caso, la
+            # vía JSON nunca lee ni escribe el .xlsx.
+            escribir_xlsx_por_nueva_alerta = fuente_revision == "json" and nuevas_alertas_generadas > 0
+            if not dry_run and (fuente_revision == "xlsx" or escribir_xlsx_por_nueva_alerta):
                 guardar_revision_xlsx(ruta_xlsx, filas_a_escribir)
                 revision_actualizada = True
+                if escribir_xlsx_por_nueva_alerta:
+                    ruta_revision_reportada = ruta_xlsx
 
     puede_incorporar = (
         estado == _ESTADO_OK_SIN_DUPLICADOS or estado_validacion == _ESTADO_CERRADO_CON_VALIDACION

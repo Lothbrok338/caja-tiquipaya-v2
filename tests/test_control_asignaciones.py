@@ -1074,13 +1074,68 @@ class TestRevisionJson(_ControlAsignacionesTestBase):
         self.assertEqual(len(historico), 2)
 
     def test_12_nueva_duplicidad_por_correccion_bloquea_cierre_json(self):
+        # Vía JSON: una corrección autorizada genera una duplicidad NUEVA no
+        # decidida por nadie. Cowork no puede resolverla por sí solo, así que
+        # CONTROL 1 debe: no tocar GLOBAL ni histórico, mantener el mes
+        # PENDIENTE, y generar/actualizar localmente el .xlsx con la nueva
+        # ocurrencia sin validar — preservando las decisiones ya recibidas
+        # por JSON — para que Cowork lo publique en Drive.
         ruta_global = self._ruta_global()
         resumen1 = self._ejecutar(
             [_partida("AAA111"), _partida("AAA111"), _partida("BBB222")], ruta_global=ruta_global
         )
-        filas_previas = len(ca.cargar_revision_xlsx(resumen1["ruta_revision"]))
-        hash_xlsx_antes = ca._hash_archivo(resumen1["ruta_revision"])
+        ruta_xlsx_local = self._ruta_xlsx()
 
+        ruta_json = _escribir_decisiones_json(
+            self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
+            [
+                {"fila_global": 16, "asignacion_original": "AAA111", "validacion_auditor": "CORRECTA",
+                 "asignacion_correcta": "", "observacion_auditor": "ya revisado"},
+                {"fila_global": 17, "asignacion_original": "AAA111", "validacion_auditor": "INCORRECTA",
+                 "asignacion_correcta": "BBB222", "observacion_auditor": "corregido"},
+            ],
+        )
+        resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
+                                        ruta_revision_json=ruta_json)
+
+        # 1-3: ni GLOBAL ni histórico se tocan; el mes sigue pendiente.
+        self.assertEqual(resumen2["estado"], "REVISAR_DUPLICADOS_ENCONTRADOS")
+        self.assertEqual(resumen2["estado_validacion"], "PENDIENTE_VALIDACION_AUDITOR")
+        self.assertFalse(resumen2["global_modificado"])
+        self.assertFalse(os.path.isfile(self.ruta_historico))
+        self.assertEqual(_celda_global(ruta_global, "R", 17), "AAA111")
+        self.assertGreater(resumen2["nuevas_alertas_generadas"], 0)
+
+        # 4: se genera/actualiza localmente el .xlsx de revisión.
+        self.assertEqual(resumen2["fuente_revision"], "json")
+        self.assertEqual(resumen2["ruta_revision"], ruta_xlsx_local)
+        self.assertTrue(resumen2["revision_actualizada"])
+        self.assertTrue(os.path.isfile(ruta_xlsx_local))
+        filas = ca.cargar_revision_xlsx(ruta_xlsx_local)
+        self.assertEqual({f["FILA_GLOBAL"] for f in filas}, {16, 17, 18})
+
+        # 5: las decisiones ya recibidas por JSON quedan preservadas.
+        fila16 = next(f for f in filas if f["FILA_GLOBAL"] == 16)
+        fila17 = next(f for f in filas if f["FILA_GLOBAL"] == 17)
+        self.assertEqual(fila16["VALIDACION_AUDITOR"], "CORRECTA")
+        self.assertEqual(fila16["OBSERVACION_AUDITOR"], "ya revisado")
+        self.assertEqual(fila17["VALIDACION_AUDITOR"], "INCORRECTA")
+        self.assertEqual(fila17["ASIGNACION_CORRECTA"], "BBB222")
+        self.assertEqual(fila17["OBSERVACION_AUDITOR"], "corregido")
+
+        # 6: la nueva alerta (fila 18) queda sin validar, para el auditor.
+        fila18 = next(f for f in filas if f["FILA_GLOBAL"] == 18)
+        self.assertEqual(fila18["VALIDACION_AUDITOR"], "")
+        self.assertEqual(fila18["ASIGNACION_ORIGINAL"], "BBB222")
+
+    def test_12b_rerun_tras_validar_nueva_alerta_permite_cierre(self):
+        # 7: una vez que el auditor completa esa nueva alerta directamente en
+        # el .xlsx generado por el paso anterior, un rerun normal (vía xlsx,
+        # sin --revision-json) sí puede cerrar el mes.
+        ruta_global = self._ruta_global()
+        resumen1 = self._ejecutar(
+            [_partida("AAA111"), _partida("AAA111"), _partida("BBB222")], ruta_global=ruta_global
+        )
         ruta_json = _escribir_decisiones_json(
             self._ruta_json_decisiones(), resumen1["periodo"], resumen1["sha256_archivo"],
             [
@@ -1092,17 +1147,21 @@ class TestRevisionJson(_ControlAsignacionesTestBase):
         )
         resumen2 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico,
                                         ruta_revision_json=ruta_json)
-        self.assertEqual(resumen2["estado_validacion"], "PENDIENTE_VALIDACION_AUDITOR")
-        self.assertFalse(resumen2["global_modificado"])
-        self.assertGreater(resumen2["nuevas_alertas_generadas"], 0)
-        self.assertFalse(os.path.isfile(self.ruta_historico))
-        self.assertEqual(_celda_global(ruta_global, "R", 17), "AAA111")
-        # El .xlsx del auditor NUNCA se toca en la vía JSON: la nueva alerta
-        # generada por la corrección debe volver a Drive por otro camino
-        # (nuevo JSON de Cowork tras releer el GLOBAL), no por escritura
-        # directa de CONTROL 1 sobre el xlsx local.
-        self.assertEqual(ca._hash_archivo(resumen1["ruta_revision"]), hash_xlsx_antes)
-        self.assertEqual(len(ca.cargar_revision_xlsx(resumen1["ruta_revision"])), filas_previas)
+
+        _marcar_decisiones(resumen2["ruta_revision"], {
+            18: {"VALIDACION_AUDITOR": "CORRECTA"},
+        })
+        resumen3 = ca.ejecutar_control(ruta_global=ruta_global, ruta_historico=self.ruta_historico)
+
+        self.assertEqual(resumen3["fuente_revision"], "xlsx")
+        self.assertEqual(resumen3["estado_validacion"], "CERRADO_CON_VALIDACION_AUDITOR")
+        self.assertTrue(resumen3["global_modificado"])
+        self.assertTrue(resumen3["historico_actualizado"])
+        self.assertEqual(_celda_global(ruta_global, "R", 16), "AAA111")
+        self.assertEqual(_celda_global(ruta_global, "R", 17), "BBB222")
+        self.assertEqual(_celda_global(ruta_global, "R", 18), "BBB222")
+        historico = _leer_csv(self.ruta_historico)
+        self.assertEqual(len(historico), 3)
 
     def test_13_historico_conserva_decision_y_asignacion_final_json(self):
         ruta_global = self._ruta_global()

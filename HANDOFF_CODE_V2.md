@@ -769,13 +769,26 @@ representadas TODAS las alertas vigentes (ninguna puede quedar sin
 decisión). Si **cualquier** regla falla, se rechaza el lote **completo**
 (nunca una corrección parcial): no se toca el GLOBAL, no se toca el
 histórico, y el resumen queda `PENDIENTE_VALIDACION_AUDITOR` con el
-detalle de cada problema en `problemas_revision_json`. Si una
-corrección aplicada en memoria generara una nueva duplicidad, el cierre
-se aborta igual que en la vía `.xlsx` (`nuevas_alertas_generadas` en el
-resumen indica cuántas ocurrencias nuevas aparecieron); en la vía JSON
-el `.xlsx` de Drive **no se reescribe** en ese caso — es responsabilidad
-de Cowork releer el GLOBAL y regenerar un nuevo JSON tras la próxima
-lectura del `.xlsx` actualizado en Drive.
+detalle de cada problema en `problemas_revision_json`.
+
+**Nueva duplicidad generada por una corrección, en vía JSON:** si al
+aplicar las correcciones en memoria la reevaluación final descubre una
+ocurrencia nueva no vista antes, Cowork no puede decidirla por sí solo
+(no es una decisión que venga en el JSON). En ese caso CONTROL 1: no
+toca el GLOBAL, no toca el histórico, mantiene el mes
+`PENDIENTE_VALIDACION_AUDITOR`, y **sí genera o actualiza localmente**
+`REVISION_ASIGNACIONES_<PERIODO>.xlsx` incorporando la nueva ocurrencia
+sin validar (`VALIDACION_AUDITOR` vacío) y **preservando** dentro de
+ese mismo `.xlsx` las decisiones ya recibidas por JSON
+(`VALIDACION_AUDITOR`/`ASIGNACION_CORRECTA`/`OBSERVACION_AUDITOR` de
+las filas ya decididas). `resumen["ruta_revision"]` pasa a apuntar a
+ese `.xlsx` local (no al JSON) para que Cowork sepa exactamente qué
+archivo publicar en Drive — sin necesidad de descargar ningún `.xlsx`
+anterior. Una vez que el auditor completa esa fila nueva directamente
+en Drive, una corrida posterior (vía `.xlsx` normal, o vía un nuevo
+JSON que Cowork genere tras releer esa decisión) cierra el mes
+normalmente. `nuevas_alertas_generadas` en el resumen indica cuántas
+ocurrencias nuevas aparecieron en la corrida.
 
 Nuevos campos del resumen: `fuente_revision` (`"xlsx"` o `"json"`),
 `problemas_revision_json` (lista de problemas de validación, vacía si
@@ -786,8 +799,8 @@ todo fue válido) y `nuevas_alertas_generadas`.
 el SAP GLOBAL del mes; la Skill se actualiza manualmente y por separado
 (no se edita desde Code).
 
-Tests: `tests/test_control_asignaciones.py` (63 pruebas: las 46
-anteriores sin cambios + 17 nuevas para `--revision-json` — conserva y
+Tests: `tests/test_control_asignaciones.py` (64 pruebas: las 46
+anteriores sin cambios + 18 nuevas para `--revision-json` — conserva y
 adapta los escenarios de las etapas anteriores sin reducir cobertura, y
 agrega la validación humana en Excel + corrección del GLOBAL: se genera
 el `.xlsx` con una fila por ocurrencia (nunca agrupada por asignación) y
@@ -814,14 +827,18 @@ modifica el `.xlsx`, el GLOBAL ni el histórico; exclusiones
 SFC101/SFC102/TIQUIPAYA `<MES>`/cuenta 110201008 y FORTALEZA siempre
 evaluada permanecen intactas; hoja `"1"` y nombre canónico del GLOBAL
 siguen obligatorios sin fallback; y ausencia de dependencias de Google
-Drive/Base64/módulos del V2 diario). Las 17 pruebas nuevas cubren la vía
+Drive/Base64/módulos del V2 diario). Las 18 pruebas nuevas cubren la vía
 `--revision-json`: cierre correcto, `CORRECTA` no modifica la fila,
 `INCORRECTA` corrige únicamente la columna R, SHA/fila/`
 ASIGNACION_ORIGINAL` inválidos bloquean, decisión faltante/extra/
 duplicada bloquean, `INCORRECTA` sin `ASIGNACION_CORRECTA` bloquea, una
-nueva duplicidad generada por una corrección sigue bloqueando el cierre
-(y no reescribe el `.xlsx`), el histórico conserva la decisión y la
-asignación final, la idempotencia sobre el GLOBAL final sigue
-funcionando, el flujo `.xlsx` existente no tiene regresión, `--dry-run`
-con `--revision-json` no escribe nada, y la vía JSON ignora por completo
-un `.xlsx`/CSV legado existente en el mismo directorio.
+nueva duplicidad generada por una corrección bloquea el cierre sin
+tocar GLOBAL/histórico Y genera/actualiza localmente el `.xlsx`
+preservando las decisiones ya recibidas por JSON con la nueva alerta
+sin validar, un rerun posterior (una vez el auditor valida esa nueva
+alerta directamente en ese `.xlsx`) sí cierra el mes, el histórico
+conserva la decisión y la asignación final, la idempotencia sobre el
+GLOBAL final sigue funcionando, el flujo `.xlsx` existente no tiene
+regresión, `--dry-run` con `--revision-json` no escribe nada, y la vía
+JSON ignora por completo un `.xlsx`/CSV legado existente en el mismo
+directorio.
