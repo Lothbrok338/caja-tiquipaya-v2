@@ -436,17 +436,24 @@ ausencia de dependencia de Google Drive).
 Módulo **separado e independiente** (`control_asignaciones.py`),
 **posterior** al SAP GLOBAL mensual (`consolidador_mensual.py`). Base
 tomada de la primera versión funcional creada por Cowork, endurecida en
-Claude Code con los ajustes de esta sección antes de oficializarse
-(rama → tests → revisión → commit → merge autorizado por separado).
+Claude Code (rama → tests → revisión → commit → merge autorizado por
+separado). Esta sección describe el flujo **vigente**: validación humana
+en Excel, una fila por ocurrencia, y corrección autorizada del propio
+GLOBAL (supersede el flujo intermedio que usaba un CSV agrupado por
+asignación y que nunca tocaba el GLOBAL).
 
 **Objetivo:** auditar la columna Asignacion (ZUONR, columna R) del SAP
 GLOBAL mensual, detectando repeticiones (1) dentro del mismo GLOBAL y (2)
 contra GLOBAL de meses anteriores vía `HISTORICO_ASIGNACIONES.csv`. Un
-duplicado **nunca** significa error contable: el estado que produce es
-siempre `REVISAR`, nunca una corrección automática. El control es de
-**solo lectura** sobre el GLOBAL: nunca lo modifica, nunca reinterpreta
-contabilidad y nunca vuelve a abrir un GLOBAL de un mes anterior (toda la
-memoria histórica vive en el CSV compacto).
+duplicado **nunca** significa error contable: se marca `REVISAR` y queda
+sujeto a validación humana — nunca se corrige nada automáticamente. El
+GLOBAL es de **solo lectura mientras haya alertas sin validar**; solo
+después de que el auditor validó TODAS las alertas de un periodo,
+CONTROL 1 puede corregir ÚNICAMENTE la columna Asignacion (R) de las
+filas explícitamente autorizadas y sobrescribir ESE MISMO GLOBAL — el
+archivo que el auditor luego carga a SAP. Nunca crea un `_VALIDADO` ni
+una copia de respaldo productiva; nunca vuelve a abrir un GLOBAL de un
+mes anterior (la memoria histórica vive en el CSV compacto).
 
 **Script oficial:** `control_asignaciones.py` — mismo layout que
 `sap_writer.py`/`consolidador_mensual.py` (hoja **EXACTA** `"1"`,
@@ -457,10 +464,32 @@ E=Cargo, F=Haber, O=FechaValor, R=Asignacion). La hoja `"1"` es
 `wb.sheetnames[0]` ni adivina otra hoja.
 
 **Histórico:** `HISTORICO_ASIGNACIONES.csv` (una fila por ocurrencia NO
-excluida de una asignación, en cualquier GLOBAL ya incorporado; columnas:
-`asignacion, fecha_valor, cuenta_mayor, glosa, monto, archivo_global,
-fila_sap, sha256_archivo, fecha_incorporacion`). La incorporación es
-siempre incremental y nunca reescribe filas existentes.
+excluida de una asignación, en cualquier GLOBAL ya incorporado). La
+incorporación es siempre incremental y nunca reescribe filas existentes.
+Columnas (esquema extendido, compatible con archivos anteriores —
+columnas nuevas siempre al final):
+
+```
+asignacion, fecha_valor, cuenta_mayor, glosa, monto, archivo_global,
+fila_sap, sha256_archivo, fecha_incorporacion, alerta_duplicado,
+validacion_auditor, observacion_auditor, fecha_validacion,
+asignacion_original, asignacion_final, fila_global,
+sha256_global_original, sha256_global_final
+```
+
+**`asignacion` guarda siempre la asignación FINAL** — la que realmente
+quedó en el GLOBAL que se cargó a SAP — para que los meses siguientes
+comparen contra la referencia realmente válida. `asignacion_original`
+conserva la trazabilidad del valor de origen:
+
+- `CORRECTA`: `asignacion_original = asignacion_final = asignacion = X`.
+- `INCORRECTA` (corregida a Y): `asignacion_original = X`,
+  `asignacion_final = asignacion = Y`.
+
+`sha256_archivo` (columna heredada) guarda el SHA-256 **FINAL** del
+GLOBAL de esa incorporación (igual a `sha256_global_final`) — así los
+guardarraíles de idempotencia (CASO A/B, sin cambios de código) siguen
+funcionando tal cual sobre un GLOBAL que el propio CONTROL 1 corrigió.
 
 **Exclusiones** (nunca se marcan como duplicado, ni dentro del mismo
 GLOBAL ni contra el histórico):
@@ -540,83 +569,135 @@ convención, el `DETALLE` de una alerta usa una variante NO estricta
 —`_periodo_para_mostrar()`— que nunca se usa para decidir el periodo del
 GLOBAL que se está auditando ahora.)
 
-### Validación humana (CIERRE DEL MES)
+### Validación humana en Excel (CIERRE DEL MES)
 
 La coincidencia de la Asignacion por sí sola es suficiente para generar
 alerta — **una validación humana anterior NUNCA evita una alerta
 futura**: si `3P66536982` fue validada `CORRECTA` en agosto y vuelve a
 aparecer en septiembre, septiembre vuelve a salir `REVISAR`/pendiente
-(la validación de agosto queda solo como antecedente informativo en el
-`DETALLE`).
+(la validación de agosto queda solo como antecedente informativo en
+`ANTECEDENTE_HISTORICO`).
 
-Cuando `construir_alertas_asignaciones()` detecta alertas (repetición
-dentro del mismo GLOBAL y/o contra el histórico), se crea/actualiza:
+Cuando hay alertas se crea/actualiza:
 
 ```
-REVISION_ASIGNACIONES_<PERIODO>.csv
+REVISION_ASIGNACIONES_<PERIODO>.xlsx      (hoja única "REVISION")
 ```
 
 (mismo directorio que `--historico` por defecto, o `--revision-dir`),
-con **una fila por ASIGNACION observada** (nunca una fila por cada
-par/combinación). Columnas: `PERIODO, ASIGNACION, TIPO_ALERTA
-(DUPLICADA_MISMO_MES|DUPLICADA_CON_HISTORICO|AMBAS), DETALLE,
-VALIDACION_AUDITOR, OBSERVACION_AUDITOR, FECHA_VALIDACION,
-SHA256_GLOBAL`. `DETALLE` resume filas/fechas/cuenta/glosa/importes de
-las ocurrencias del GLOBAL actual y, si hay antecedente histórico, el
-periodo/validación/observación anteriores. El auditor completa
-manualmente `VALIDACION_AUDITOR` (`CORRECTA`/`INCORRECTA`) y
-`OBSERVACION_AUDITOR`; el módulo **nunca** decide esos valores por su
+con **UNA FILA POR OCURRENCIA ACTUAL DEL GLOBAL** involucrada en una
+alerta — nunca una fila agrupada por asignación: si `3P66536982`
+aparece en las filas 146 y 278 del GLOBAL, el Excel trae **dos** filas.
+`FILA_GLOBAL` la calcula Python leyendo el GLOBAL — **el auditor nunca
+la digita**.
+
+Columnas: `PERIODO, FILA_GLOBAL, ASIGNACION_ORIGINAL, TIPO_ALERTA,
+FECHA_VALOR, CUENTA_MAYOR, GLOSA, IMPORTE, ANTECEDENTE_HISTORICO,
+VALIDACION_AUDITOR, ASIGNACION_CORRECTA, OBSERVACION_AUDITOR,
+FECHA_VALIDACION, SHA256_GLOBAL`. Formato pensado para el auditor:
+encabezados en negrita, autofiltro, fila superior congelada, texto
+ajustado en GLOSA/OBSERVACION_AUDITOR/ANTECEDENTE_HISTORICO, y una lista
+desplegable (`CORRECTA`/`INCORRECTA`) en `VALIDACION_AUDITOR`. El
+auditor solo completa `VALIDACION_AUDITOR`, `ASIGNACION_CORRECTA` y
+`OBSERVACION_AUDITOR` — el módulo **nunca** decide esos valores por su
 cuenta.
 
-Al reejecutar sobre el mismo SHA-256, `fusionar_revision()` conserva las
-validaciones humanas ya escritas (emparejando por `ASIGNACION`) y:
+**Significado de la validación:**
 
-- si queda alguna fila sin `VALIDACION_AUDITOR` completa →
+- `CORRECTA` = "la asignación observada es válida tal como está": no se
+  toca esa fila del GLOBAL; la asignación final es la original;
+  `ASIGNACION_CORRECTA` se ignora (queda vacía).
+- `INCORRECTA` exige `ASIGNACION_CORRECTA` no vacía y distinta de
+  `ASIGNACION_ORIGINAL`. Si falta o es igual al original, la fila sigue
+  **PENDIENTE** — nunca se asume una corrección.
+
+Al reejecutar sobre el mismo SHA-256, `fusionar_filas_revision()`
+conserva las decisiones humanas ya escritas (emparejando por
+`FILA_GLOBAL`):
+
+- si queda alguna fila sin resolver →
   `estado_validacion = PENDIENTE_VALIDACION_AUDITOR` (con `estado`
-  siempre en `REVISAR_DUPLICADOS_ENCONTRADOS`), histórico **no** se
-  modifica;
-- si TODAS están validadas (`CORRECTA` o `INCORRECTA`) →
-  `estado_validacion = CERRADO_CON_VALIDACION_AUDITOR`, se incorporan al
-  histórico las ocurrencias evaluadas del GLOBAL actual, llevando
-  consigo esa validación/observación.
+  siempre en `REVISAR_DUPLICADOS_ENCONTRADOS`); **no** se toca el
+  GLOBAL, no se actualiza el histórico — solo se regenera el .xlsx;
+- si TODAS están resueltas, antes de cerrar se aplican las correcciones
+  **EN MEMORIA** y se vuelve a evaluar duplicados con las asignaciones
+  **finales** contra el propio GLOBAL y el histórico. Si esa
+  reevaluación descubre una ocurrencia nueva no vista antes (una
+  corrección que generaría una duplicidad silenciosa), el cierre se
+  aborta: esa ocurrencia se incorpora al .xlsx (preservando TODAS las
+  decisiones anteriores, incluida una duplicidad ya marcada `CORRECTA`
+  explícitamente, que puede permanecer) y el mes sigue
+  `PENDIENTE_VALIDACION_AUDITOR`. Solo si no aparece nada nuevo se
+  cierra: `estado_validacion = CERRADO_CON_VALIDACION_AUDITOR`.
 
-**Guardarraíl SHA256_GLOBAL:** una fila de `REVISION_ASIGNACIONES_*.csv`
+**Corrección del GLOBAL (solo al cerrar, todo o nada):** se reabre el
+GLOBAL en modo escritura (nunca `read_only`, nunca `data_only` — así se
+conservan fórmulas/formato del resto del workbook), se verifica que cada
+`R[fila]` siga conteniendo exactamente `ASIGNACION_ORIGINAL` para TODAS
+las correcciones a aplicar, y solo si todas verifican se reemplaza esa
+única celda por `ASIGNACION_CORRECTA` en cada una — ninguna otra celda
+se toca. Si una sola verificación falla, no se aplica ninguna
+(`aplicar_correcciones_global()` lanza `CorreccionInvalidaError` sin
+escribir nada). Se sobrescribe el **mismo** archivo
+`SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx` — nunca se crea un `_VALIDADO` ni una
+copia de respaldo productiva. `FECHA_VALIDACION` vacía se autocompleta
+con la fecha de cierre.
+
+**Guardarraíl SHA256_GLOBAL:** una fila de `REVISION_ASIGNACIONES_*.xlsx`
 solo se reutiliza si su `SHA256_GLOBAL` coincide con el GLOBAL actual —
 si el GLOBAL cambió de contenido antes de cerrarse, esa validación
 previa **nunca** se aplica en silencio; la alerta nace de nuevo sin
 validar.
+
+**Compatibilidad con el CSV de revisión anterior:** si existe un
+`REVISION_ASIGNACIONES_<PERIODO>.csv` del esquema previo (una fila por
+asignación) para el mismo SHA y todavía no existe el `.xlsx`, sus
+decisiones (`VALIDACION_AUDITOR`/`OBSERVACION_AUDITOR`/
+`FECHA_VALIDACION`) se importan como semilla al generar el `.xlsx` por
+primera vez. Ese CSV nunca se borra ni se vuelve a escribir.
 
 **Ciclo completo:**
 
 ```
 GLOBAL
   → CONTROL 1 (control_asignaciones.py)
-  → si hay alertas: REVISION_ASIGNACIONES_<PERIODO>.csv
-  → auditor completa CORRECTA/INCORRECTA + observación
-  → rerun (mismo SHA)
-  → si todo está revisado: cierra el mes y actualiza HISTORICO_ASIGNACIONES.csv
-  → mes siguiente vuelve a comparar contra el histórico (validaciones incluidas)
+  → REVISION_ASIGNACIONES_<PERIODO>.xlsx (una fila por ocurrencia)
+  → auditor revisa directamente en Excel: CORRECTA / INCORRECTA + asignación correcta
+  → rerun
+  → CONTROL 1 corrige ÚNICAMENTE columna R de las filas autorizadas
+  → sobrescribe el mismo GLOBAL
+  → actualiza HISTORICO_ASIGNACIONES.csv (con la asignación FINAL)
+  → GLOBAL listo para cargar a SAP
+  → mes siguiente vuelve a comparar contra el histórico (asignación final, validaciones incluidas)
 ```
 
-**HISTORICO_ASIGNACIONES.csv — esquema extendido, compatible con
-archivos existentes:** columnas nuevas agregadas AL FINAL —
-`alerta_duplicado, validacion_auditor, observacion_auditor,
-fecha_validacion` — para que un CSV con el esquema anterior (9 columnas)
-se siga leyendo sin perder ninguna fila; al reescribirse, esas columnas
-quedan vacías para las filas viejas. Para una fila sin alerta,
-`alerta_duplicado="SIN_ALERTA"` y los tres campos de validación quedan
-vacíos. Si una asignación duplicada fue validada `CORRECTA` o
-`INCORRECTA`, esa decisión se asocia en el histórico a TODAS las
-ocurrencias de esa asignación incorporadas ese periodo.
+No existe ningún mecanismo de override que salte la validación humana
+(requiere autorización futura, fuera de este módulo).
 
-No existe todavía ningún mecanismo de override que salte la validación
-humana (requiere autorización futura, fuera de este módulo).
+**Seguridad de escritura:** el GLOBAL es solo lectura MIENTRAS haya
+alertas sin validar (`leer_partidas_global` nunca guarda nada). Una vez
+cerrado, el único cambio autorizado sobre el GLOBAL es la celda
+Asignacion (R) de las filas explícitamente corregidas. El script además
+escribe `HISTORICO_ASIGNACIONES.csv`, `REVISION_ASIGNACIONES_*.xlsx` y
+el JSON de detalle (`--salida-json`). Nunca toca SAP diarios, cierres,
+MACROS, plantilla, marcadores PROCESADO ni el motor diario.
 
-**Seguridad de escritura:** el GLOBAL es solo lectura
-(`read_only=True, data_only=True`, nunca `.save()`). El script solo
-escribe `HISTORICO_ASIGNACIONES.csv` y el JSON de detalle (`--salida-json`).
-Nunca toca SAP GLOBAL/diarios, cierres, MACROS, plantilla, marcadores
-PROCESADO ni el motor diario.
+**Idempotencia sobre el GLOBAL final:** si el mes ya fue cerrado y el
+GLOBAL actual coincide con el `sha256_global_final` registrado →
+`YA_PROCESADO_SIN_CAMBIOS` (la corrección autorizada del propio CONTROL 1
+nunca se interpreta como `GLOBAL_MODIFICADO_REQUIERE_REVISION`). Si el
+mismo GLOBAL cambia después a un SHA distinto del final registrado (una
+edición NO autorizada), se mantiene el guardarraíl existente:
+`GLOBAL_MODIFICADO_REQUIERE_REVISION`.
+
+El JSON de detalle conserva los hallazgos "por par" (`hallazgos`,
+formato anterior, basado en las asignaciones ORIGINALES) y agrega, entre
+otros: `filas_revisadas`, `filas_correctas`, `filas_incorrectas`,
+`correcciones_aplicadas`, `global_modificado`,
+`sha256_global_original`, `sha256_global_final` (además de los alias
+retrocompatibles `alertas_pendientes_validacion`/`alertas_correctas`/
+`alertas_incorrectas` con el mismo significado que
+`filas_pendientes`/`filas_correctas`/`filas_incorrectas`).
 
 **Sin dependencias de Google Drive ni Base64:** opera exclusivamente
 sobre rutas de archivo locales ya materializadas; la responsabilidad de
@@ -628,27 +709,31 @@ materializar/publicar en Drive es de quien invoca el script
 el SAP GLOBAL del mes; la Skill se actualiza manualmente y por separado
 (no se edita desde Code).
 
-Tests: `tests/test_control_asignaciones.py` (41 pruebas — conserva y
-adapta las 28 de la versión anterior, sin reducir cobertura, y agrega la
-etapa de validación humana: exclusiones SFC101/SFC102/TIQUIPAYA `<MES>`/
-cuenta 110201008 sin cambios, FORTALEZA siempre evaluada, `estado`
-mantiene la semántica previa `OK_SIN_DUPLICADOS`/
-`REVISAR_DUPLICADOS_ENCONTRADOS` con el nuevo `estado_validacion`
-(`PENDIENTE_VALIDACION_AUDITOR`/`CERRADO_CON_VALIDACION_AUDITOR`)
-informado aparte, mes sin duplicados actualiza histórico, alerta mismo
-mes/contra histórico/parcialmente revisada bloquea el cierre, todas
-`CORRECTA` o mezcla `CORRECTA`/`INCORRECTA` con todo revisado cierra el
-mes y registra hechos+decisiones, una validación `CORRECTA` anterior NO
-evita una alerta futura sobre la misma asignación en un periodo
-posterior, conservación de la observación humana al reejecutar,
-`--dry-run` nunca escribe revisión ni histórico (con o sin duplicados),
-idempotencia SHA-256 exacta / `archivo_global` con SHA distinto /
-revisión de un SHA anterior que no se aplica en silencio, hoja `"1"`
-obligatoria sin fallback, nombre de GLOBAL no canónico detiene el
-control sin escribir REVISION/HISTORICO (`GLOBAL_NOMBRE_NO_CANONICO`),
-reproceso idéntico sin cambios en el histórico, inmutabilidad del GLOBAL
-origen, preservación de filas históricas previas, migración de
-histórico con esquema antiguo sin perder información, ausencia de
-dependencias de Google Drive/Base64/módulos del V2 diario, y
-compatibilidad del JSON de detalle — hallazgos "por par" + alertas por
-asignación).
+Tests: `tests/test_control_asignaciones.py` (46 pruebas — conserva y
+adapta los escenarios de las etapas anteriores sin reducir cobertura, y
+agrega la validación humana en Excel + corrección del GLOBAL: se genera
+el `.xlsx` con una fila por ocurrencia (nunca agrupada por asignación) y
+`FILA_GLOBAL` calculada por Python; la lista desplegable
+`CORRECTA`/`INCORRECTA` existe; las decisiones humanas sobreviven a la
+reejecución; `CORRECTA` nunca modifica el GLOBAL; `INCORRECTA` sin
+`ASIGNACION_CORRECTA` válida queda pendiente; `INCORRECTA` con
+`ASIGNACION_CORRECTA` modifica ÚNICAMENTE `R[fila]` (el resto de columnas
+y filas del GLOBAL permanece idéntico); varias correcciones se aplican
+juntas; una sola fila pendiente bloquea TODAS las correcciones; un SHA
+distinto o un `ASIGNACION_ORIGINAL` que ya no coincide con la celda
+impiden aplicar cualquier corrección (todo o nada); una corrección que
+generaría una nueva duplicidad silenciosa bloquea el cierre y preserva
+todas las decisiones previas (incluida una duplicidad ya marcada
+`CORRECTA`); el histórico registra `asignacion` = FINAL y conserva
+`asignacion_original`; el mes siguiente compara contra la asignación
+final y una validación `CORRECTA` anterior NO evita una alerta futura;
+`sha256_global_original`/`sha256_global_final` quedan registrados; un
+rerun sobre el GLOBAL final ya cerrado es `YA_PROCESADO_SIN_CAMBIOS`,
+mientras que un cambio posterior NO autorizado dispara
+`GLOBAL_MODIFICADO_REQUIERE_REVISION`; el CSV de revisión del esquema
+anterior sigue funcionando como semilla de decisiones; `--dry-run` no
+modifica el `.xlsx`, el GLOBAL ni el histórico; exclusiones
+SFC101/SFC102/TIQUIPAYA `<MES>`/cuenta 110201008 y FORTALEZA siempre
+evaluada permanecen intactas; hoja `"1"` y nombre canónico del GLOBAL
+siguen obligatorios sin fallback; y ausencia de dependencias de Google
+Drive/Base64/módulos del V2 diario).
