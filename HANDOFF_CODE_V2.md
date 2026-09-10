@@ -318,17 +318,25 @@ los `PROCESADO_<SHA256>.json` pueden vivir en una subcarpeta dedicada:
   MARCADORES_PROCESAMIENTO/
 ```
 
+**Política de escritura (a partir de esta versión):** todo NUEVO
+`PROCESADO_<SHA256>.json` que Cowork cree/publique en Drive **debe**
+ir en `05_CONTROLES/MARCADORES_PROCESAMIENTO/` — nunca en la raíz de
+`05_CONTROLES/`. La raíz de `05_CONTROLES/` deja de ser destino de
+escritura para marcadores nuevos: se conserva **únicamente** como
+FALLBACK de LECTURA para los marcadores LEGACY que ya existían ahí
+antes de la migración (nunca se borran ni se mueven de forma
+automática).
+
 `run_batch.py` agrega `--marcadores-dir` (opcional; por defecto
 `<--controles-dir>/MARCADORES_PROCESAMIENTO` si no se indica
 explícitamente). `cargar_marcadores_procesados()` busca PRIMERO ahí y
 mantiene como FALLBACK la lectura de marcadores LEGACY sueltos
-directamente en `--controles-dir` (esquema anterior a la migración) —
-ambas ubicaciones son válidas simultáneamente. Un mismo `HashOrigen`
-presente en los dos lugares nunca se cuenta dos veces: se conserva la
-copia de `MARCADORES_PROCESAMIENTO/` (ubicación migrada) y se descarta
-la legacy equivalente. El contenido/esquema del marcador, la lógica
-contable, `pipeline_tiquipaya.py`, CONTROL 1, el consolidador mensual,
-`sap_writer.py` y `excel_io.py` no cambian.
+directamente en `--controles-dir` (esquema anterior a la migración).
+Un mismo `HashOrigen` presente en los dos lugares nunca se cuenta dos
+veces: se conserva la copia de `MARCADORES_PROCESAMIENTO/` (ubicación
+migrada) y se descarta la legacy equivalente. El contenido/esquema del
+marcador, la lógica contable, `pipeline_tiquipaya.py`, CONTROL 1, el
+consolidador mensual, `sap_writer.py` y `excel_io.py` no cambian.
 - Un blocker en un cierre individual se refleja como `ERROR_REVISAR` y
   **no** detiene el batch: se continúa con el siguiente cierre.
 - Ejecuta exclusivamente `pipeline_tiquipaya.procesar_cierre_completo()`
