@@ -81,43 +81,48 @@ para reconstruir observaciones correctas ante reaperturas múltiples, sin
 crear una tabla de movimientos mensuales separada.
 
 IDEMPOTENCIA: no se vuelve a acumular el mismo periodo+SHA del GLOBAL. Se
-verifica contra un pequeño LIBRO DE PERIODOS (sidecar
+verifica EXCLUSIVAMENTE contra un LIBRO DE PERIODOS (sidecar
 `05_CONTROLES/HISTORICO_CXC_CXP_PERIODOS.json`, junto al CSV histórico
-`05_CONTROLES/HISTORICO_CXC_CXP.csv`) que registra, por periodo, el sha256
-del GLOBAL con el que ese periodo fue aplicado — NUNCA un histórico de
-movimientos: una sola entrada por periodo, para idempotencia pura. Es
-necesario porque una fila del histórico (acumulador por CUENTA+
-ASIGNACION) se sigue reescribiendo en periodos posteriores, así que su
-propio `sha256_global_ultimo`/`periodo_ultimo_movimiento` no basta por sí
-solo para recordar con qué SHA se aplicó un periodo ya antiguo.
+`05_CONTROLES/HISTORICO_CXC_CXP.csv`), que es la fuente AUTORITATIVA E
+INMUTABLE de qué periodo+SHA ya fue aplicado — nunca un histórico de
+movimientos, solo una entrada `{sha256_global, estado, ...}` por periodo.
+Es necesario porque una fila del histórico (acumulador por CUENTA+
+ASIGNACION) se sigue reescribiendo en periodos posteriores: su propio
+`sha256_global_ultimo`/`periodo_ultimo_movimiento` es MUTABLE y por sí
+solo NUNCA es fuente confiable para decidir sobre un periodo antiguo ya
+aplicado — un movimiento posterior de la MISMA llave en otro periodo
+sobrescribe esos campos, y usarlos para invalidar el periodo antiguo
+causaría una reacumulación indebida (bug real, corregido; ver
+`tests/test_control_cxc_cxp.py::TestConsistenciaHistoricoPeriodos.
+test_periodo_antiguo_no_se_reacumula_tras_movimiento_posterior_de_la_misma_llave`).
 
-El libro de periodos y el CSV histórico son DOS archivos separados y cada
-`guardar_*` es atómico por separado (escritura a `.tmp` + `os.replace`),
-pero no existe una transacción atómica ÚNICA entre ambos: una corrida
-interrumpida justo entre las dos escrituras podría, en teoría, dejarlos
-inconsistentes. `_estado_idempotencia` nunca confía en un solo archivo:
-CONTRASTA el libro de periodos contra el contenido REAL del histórico
-(`_historico_ya_refleja_periodo` — ¿existe ya una fila con
-`periodo_ultimo_movimiento`+`sha256_global_ultimo` iguales a este
-periodo+SHA?) antes de decidir, así que ninguna de las dos ventanas de
-corte puede causar doble acumulación ni un periodo marcado como aplicado
-sin histórico real:
+Mecanismo de escritura — transacción de dos fases con recuperación
+determinística (el libro de periodos y el CSV histórico son archivos
+separados, cada `guardar_*` atómico por separado vía `.tmp`+`os.replace`,
+pero sin una transacción única entre ambos):
 
-- Histórico actualizado pero libro de periodos NO (falta el registro):
-  detectado porque el histórico YA refleja el periodo -> se trata igual
-  que YA_PROCESADO_SIN_CAMBIOS (nunca se reacumula) y `ejecutar_control`
-  autorrepara el registro faltante en el libro.
-- Libro de periodos actualizado pero histórico NO (el registro existe y
-  el SHA coincide, pero el histórico no lo refleja): detectado porque
-  `_historico_ya_refleja_periodo` da False a pesar del registro -> se
-  reprocesa de forma segura (el histórico todavía no tiene esos importes,
+    PENDIENTE  ->  escritura atómica del histórico  ->  APLICADO
+
+`libro_periodos[periodo]` se escribe con `estado="PENDIENTE"` ANTES de
+tocar el histórico, y se sobrescribe a `estado="APLICADO"` DESPUÉS de que
+`guardar_historico` ya completó. `_estado_idempotencia` decide, en este
+orden:
+
+- Sin registro para el periodo -> procesar normalmente.
+- Registro con SHA distinto al actual -> SIEMPRE
+  `GLOBAL_MODIFICADO_REQUIERE_REVISION`, sin importar su estado
+  (PENDIENTE o APLICADO) ni el histórico.
+- Registro con el MISMO SHA y `estado="APLICADO"` -> SIEMPRE
+  `YA_PROCESADO_SIN_CAMBIOS`, sin reevaluar nada más — un periodo
+  APLICADO nunca vuelve a acumularse, sin importar qué le haya pasado
+  después a esa fila del histórico en periodos posteriores.
+- Registro con el MISMO SHA y `estado="PENDIENTE"` -> corte a mitad de
+  camino de la corrida que dejó esa marca; SOLO aquí es seguro contrastar
+  contra el histórico (`_historico_ya_refleja_periodo`, porque esa misma
+  corrida interrumpida es la ÚLTIMA que pudo haber tocado esas filas): si
+  el histórico ya lo refleja -> se sella `APLICADO` sin reacumular; si no
+  -> se reprocesa de cero (el histórico todavía no tiene esos importes,
   así que acumular ahora es la primera vez real, nunca una duplicación).
-
-Si el periodo nunca fue aplicado (ni el libro ni el histórico lo
-reflejan): se procesa normalmente. Si el libro registra un SHA distinto
-al actual: GLOBAL_MODIFICADO_REQUIERE_REVISION (no se toca el histórico
-automáticamente), sin importar el estado del histórico — un SHA distinto
-siempre requiere revisión humana.
 
 PUENTE JSON DE OBSERVACIONES (`--observaciones-json`): igual que
 `--revision-json` en CONTROL 1, resuelve el mismo problema técnico (no
@@ -551,16 +556,22 @@ def _guardar_libro_periodos(ruta_historico, libro_periodos):
     os.replace(ruta_tmp, ruta)
 
 
+_PERIODO_PENDIENTE = "PENDIENTE"
+_PERIODO_APLICADO = "APLICADO"
+
+
 def _historico_ya_refleja_periodo(historico_dict, periodo, sha_actual):
     """True si YA existe al menos una fila del histórico cuyo
     periodo_ultimo_movimiento/sha256_global_ultimo coincide con
-    (periodo, sha_actual) — es decir, el CSV histórico ya tiene aplicada
-    la acumulación de este periodo+SHA, sin importar lo que diga (o no
-    diga) el libro de periodos. Es el chequeo de recuperación ante un
-    corte a mitad de camino: solo mira el periodo que se está evaluando
-    AHORA, así que no reintroduce el problema original (una fila se
-    sigue reescribiendo en periodos posteriores) — ese caso general sigue
-    resuelto por el libro de periodos."""
+    (periodo, sha_actual). ÚNICO uso legítimo: resolver un registro
+    PENDIENTE del libro de periodos (ver _estado_idempotencia) — en ese
+    momento es seguro, porque esa misma corrida interrumpida es la ÚLTIMA
+    que pudo haber tocado estas filas (nada corrió después de la marca
+    PENDIENTE y antes de ahora). NUNCA se usa para decidir sobre un
+    periodo ya APLICADO: ese campo es mutable (una fila se reescribe en
+    periodos posteriores) y por sí solo NO es una fuente confiable para
+    invalidar un periodo antiguo — el libro de periodos es la única
+    fuente autoritativa e inmutable para eso."""
     return any(
         fila.get("periodo_ultimo_movimiento") == periodo and fila.get("sha256_global_ultimo") == sha_actual
         for fila in historico_dict.values()
@@ -568,42 +579,46 @@ def _historico_ya_refleja_periodo(historico_dict, periodo, sha_actual):
 
 
 def _estado_idempotencia(historico_dict, libro_periodos, periodo, sha_actual):
-    """None: periodo nunca procesado (seguir/reprocesar normalmente).
-    YA_PROCESADO_SIN_CAMBIOS: el periodo ya fue aplicado con este mismo
-    SHA Y el histórico ya lo refleja. GLOBAL_MODIFICADO_REQUIERE_REVISION:
-    el periodo ya fue aplicado con un SHA distinto.
+    """El libro de periodos (HISTORICO_CXC_CXP_PERIODOS.json) es la
+    fuente AUTORITATIVA E INMUTABLE de qué periodo+SHA ya fue aplicado —
+    nunca se invalida un registro `APLICADO` a partir de campos mutables
+    del histórico (`periodo_ultimo_movimiento`/`sha256_global_ultimo`),
+    que se siguen reescribiendo en periodos posteriores para la MISMA
+    llave. Reglas, en este orden:
 
-    Nunca confía ciegamente en un solo archivo: contrasta el libro de
-    periodos CONTRA el contenido real del histórico
-    (_historico_ya_refleja_periodo), para que un corte a mitad de camino
-    en cualquiera de los dos sentidos nunca produzca doble acumulación ni
-    un periodo marcado como aplicado sin que el histórico quedara
-    realmente actualizado (ver docstring del módulo, sección
-    IDEMPOTENCIA):
-
-    - histórico actualizado pero libro de periodos NO (falta el
-      registro): se detecta vía _historico_ya_refleja_periodo ->
-      YA_PROCESADO_SIN_CAMBIOS (nunca se reacumula) y el llamador
-      autorrepara el libro de periodos.
-    - libro de periodos actualizado pero histórico NO (el registro existe
-      y el SHA coincide, pero el histórico no lo refleja): se detecta
-      porque _historico_ya_refleja_periodo da False a pesar del registro
-      -> se devuelve None (reprocesar de forma segura; el histórico
-      todavía no tiene esos importes, así que acumular ahora es la
-      primera vez real, no una duplicación)."""
+    - Sin registro para este periodo -> None (nunca procesado, seguir
+      normalmente).
+    - Registro con SHA distinto al actual -> SIEMPRE
+      GLOBAL_MODIFICADO_REQUIERE_REVISION, sin importar su estado
+      (PENDIENTE o APLICADO) ni el histórico.
+    - Registro con el MISMO SHA y estado APLICADO -> SIEMPRE
+      YA_PROCESADO_SIN_CAMBIOS (autoritativo; nunca se reevalúa contra el
+      histórico — esto es lo que corrige el caso reportado: un
+      movimiento posterior de la MISMA llave en otro periodo ya no puede
+      hacer que este periodo antiguo vuelva a acumularse).
+    - Registro con el MISMO SHA y estado PENDIENTE -> corte a mitad de
+      camino de la corrida que dejó esa marca (mecanismo PENDIENTE ->
+      escritura atómica del histórico -> APLICADO, ver ejecutar_control).
+      Solo AQUÍ es seguro usar _historico_ya_refleja_periodo para decidir
+      si el histórico llegó a escribirse: si sí ->
+      "RECUPERAR_APLICADO" (el llamador sella APLICADO sin reacumular);
+      si no -> "RECUPERAR_PENDIENTE" (el llamador reprocesa de cero; el
+      histórico todavía no tiene esos importes, así que acumular ahora es
+      la primera vez real, nunca una duplicación)."""
     registro = libro_periodos.get(periodo)
-    reflejado = _historico_ya_refleja_periodo(historico_dict, periodo, sha_actual)
+    if registro is None:
+        return None
 
-    if registro:
-        if registro.get("sha256_global") != sha_actual:
-            return "GLOBAL_MODIFICADO_REQUIERE_REVISION"
-        if reflejado:
-            return "YA_PROCESADO_SIN_CAMBIOS"
-        return None  # registro presente pero histórico no lo refleja: reprocesar
+    if registro.get("sha256_global") != sha_actual:
+        return "GLOBAL_MODIFICADO_REQUIERE_REVISION"
 
-    if reflejado:
-        return "YA_PROCESADO_SIN_CAMBIOS"  # histórico sí, libro no: no reacumular
-    return None
+    if registro.get("estado") == _PERIODO_APLICADO:
+        return "YA_PROCESADO_SIN_CAMBIOS"
+
+    # estado == PENDIENTE con el mismo SHA.
+    if _historico_ya_refleja_periodo(historico_dict, periodo, sha_actual):
+        return "RECUPERAR_APLICADO"
+    return "RECUPERAR_PENDIENTE"
 
 
 # ---------------------------------------------------------------------------
@@ -982,16 +997,25 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
 
     estado_idemp = _estado_idempotencia(historico, libro_periodos, periodo, sha_actual)
 
-    if estado_idemp == "YA_PROCESADO_SIN_CAMBIOS" and periodo not in libro_periodos and not dry_run:
-        # Autorreparación: el histórico ya refleja este periodo+SHA pero
-        # el libro de periodos no lo tenía registrado (corte a mitad de
-        # camino de una corrida anterior, DESPUÉS de escribir el
-        # histórico y ANTES de escribir el libro). Se reconstruye el
-        # registro faltante ahora — nunca se reacumula el histórico.
-        libro_periodos[periodo] = {
-            "sha256_global": sha_actual, "fecha_ejecucion": ahora, "autorreparado": True,
-        }
-        _guardar_libro_periodos(ruta_historico, libro_periodos)
+    if estado_idemp == "RECUPERAR_APLICADO":
+        # El registro quedó en PENDIENTE pero el histórico YA refleja
+        # este periodo+SHA (corte a mitad de camino DESPUÉS de escribir
+        # el histórico y ANTES de sellar APLICADO). Se sella APLICADO
+        # ahora, sin reacumular nada.
+        if not dry_run:
+            libro_periodos[periodo] = {
+                "sha256_global": sha_actual, "estado": _PERIODO_APLICADO,
+                "fecha_ejecucion": ahora, "recuperado": True,
+            }
+            _guardar_libro_periodos(ruta_historico, libro_periodos)
+        estado_idemp = "YA_PROCESADO_SIN_CAMBIOS"
+    elif estado_idemp == "RECUPERAR_PENDIENTE":
+        # El registro quedó en PENDIENTE y el histórico TODAVÍA no
+        # refleja este periodo+SHA (corte ANTES de escribir el
+        # histórico, o antes de que la marca PENDIENTE llegara a
+        # escribirse en una corrida previa). Es seguro reprocesar de
+        # cero: el histórico no tiene esos importes todavía.
+        estado_idemp = None
 
     if estado_idemp == "GLOBAL_MODIFICADO_REQUIERE_REVISION":
         return {
@@ -1112,8 +1136,23 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
     }
 
     if not dry_run:
+        # Mecanismo PENDIENTE -> escritura atómica del histórico -> APLICADO:
+        # el libro de periodos es la fuente autoritativa. PENDIENTE se
+        # escribe ANTES de tocar el histórico; APLICADO se sella DESPUÉS
+        # de que el histórico ya quedó escrito — así _estado_idempotencia
+        # puede distinguir de forma segura, ante un corte a mitad de
+        # camino, si el histórico llegó a escribirse o no (ver
+        # RECUPERAR_APLICADO/RECUPERAR_PENDIENTE más arriba).
+        libro_periodos[periodo] = {
+            "sha256_global": sha_actual, "estado": _PERIODO_PENDIENTE, "fecha_inicio": ahora,
+        }
+        _guardar_libro_periodos(ruta_historico, libro_periodos)
+
         guardar_historico(ruta_historico, nuevo_historico)
-        libro_periodos[periodo] = {"sha256_global": sha_actual, "fecha_ejecucion": ahora}
+
+        libro_periodos[periodo] = {
+            "sha256_global": sha_actual, "estado": _PERIODO_APLICADO, "fecha_ejecucion": ahora,
+        }
         _guardar_libro_periodos(ruta_historico, libro_periodos)
         resumen["historico_actualizado"] = True
         if ruta_salida_xlsx:

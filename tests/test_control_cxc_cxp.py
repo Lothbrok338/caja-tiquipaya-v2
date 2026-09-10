@@ -726,38 +726,58 @@ class TestAsignacionFaltanteExcel(_Control3TestBase):
 # ---------------------------------------------------------------------------
 
 class TestConsistenciaHistoricoPeriodos(_Control3TestBase):
-    def test_escenario_a_historico_actualizado_periodos_no_se_autorrepara(self):
-        ruta_global = self._crear_global_fijo([_partida(self.CXC_EMPRESAS, "FORTALEZA", debe="100.00")])
-        self._ejecutar_sobre(ruta_global)
+    """El libro de periodos (HISTORICO_CXC_CXP_PERIODOS.json) es la
+    fuente AUTORITATIVA E INMUTABLE de qué periodo+SHA ya fue aplicado —
+    nunca se invalida por un movimiento posterior de la MISMA llave en
+    otro periodo (periodo_ultimo_movimiento/sha256_global_ultimo son
+    mutables y se sobrescriben). Mecanismo de recuperación:
+    PENDIENTE -> escritura atómica del histórico -> APLICADO."""
 
-        # Simula el corte: el histórico ya quedó escrito, pero el libro
-        # de periodos nunca se llegó a escribir (falló/se interrumpió
-        # justo después de guardar_historico y antes de
-        # _guardar_libro_periodos).
-        ruta_periodos = c3._ruta_libro_periodos(self.ruta_historico)
-        self.assertTrue(os.path.isfile(ruta_periodos))
-        os.remove(ruta_periodos)
+    def test_periodo_antiguo_no_se_reacumula_tras_movimiento_posterior_de_la_misma_llave(self):
+        # 1) procesar AGOSTO
+        ruta_ago = self._crear_global_fijo(
+            [_partida(self.CXC_EMPRESAS, "ABC", debe="1000.00")], "SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx",
+        )
+        self._ejecutar_sobre(ruta_ago)
 
-        resumen = self._ejecutar_sobre(ruta_global)
+        # 2) la MISMA CUENTA+ASIGNACION se mueve en SEPTIEMBRE
+        #    (sobrescribe periodo_ultimo_movimiento/sha256_global_ultimo
+        #    de esa fila, que ya NO dicen "AGOSTO_2026").
+        ruta_sep = self._crear_global_fijo(
+            [_partida(self.CXC_EMPRESAS, "ABC", debe="500.00")], "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx",
+        )
+        self._ejecutar_sobre(ruta_sep)
+        fila_antes = self._historico()[(self.CXC_EMPRESAS, "ABC")]
+        self.assertEqual(fila_antes["debe_acumulado"], "1500.00")
+
+        # 3) reejecutar AGOSTO (mismo archivo/SHA de antes)
+        resumen = self._ejecutar_sobre(ruta_ago)
+
+        # 4) YA_PROCESADO_SIN_CAMBIOS
         self.assertEqual(resumen["estado"], "YA_PROCESADO_SIN_CAMBIOS")
-        fila = self._historico()[(self.CXC_EMPRESAS, "FORTALEZA")]
-        self.assertEqual(fila["debe_acumulado"], "100.00")  # nunca se duplicó
 
+        # 5) saldo exactamente igual antes/después del rerun
+        fila_despues = self._historico()[(self.CXC_EMPRESAS, "ABC")]
+        self.assertEqual(fila_antes, fila_despues)
+
+        # 6) AGOSTO no se acumuló dos veces (seguiría en 1500, nunca 2500)
+        self.assertEqual(fila_despues["debe_acumulado"], "1500.00")
+        self.assertEqual(fila_despues["saldo"], "1500.00")
+
+        # El libro de periodos conserva AGOSTO como APLICADO con su SHA
+        # original, sin que SEPTIEMBRE lo haya tocado.
         libro = c3._cargar_libro_periodos(self.ruta_historico)
-        self.assertIn("AGOSTO_2026", libro)
-        self.assertEqual(libro["AGOSTO_2026"]["sha256_global"], _hash_archivo(ruta_global))
-        self.assertTrue(libro["AGOSTO_2026"].get("autorreparado"))
+        self.assertEqual(libro["AGOSTO_2026"]["estado"], "APLICADO")
+        self.assertEqual(libro["AGOSTO_2026"]["sha256_global"], _hash_archivo(ruta_ago))
 
-    def test_escenario_b_periodos_dice_aplicado_pero_historico_no_reprocesa(self):
+    def test_recuperacion_pendiente_sin_historico_escrito_reprocesa_una_vez(self):
+        # Simula un corte ANTES de que el histórico llegara a escribirse:
+        # el libro de periodos quedó en PENDIENTE y el histórico todavía
+        # no refleja nada de este periodo+SHA.
         ruta_global = self._crear_global_fijo([_partida(self.CXC_EMPRESAS, "FORTALEZA", debe="100.00")])
         sha = _hash_archivo(ruta_global)
-
-        # Simula el corte inverso: el libro de periodos "dice" que
-        # AGOSTO_2026 ya fue aplicado con este SHA, pero el histórico
-        # NUNCA llegó a escribirse (no existe ninguna fila que lo
-        # refleje). Nunca debe confiarse ciegamente en el libro.
         c3._guardar_libro_periodos(self.ruta_historico, {
-            "AGOSTO_2026": {"sha256_global": sha, "fecha_ejecucion": "2026-01-01T00:00:00"},
+            "AGOSTO_2026": {"sha256_global": sha, "estado": "PENDIENTE", "fecha_inicio": "2026-01-01T00:00:00"},
         })
         self.assertFalse(os.path.isfile(self.ruta_historico))
 
@@ -765,13 +785,57 @@ class TestConsistenciaHistoricoPeriodos(_Control3TestBase):
         self.assertEqual(resumen["estado"], "OK")  # reprocesa de verdad, nunca YA_PROCESADO ciego
         fila = self._historico()[(self.CXC_EMPRESAS, "FORTALEZA")]
         self.assertEqual(fila["debe_acumulado"], "100.00")
+        libro = c3._cargar_libro_periodos(self.ruta_historico)
+        self.assertEqual(libro["AGOSTO_2026"]["estado"], "APLICADO")
 
-        # Un segundo rerun sobre el mismo GLOBAL ahora sí es idempotente
-        # (el libro quedó re-sincronizado con el histórico real).
+        # Rerun posterior: ya idempotente, sin duplicar.
         resumen2 = self._ejecutar_sobre(ruta_global)
         self.assertEqual(resumen2["estado"], "YA_PROCESADO_SIN_CAMBIOS")
         fila2 = self._historico()[(self.CXC_EMPRESAS, "FORTALEZA")]
-        self.assertEqual(fila2["debe_acumulado"], "100.00")  # sigue sin duplicarse
+        self.assertEqual(fila2["debe_acumulado"], "100.00")
+
+    def test_recuperacion_pendiente_con_historico_ya_escrito_sella_aplicado_sin_reacumular(self):
+        # Corrida normal completa (queda APLICADO).
+        ruta_global = self._crear_global_fijo([_partida(self.CXC_EMPRESAS, "FORTALEZA", debe="100.00")])
+        self._ejecutar_sobre(ruta_global)
+        sha = _hash_archivo(ruta_global)
+
+        # Simula un corte DESPUÉS de escribir el histórico pero ANTES de
+        # sellar APLICADO: se regresa manualmente el registro a PENDIENTE
+        # (el histórico real YA tiene la acumulación aplicada).
+        c3._guardar_libro_periodos(self.ruta_historico, {
+            "AGOSTO_2026": {"sha256_global": sha, "estado": "PENDIENTE", "fecha_inicio": "2026-01-01T00:00:00"},
+        })
+
+        resumen = self._ejecutar_sobre(ruta_global)
+        self.assertEqual(resumen["estado"], "YA_PROCESADO_SIN_CAMBIOS")  # nunca reacumula
+        fila = self._historico()[(self.CXC_EMPRESAS, "FORTALEZA")]
+        self.assertEqual(fila["debe_acumulado"], "100.00")  # sigue en 100, no 200
+
+        libro = c3._cargar_libro_periodos(self.ruta_historico)
+        self.assertEqual(libro["AGOSTO_2026"]["estado"], "APLICADO")
+        self.assertTrue(libro["AGOSTO_2026"].get("recuperado"))
+
+    def test_idempotencia_no_depende_de_fila_historica_del_periodo(self):
+        # Periodo SIN ninguna llave válida (solo una partida con
+        # ASIGNACION FALTANTE, que nunca crea fila en el histórico): la
+        # idempotencia debe basarse ÚNICAMENTE en el libro de periodos,
+        # nunca en que exista una fila histórica para ese periodo.
+        ruta_global = self._crear_global_fijo(
+            [_partida(self.CXC_EMPRESAS, None, debe="10.00")], "SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx",
+        )
+        resumen1 = self._ejecutar_sobre(ruta_global)
+        self.assertEqual(resumen1["estado"], "OK")
+        self.assertEqual(resumen1["llaves_evaluadas"], 0)
+        self.assertEqual(self._historico(), {})  # ninguna fila creada
+
+        libro = c3._cargar_libro_periodos(self.ruta_historico)
+        self.assertEqual(libro["AGOSTO_2026"]["estado"], "APLICADO")
+
+        # A pesar de que _historico_ya_refleja_periodo daría False (no
+        # hay ninguna fila), el rerun debe ser idempotente igual.
+        resumen2 = self._ejecutar_sobre(ruta_global)
+        self.assertEqual(resumen2["estado"], "YA_PROCESADO_SIN_CAMBIOS")
 
     def test_sha_distinto_prevalece_sobre_chequeo_de_historico(self):
         # Aunque el histórico ya refleje AGOSTO_2026 con OTRO sha (de una

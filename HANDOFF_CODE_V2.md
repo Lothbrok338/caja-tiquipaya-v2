@@ -995,54 +995,60 @@ preserva entre meses tal cual. Solo se actualiza vía el puente JSON
 importes, asignación ni cuenta.
 
 **Idempotencia:** CONTROL 3 nunca vuelve a acumular el mismo periodo+SHA.
-Se verifica contra un sidecar dedicado en la **ubicación productiva**
-`05_CONTROLES/HISTORICO_CXC_CXP_PERIODOS.json` (junto a
-`05_CONTROLES/HISTORICO_CXC_CXP.csv`, sin carpetas adicionales) que
-registra, **por periodo**, el SHA-256 del GLOBAL con el que ese periodo
-fue aplicado — nunca un histórico de movimientos, solo una entrada por
-periodo para idempotencia pura. Es necesario porque una fila del
-histórico (acumulador por CUENTA+ASIGNACION) se sigue reescribiendo en
-periodos posteriores, así que su propio `sha256_global_ultimo`/
-`periodo_ultimo_movimiento` por sí solos no bastan para recordar con qué
-SHA se aplicó un periodo ya antiguo si esa misma llave volvió a moverse
-después.
+Se verifica **EXCLUSIVAMENTE** contra un sidecar dedicado en la
+**ubicación productiva** `05_CONTROLES/HISTORICO_CXC_CXP_PERIODOS.json`
+(junto a `05_CONTROLES/HISTORICO_CXC_CXP.csv`, sin carpetas adicionales),
+que es la fuente **autoritativa e inmutable** de qué periodo+SHA ya fue
+aplicado: `{periodo: {sha256_global, estado, ...}}`. **Nunca** se decide
+la idempotencia de un periodo a partir de `sha256_global_ultimo`/
+`periodo_ultimo_movimiento` del histórico — esos campos son **mutables**
+(una fila se sigue reescribiendo cuando la misma llave vuelve a moverse
+en un periodo posterior) y usarlos para invalidar un periodo antiguo ya
+aplicado era, de hecho, un **bug real detectado y corregido**: AGOSTO se
+acumulaba con `CUENTA+ASIGNACION=ABC`; SEPTIEMBRE volvía a mover esa MISMA
+llave (sobrescribiendo `periodo_ultimo_movimiento`/`sha256_global_ultimo`
+de esa fila a SEPTIEMBRE); un reintento accidental de AGOSTO ya no
+encontraba ninguna fila "de AGOSTO" y volvía a acumularlo encima —
+duplicando el saldo. Corregido eliminando por completo esa dependencia.
 
-**Consistencia histórico <-> libro de periodos (ejecución interrumpida):**
-son dos archivos separados, cada uno escrito de forma atómica por
-separado (`.tmp` + `os.replace`), pero no existe una transacción única
-entre ambos. `_estado_idempotencia` **nunca confía en un solo archivo**:
-contrasta el libro de periodos contra el contenido REAL del histórico
-(`_historico_ya_refleja_periodo` — ¿alguna fila tiene ya
-`periodo_ultimo_movimiento`+`sha256_global_ultimo` iguales al periodo+SHA
-en evaluación?) antes de decidir, así que un corte a mitad de camino en
-cualquiera de los dos sentidos nunca produce doble acumulación ni un
-periodo marcado como aplicado sin histórico real:
+**Mecanismo de escritura — transacción de dos fases con recuperación
+determinística:**
 
-- **Histórico actualizado, libro de periodos NO** (falta el registro):
-  detectado porque el histórico ya refleja el periodo -> se trata como
-  `YA_PROCESADO_SIN_CAMBIOS` (nunca se reacumula) y `ejecutar_control`
-  **autorrepara** el registro faltante en el libro (marcado
-  `"autorreparado": true`).
-- **Libro de periodos actualizado, histórico NO** (el registro existe y
-  el SHA coincide, pero el histórico no lo refleja): detectado porque
-  `_historico_ya_refleja_periodo` da `False` a pesar del registro -> se
-  **reprocesa de forma segura** (el histórico todavía no tiene esos
-  importes, así que acumular ahora es la primera vez real, nunca una
-  duplicación); el libro queda resincronizado al terminar.
-- Periodo nunca aplicado (ni el libro ni el histórico lo reflejan) -> se
-  procesa normalmente.
-- Libro registra un SHA distinto al actual -> `GLOBAL_MODIFICADO_
-  REQUIERE_REVISION` (no se modifica el histórico automáticamente),
-  **sin importar** el estado del histórico — un SHA distinto siempre
-  requiere revisión humana, nunca se decide por el chequeo de
-  recuperación.
+```
+PENDIENTE  ->  escritura atómica del histórico  ->  APLICADO
+```
+
+`libro_periodos[periodo]` se escribe con `estado="PENDIENTE"` **antes**
+de tocar el histórico, y se sobrescribe a `estado="APLICADO"` **después**
+de que `guardar_historico` ya completó. `_estado_idempotencia` decide, en
+este orden:
+
+- Sin registro para el periodo -> procesar normalmente.
+- Registro con SHA **distinto** al actual -> **siempre**
+  `GLOBAL_MODIFICADO_REQUIERE_REVISION`, sin importar su estado
+  (PENDIENTE o APLICADO) ni el histórico.
+- Registro con el mismo SHA y `estado="APLICADO"` -> **siempre**
+  `YA_PROCESADO_SIN_CAMBIOS`, autoritativo, **nunca se reevalúa** contra
+  el histórico — así un movimiento posterior de la misma llave en otro
+  periodo ya no puede hacer que un periodo antiguo vuelva a acumularse.
+- Registro con el mismo SHA y `estado="PENDIENTE"` -> corte a mitad de
+  camino de la corrida que dejó esa marca; **solo aquí** es seguro
+  contrastar contra el histórico (`_historico_ya_refleja_periodo` —
+  seguro porque esa misma corrida interrumpida es la ÚLTIMA que pudo
+  tocar esas filas): si el histórico ya lo refleja -> se sella
+  `APLICADO` sin reacumular (`"recuperado": true`); si no -> se reprocesa
+  de cero (el histórico todavía no tiene esos importes, así que acumular
+  ahora es la primera vez real, nunca una duplicación).
 
 Demostrado por `tests/test_control_cxc_cxp.py::TestConsistenciaHistoricoPeriodos`
-(3 pruebas: histórico actualizado + libro ausente -> `YA_PROCESADO_SIN_CAMBIOS`
-sin duplicar y con autorreparación verificable del libro; libro con
-registro "aplicado" pero histórico vacío -> reprocesa una única vez y un
-rerun posterior ya es idempotente; SHA distinto sigue bloqueando aunque el
-histórico ya refleje el periodo con otro SHA).
+(5 pruebas: el caso exacto reportado — AGOSTO no se reacumula tras un
+movimiento posterior de la misma llave en SEPTIEMBRE, saldo idéntico
+antes/después del rerun; recuperación PENDIENTE sin histórico escrito ->
+reprocesa una única vez; recuperación PENDIENTE con histórico ya escrito
+-> sella APLICADO sin reacumular; la idempotencia **no depende** de que
+exista una fila histórica del periodo — probado con un periodo sin
+ninguna llave válida, solo con ASIGNACION FALTANTE; SHA distinto sigue
+bloqueando).
 
 **Excel humano** (`CONTROL_CXC_CXP_<MES>_<AÑO>.xlsx`): hoja **única**
 `"CONTROL"` (sin pestañas adicionales), una fila por CUENTA+ASIGNACION.
@@ -1129,7 +1135,7 @@ modifica ese GLOBAL, solo lo lee y genera `HISTORICO_CXC_CXP.csv`,
 `CONTROL_CXC_CXP_AGOSTO_2026.xlsx` y `CONTROL_CXC_CXP_AGOSTO_2026.json`
 como punto inicial del seguimiento para septiembre en adelante.
 
-Tests: `tests/test_control_cxc_cxp.py` (45 pruebas: las 6 cuentas y sus
+Tests: `tests/test_control_cxc_cxp.py` (47 pruebas: las 6 cuentas y sus
 fórmulas CxC/CxP — abierta, cerrada mismo mes, cerrada en mes posterior,
 saldo negativo -> REVISAR; llave CUENTA+ASIGNACION — acumula sin fila
 nueva, misma Asignacion en cuentas distintas son entidades distintas,
@@ -1153,9 +1159,10 @@ cuentas, y orden REVISAR->ABIERTO->CERRADO; el snapshot mensual conserva
 llaves sin movimiento del mes; asignación faltante como fila EXCEPCIONAL
 en el Excel (ESTADO=REVISAR, ASIGNACION="ASIGNACION FALTANTE", una fila
 por ocurrencia sin fusionar, arriba de todo junto a REVISAR, nunca crea
-llave del histórico); y consistencia histórico<->libro de periodos ante
-una ejecución interrumpida (`TestConsistenciaHistoricoPeriodos`: histórico
-actualizado sin libro -> autorrepara sin duplicar; libro sin histórico ->
-reprocesa una sola vez y luego es idempotente; SHA distinto sigue
-bloqueando). Suite completa del repo: 367/367 tests OK (322 preexistentes
-+ 45 nuevas, sin regresión).
+llave del histórico); y consistencia histórico<->libro de periodos con el
+mecanismo PENDIENTE->APLICADO (`TestConsistenciaHistoricoPeriodos`: un
+periodo antiguo YA APLICADO nunca se reacumula aunque la misma llave se
+mueva en un periodo posterior; recuperación PENDIENTE con y sin histórico
+ya escrito; idempotencia sin depender de fila histórica del periodo; SHA
+distinto sigue bloqueando). Suite completa del repo: 369/369 tests OK
+(322 preexistentes + 47 nuevas, sin regresión).
