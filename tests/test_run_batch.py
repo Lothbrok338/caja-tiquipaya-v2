@@ -166,12 +166,13 @@ class _BaseDosDias(unittest.TestCase):
         fx.crear_cierre(ruta, sfc101, sfc102)
         return ruta
 
-    def _args(self, fecha_inicio, fecha_fin, controles_dir=None):
+    def _args(self, fecha_inicio, fecha_fin, controles_dir=None, marcadores_dir=None):
         return argparse_namespace(
             fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
             cierres_dir=self.cierres_dir, maestro=self.ruta_maestro,
             plantilla=self.ruta_plantilla, salidas_dir=self.salidas_dir,
             resultados_dir=self.resultados_dir, controles_dir=controles_dir,
+            marcadores_dir=marcadores_dir,
             version_codigo="TEST-VERSION",
         )
 
@@ -268,6 +269,132 @@ class TestIdempotenciaDinamica(_BaseDosDias):
         self.assertEqual(resultado["cierres"][0]["estado"], "LISTO_PARA_PUBLICAR")
         self.assertEqual(resultado["idempotencia"]["hashes_cargados"], 0)
         self.assertTrue(any("MARCADOR_INCOMPLETO" in a for a in resultado["idempotencia"]["advertencias"]))
+
+
+# ---------------------------------------------------------------------------
+# Migración de ubicación de marcadores: MARCADORES_PROCESAMIENTO/ (nueva,
+# preferida) con fallback a los marcadores LEGACY sueltos en --controles-dir
+# (esquema anterior), sin duplicar un mismo HashOrigen presente en ambos.
+# ---------------------------------------------------------------------------
+
+def _marcador(hash_origen, **overrides):
+    base = {
+        "FechaCierre": FECHA_A, "ArchivoOrigen": "CIERRE 01-09-2026.xlsm",
+        "HashOrigen": hash_origen, "Estado": "PROCESADO",
+        "FechaProcesamiento": "2026-09-01 12:00:00", "VersionCodigo": "x",
+        "Resultado": "OK", "Diferencia": "0.00", "Blockers": "0",
+        "ArchivoSAP": "", "Observaciones": "",
+    }
+    base.update(overrides)
+    return base
+
+
+class TestMarcadoresDirMigracion(_BaseDosDias):
+    def test_marcador_en_subcarpeta_migrada_por_defecto_se_detecta_sin_marcadores_dir(self):
+        # Sin pasar --marcadores-dir explícito: se deriva
+        # <controles_dir>/MARCADORES_PROCESAMIENTO automáticamente.
+        ruta_cierre = self._crear_cierre(FECHA_A, "VCHA", "CIA")
+        hash_origen = pipeline.calcular_sha256(ruta_cierre)
+
+        controles_dir = os.path.join(self.tmp, "controles")
+        marcadores_dir = os.path.join(controles_dir, "MARCADORES_PROCESAMIENTO")
+        os.makedirs(marcadores_dir)
+        with open(os.path.join(marcadores_dir, f"PROCESADO_{hash_origen}.json"), "w", encoding="utf-8") as f:
+            json.dump(_marcador(hash_origen), f)
+
+        resultado = run_batch.ejecutar_batch(self._args(FECHA_A, FECHA_A, controles_dir=controles_dir))
+        entrada = resultado["cierres"][0]
+        self.assertEqual(entrada["estado"], "YA_PROCESADO")
+        self.assertEqual(resultado["idempotencia"]["hashes_cargados"], 1)
+
+    def test_marcador_en_marcadores_dir_explicito_fuera_de_controles_dir(self):
+        ruta_cierre = self._crear_cierre(FECHA_A, "VCHA", "CIA")
+        hash_origen = pipeline.calcular_sha256(ruta_cierre)
+
+        controles_dir = os.path.join(self.tmp, "controles")
+        os.makedirs(controles_dir)
+        marcadores_dir = os.path.join(self.tmp, "otra_ubicacion_marcadores")
+        os.makedirs(marcadores_dir)
+        with open(os.path.join(marcadores_dir, f"PROCESADO_{hash_origen}.json"), "w", encoding="utf-8") as f:
+            json.dump(_marcador(hash_origen), f)
+
+        resultado = run_batch.ejecutar_batch(
+            self._args(FECHA_A, FECHA_A, controles_dir=controles_dir, marcadores_dir=marcadores_dir)
+        )
+        entrada = resultado["cierres"][0]
+        self.assertEqual(entrada["estado"], "YA_PROCESADO")
+        self.assertEqual(resultado["idempotencia"]["hashes_cargados"], 1)
+        self.assertEqual(resultado["parametros"]["marcadores_dir"], marcadores_dir)
+
+    def test_fallback_legacy_y_migrado_conviven_para_hashes_distintos(self):
+        ruta_a = self._crear_cierre(FECHA_A, "VCHA", "CIA")
+        ruta_b = self._crear_cierre(FECHA_B, "VCHB", "CIB")
+        hash_a = pipeline.calcular_sha256(ruta_a)
+        hash_b = pipeline.calcular_sha256(ruta_b)
+
+        controles_dir = os.path.join(self.tmp, "controles")
+        marcadores_dir = os.path.join(controles_dir, "MARCADORES_PROCESAMIENTO")
+        os.makedirs(marcadores_dir)
+        # hash_a: solo migrado. hash_b: solo legacy (suelto en controles_dir).
+        with open(os.path.join(marcadores_dir, f"PROCESADO_{hash_a}.json"), "w", encoding="utf-8") as f:
+            json.dump(_marcador(hash_a), f)
+        with open(os.path.join(controles_dir, f"PROCESADO_{hash_b}.json"), "w", encoding="utf-8") as f:
+            json.dump(_marcador(hash_b), f)
+
+        resultado = run_batch.ejecutar_batch(self._args(FECHA_A, FECHA_B, controles_dir=controles_dir))
+        por_fecha = {c["fecha"]: c for c in resultado["cierres"]}
+        self.assertEqual(por_fecha[FECHA_A]["estado"], "YA_PROCESADO")
+        self.assertEqual(por_fecha[FECHA_B]["estado"], "YA_PROCESADO")
+        self.assertEqual(resultado["idempotencia"]["hashes_cargados"], 2)
+
+    def test_mismo_hash_en_migrado_y_legacy_no_se_duplica(self):
+        ruta_cierre = self._crear_cierre(FECHA_A, "VCHA", "CIA")
+        hash_origen = pipeline.calcular_sha256(ruta_cierre)
+
+        controles_dir = os.path.join(self.tmp, "controles")
+        marcadores_dir = os.path.join(controles_dir, "MARCADORES_PROCESAMIENTO")
+        os.makedirs(marcadores_dir)
+        with open(os.path.join(marcadores_dir, f"PROCESADO_{hash_origen}.json"), "w", encoding="utf-8") as f:
+            json.dump(_marcador(hash_origen, Observaciones="MIGRADO"), f)
+        with open(os.path.join(controles_dir, f"PROCESADO_{hash_origen}.json"), "w", encoding="utf-8") as f:
+            json.dump(_marcador(hash_origen, Observaciones="LEGACY"), f)
+
+        resultado = run_batch.ejecutar_batch(self._args(FECHA_A, FECHA_A, controles_dir=controles_dir))
+        self.assertEqual(resultado["cierres"][0]["estado"], "YA_PROCESADO")
+        # El mismo HashOrigen presente en ambos lugares cuenta UNA sola vez.
+        self.assertEqual(resultado["idempotencia"]["hashes_cargados"], 1)
+
+    def test_cargar_marcadores_procesados_prefiere_el_migrado_sobre_el_legacy(self):
+        # Prueba unitaria directa (sin pasar por ejecutar_batch): ante el
+        # mismo HashOrigen en ambos lugares, se conserva el registro de
+        # MARCADORES_PROCESAMIENTO (ubicación migrada), no el legacy.
+        controles_dir = os.path.join(self.tmp, "controles")
+        marcadores_dir = os.path.join(controles_dir, "MARCADORES_PROCESAMIENTO")
+        os.makedirs(marcadores_dir)
+        with open(os.path.join(marcadores_dir, "PROCESADO_HASH1.json"), "w", encoding="utf-8") as f:
+            json.dump(_marcador("HASH1", Observaciones="MIGRADO"), f)
+        with open(os.path.join(controles_dir, "PROCESADO_HASH1.json"), "w", encoding="utf-8") as f:
+            json.dump(_marcador("HASH1", Observaciones="LEGACY"), f)
+
+        hashes, registros, advertencias, usado = run_batch.cargar_marcadores_procesados(controles_dir)
+        self.assertEqual(hashes, {"HASH1"})
+        self.assertEqual(len(registros), 1)
+        self.assertEqual(registros[0]["Observaciones"], "MIGRADO")
+        self.assertEqual(advertencias, [])
+        self.assertTrue(usado)
+
+    def test_sin_marcadores_dir_ni_subcarpeta_migrada_solo_lee_legacy(self):
+        # Directorio controles_dir sin subcarpeta MARCADORES_PROCESAMIENTO:
+        # el comportamiento previo a la migración sigue intacto.
+        controles_dir = os.path.join(self.tmp, "controles")
+        os.makedirs(controles_dir)
+        with open(os.path.join(controles_dir, "PROCESADO_HASH2.json"), "w", encoding="utf-8") as f:
+            json.dump(_marcador("HASH2"), f)
+
+        hashes, registros, advertencias, usado = run_batch.cargar_marcadores_procesados(controles_dir)
+        self.assertEqual(hashes, {"HASH2"})
+        self.assertEqual(len(registros), 1)
+        self.assertTrue(usado)
 
 
 # ---------------------------------------------------------------------------

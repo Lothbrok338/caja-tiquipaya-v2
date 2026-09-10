@@ -16,7 +16,9 @@ Responsabilidad de Cowork (fuera de este script):
 Responsabilidad de run_batch.py:
   - recorrer el rango de fechas y detectar "CIERRE DD-MM-YYYY.xlsm" por día;
   - derivar el texto de cabecera SAP (G10) a partir del mes de cada cierre;
-  - resolver idempotencia leyendo PROCESADO_<SHA256>.json de --controles-dir;
+  - resolver idempotencia leyendo PROCESADO_<SHA256>.json — primero de
+    --marcadores-dir (por defecto <--controles-dir>/MARCADORES_PROCESAMIENTO)
+    y, como fallback legacy, de los marcadores sueltos en --controles-dir;
   - llamar pipeline_tiquipaya.procesar_cierre_completo() por cada cierre;
   - escribir resultado_batch.json con el resumen de la corrida.
 
@@ -184,28 +186,17 @@ def validar_maestro(ruta_maestro, mes_rango):
 # 5. Idempotencia — lectura dinámica de PROCESADO_<SHA256>.json
 # ---------------------------------------------------------------------------
 
-def cargar_marcadores_procesados(controles_dir):
-    """Lee todos los PROCESADO_<SHA256>.json de `controles_dir` y devuelve
-    (hashes_procesados, registros_control, advertencias, usado_controles_dir).
-
-    Solo se consideran válidos los marcadores con HashOrigen no vacío y
-    Estado == "PROCESADO"; cualquier otro se descarta con advertencia, sin
-    detener la carga. Si `controles_dir` es None, devuelve un set vacío de
-    forma EXPLÍCITA (nunca un supuesto fijo de producción): el llamador
-    debe dejarlo indicado en el resumen del batch."""
-    if not controles_dir:
-        return set(), [], [], False
-
-    if not os.path.isdir(controles_dir):
-        return set(), [], [f"CONTROLES_DIR_NO_ENCONTRADO: {controles_dir}"], False
-
-    hashes = set()
-    registros = []
+def _cargar_marcadores_de_directorio(directorio):
+    """Lee los PROCESADO_<SHA256>.json de UN directorio (sin fallback ni
+    migración). Devuelve (mapa {HashOrigen: contenido}, advertencias). Un
+    marcador inválido genera advertencia y se descarta, sin detener la
+    carga. Nunca reinterpreta el contenido/esquema del marcador."""
+    mapa = {}
     advertencias = []
-    for nombre in sorted(os.listdir(controles_dir)):
+    for nombre in sorted(os.listdir(directorio)):
         if not (nombre.startswith("PROCESADO_") and nombre.endswith(".json")):
             continue
-        ruta = os.path.join(controles_dir, nombre)
+        ruta = os.path.join(directorio, nombre)
         try:
             with open(ruta, "r", encoding="utf-8") as f:
                 contenido = json.load(f)
@@ -223,10 +214,52 @@ def cargar_marcadores_procesados(controles_dir):
             advertencias.append(f"MARCADOR_INCOMPLETO_{nombre}")
             continue
 
-        hashes.add(hash_origen)
-        registros.append(contenido)
+        mapa[hash_origen] = contenido
 
-    return hashes, registros, advertencias, True
+    return mapa, advertencias
+
+
+def cargar_marcadores_procesados(controles_dir, marcadores_dir=None):
+    """Lee los PROCESADO_<SHA256>.json existentes y devuelve
+    (hashes_procesados, registros_control, advertencias, usado_controles_dir).
+
+    MIGRACIÓN de ubicación (sin cambiar contenido/esquema del marcador):
+    se busca PRIMERO en `marcadores_dir` — por defecto
+    `<controles_dir>/MARCADORES_PROCESAMIENTO` si no se indica
+    explícitamente — y se mantiene como FALLBACK la lectura de
+    marcadores LEGACY sueltos directamente en `controles_dir` (esquema
+    anterior a la migración). Un mismo HashOrigen presente en ambos
+    lugares NUNCA se duplica: se conserva la copia de `marcadores_dir`
+    (ubicación migrada) y se ignora la legacy equivalente.
+
+    Solo se consideran válidos los marcadores con HashOrigen no vacío y
+    Estado == "PROCESADO"; cualquier otro se descarta con advertencia, sin
+    detener la carga. Si `controles_dir` es None, devuelve un set vacío de
+    forma EXPLÍCITA (nunca un supuesto fijo de producción): el llamador
+    debe dejarlo indicado en el resumen del batch."""
+    if not controles_dir:
+        return set(), [], [], False
+
+    if not os.path.isdir(controles_dir):
+        return set(), [], [f"CONTROLES_DIR_NO_ENCONTRADO: {controles_dir}"], False
+
+    if marcadores_dir is None:
+        marcadores_dir = os.path.join(controles_dir, "MARCADORES_PROCESAMIENTO")
+
+    mapa = {}
+    advertencias = []
+
+    if os.path.isdir(marcadores_dir):
+        mapa_migrado, advertencias_migrado = _cargar_marcadores_de_directorio(marcadores_dir)
+        mapa.update(mapa_migrado)
+        advertencias.extend(advertencias_migrado)
+
+    mapa_legacy, advertencias_legacy = _cargar_marcadores_de_directorio(controles_dir)
+    for hash_origen, contenido in mapa_legacy.items():
+        mapa.setdefault(hash_origen, contenido)
+    advertencias.extend(advertencias_legacy)
+
+    return set(mapa.keys()), list(mapa.values()), advertencias, True
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +410,7 @@ def ejecutar_batch(args):
     os.makedirs(args.resultados_dir, exist_ok=True)
 
     hashes_procesados, registros_control, advertencias_control, uso_controles_dir = \
-        cargar_marcadores_procesados(args.controles_dir)
+        cargar_marcadores_procesados(args.controles_dir, args.marcadores_dir)
 
     version_codigo = _resolver_version_codigo(args.version_codigo)
 
@@ -415,6 +448,7 @@ def ejecutar_batch(args):
             "salidas_dir": args.salidas_dir,
             "resultados_dir": args.resultados_dir,
             "controles_dir": args.controles_dir,
+            "marcadores_dir": args.marcadores_dir,
             "version_codigo": version_codigo,
         },
         "idempotencia": {
@@ -450,6 +484,7 @@ def construir_parser():
     parser.add_argument("--salidas-dir", required=True, help="Directorio local donde escribir los SAP generados")
     parser.add_argument("--resultados-dir", required=True, help="Directorio local donde escribir RESULTADO_TIQ_*.json y resultado_batch.json")
     parser.add_argument("--controles-dir", default=None, help="Directorio local con PROCESADO_<SHA256>.json existentes (opcional)")
+    parser.add_argument("--marcadores-dir", default=None, help="Directorio local con los PROCESADO_<SHA256>.json migrados (opcional; por defecto <controles-dir>/MARCADORES_PROCESAMIENTO). Se busca primero aquí; los marcadores sueltos en --controles-dir se siguen leyendo como fallback legacy.")
     parser.add_argument("--version-codigo", default=None, help="Identificador de versión de código (por defecto: git rev-parse --short HEAD)")
     return parser
 

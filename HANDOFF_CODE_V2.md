@@ -262,7 +262,8 @@ conecta a Google Drive.
   CIERRE de cada día, materializa UNA VEZ el maestro mensual y UNA VEZ
   la plantilla SAP, y obtiene/materializa los marcadores
   `PROCESADO_<SHA256>.json` existentes en un directorio local
-  (`--controles-dir`).
+  (`--controles-dir` y, opcionalmente, `--marcadores-dir` — ver
+  MIGRACIÓN DE UBICACIÓN más abajo).
 - **`run_batch.py`:** procesa el rango completo de forma local — nunca
   lee ni escribe nada en Drive.
 - **Cowork:** publica SAP/RESULTADO/CONTROL en Drive solo tras
@@ -306,6 +307,36 @@ python run_batch.py \
   `--controles-dir`, se usa un set vacío de forma explícita, indicado en
   `resultado_batch.json["idempotencia"]`. Nunca se asume
   `HASHES_PROCESADOS = set()` como supuesto fijo de producción.
+
+**MIGRACIÓN DE UBICACIÓN de los marcadores (sin tocar contenido/esquema):**
+los `PROCESADO_<SHA256>.json` pueden vivir en una subcarpeta dedicada:
+
+```
+05_CONTROLES/
+  HISTORICO_ASIGNACIONES.csv
+  CONTROL_1_ASIGNACIONES/
+  MARCADORES_PROCESAMIENTO/
+```
+
+**Política de escritura (a partir de esta versión):** todo NUEVO
+`PROCESADO_<SHA256>.json` que Cowork cree/publique en Drive **debe**
+ir en `05_CONTROLES/MARCADORES_PROCESAMIENTO/` — nunca en la raíz de
+`05_CONTROLES/`. La raíz de `05_CONTROLES/` deja de ser destino de
+escritura para marcadores nuevos: se conserva **únicamente** como
+FALLBACK de LECTURA para los marcadores LEGACY que ya existían ahí
+antes de la migración (nunca se borran ni se mueven de forma
+automática).
+
+`run_batch.py` agrega `--marcadores-dir` (opcional; por defecto
+`<--controles-dir>/MARCADORES_PROCESAMIENTO` si no se indica
+explícitamente). `cargar_marcadores_procesados()` busca PRIMERO ahí y
+mantiene como FALLBACK la lectura de marcadores LEGACY sueltos
+directamente en `--controles-dir` (esquema anterior a la migración).
+Un mismo `HashOrigen` presente en los dos lugares nunca se cuenta dos
+veces: se conserva la copia de `MARCADORES_PROCESAMIENTO/` (ubicación
+migrada) y se descarta la legacy equivalente. El contenido/esquema del
+marcador, la lógica contable, `pipeline_tiquipaya.py`, CONTROL 1, el
+consolidador mensual, `sap_writer.py` y `excel_io.py` no cambian.
 - Un blocker en un cierre individual se refleja como `ERROR_REVISAR` y
   **no** detiene el batch: se continúa con el siguiente cierre.
 - Ejecuta exclusivamente `pipeline_tiquipaya.procesar_cierre_completo()`
@@ -322,11 +353,16 @@ python run_batch.py \
   cuentas/asignaciones: solo genera salidas locales pendientes de
   publicación.
 
-Tests: `tests/test_run_batch.py` (23 pruebas: rango dinámico, cabecera
+Tests: `tests/test_run_batch.py` (29 pruebas: rango dinámico, cabecera
 automática por mes, rango cruzando mes, `SIN_ARCHIVO`, idempotencia
 dinámica vía marcadores, blocker sin detener el batch, reutilización de
-maestro/plantilla, validación de maestro, y ausencia de cualquier
-dependencia de Google Drive).
+maestro/plantilla, validación de maestro, ausencia de cualquier
+dependencia de Google Drive, y la migración de ubicación de marcadores:
+detección en `MARCADORES_PROCESAMIENTO/` por defecto y con
+`--marcadores-dir` explícito fuera de `--controles-dir`, convivencia de
+marcadores migrados y legacy para hashes distintos, un mismo `HashOrigen`
+en ambos lugares sin duplicarse, y el comportamiento legacy intacto
+cuando no existe la subcarpeta migrada).
 
 ## 13. CONSOLIDADOR MENSUAL SAP
 
