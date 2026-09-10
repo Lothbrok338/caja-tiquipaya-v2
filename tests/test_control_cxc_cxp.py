@@ -649,5 +649,148 @@ class TestSnapshotMensual(_Control3TestBase):
         self.assertEqual(float(filas["FORTALEZA"]), 0.0)
 
 
+# ---------------------------------------------------------------------------
+# Asignación faltante como fila EXCEPCIONAL en el Excel (nunca en el
+# histórico): ESTADO=REVISAR, ASIGNACION="ASIGNACION FALTANTE", una fila
+# por ocurrencia, arriba junto a REVISAR.
+# ---------------------------------------------------------------------------
+
+class TestAsignacionFaltanteExcel(_Control3TestBase):
+    def test_asignacion_faltante_fila_excepcional_en_excel(self):
+        ruta_xlsx = os.path.join(self.tmpdir, "CONTROL.xlsx")
+        resumen, _ = self._ejecutar([
+            _partida(self.CXP_UNIDADES, None, haber="300.00", glosa="SIN ASIGNACION"),
+        ], ruta_salida_xlsx=ruta_xlsx)
+        fila_global_esperada = resumen["detalle_asignaciones_faltantes"][0]["fila_global"]
+
+        wb = openpyxl.load_workbook(ruta_xlsx)
+        ws = wb["CONTROL"]
+        header = [c.value for c in ws[1]]
+        filas = list(ws.iter_rows(min_row=2, values_only=True))
+        self.assertEqual(len(filas), 1)
+        fila = dict(zip(header, filas[0]))
+        self.assertEqual(fila["ESTADO"], "REVISAR")
+        self.assertEqual(fila["ASIGNACION"], "ASIGNACION FALTANTE")
+        self.assertEqual(fila["CUENTA"], self.CXP_UNIDADES)
+        self.assertEqual(fila["TIPO"], "CxP UNIDADES")
+        self.assertEqual(float(fila["HABER_MES"]), 300.0)
+        self.assertEqual(float(fila["DEBE_MES"]), 0.0)
+        self.assertEqual(
+            fila["OBSERVACION_SISTEMA"],
+            f"Asignación faltante en fila GLOBAL {fila_global_esperada}. No incorporada al histórico.",
+        )
+        # Nunca crea una llave del histórico.
+        self.assertEqual(self._historico(), {})
+
+    def test_asignacion_faltante_multiples_ocurrencias_filas_separadas(self):
+        ruta_xlsx = os.path.join(self.tmpdir, "CONTROL.xlsx")
+        self._ejecutar([
+            _partida(self.CXC_EMPRESAS, None, debe="100.00"),
+            _partida(self.CXC_EMPRESAS, None, debe="200.00"),
+        ], ruta_salida_xlsx=ruta_xlsx)
+        wb = openpyxl.load_workbook(ruta_xlsx)
+        ws = wb["CONTROL"]
+        self.assertEqual(ws.max_row, 3)  # encabezado + 2 filas excepcionales, nunca fusionadas
+        header = [c.value for c in ws[1]]
+        idx_debe_mes = header.index("DEBE_MES")
+        importes = sorted(float(row[idx_debe_mes].value) for row in ws.iter_rows(min_row=2))
+        self.assertEqual(importes, [100.0, 200.0])
+
+    def test_asignacion_faltante_aparece_arriba_junto_a_revisar(self):
+        ruta_xlsx = os.path.join(self.tmpdir, "CONTROL.xlsx")
+        self._ejecutar([
+            _partida(self.CXC_EMPRESAS, "CERRADA", debe="100.00", haber="100.00"),
+            _partida(self.CXC_EMPRESAS, "ABIERTA", debe="100.00"),
+            _partida(self.CXC_EMPRESAS, "REVISAR1", debe="50.00", haber="100.00"),
+            _partida(self.CXC_EMPRESAS, None, debe="10.00"),
+        ], ruta_salida_xlsx=ruta_xlsx)
+        wb = openpyxl.load_workbook(ruta_xlsx)
+        ws = wb["CONTROL"]
+        header = [c.value for c in ws[1]]
+        idx_asig = header.index("ASIGNACION")
+        idx_estado = header.index("ESTADO")
+        filas = [(row[idx_asig].value, row[idx_estado].value) for row in ws.iter_rows(min_row=2)]
+        self.assertEqual(filas, [
+            ("ASIGNACION FALTANTE", "REVISAR"),
+            ("REVISAR1", "REVISAR"),
+            ("ABIERTA", "ABIERTO"),
+            ("CERRADA", "CERRADO"),
+        ])
+
+
+# ---------------------------------------------------------------------------
+# Consistencia HISTORICO_CXC_CXP.csv <-> HISTORICO_CXC_CXP_PERIODOS.json
+# ante una ejecución interrumpida a mitad de camino (ninguno de los dos
+# escenarios debe producir doble acumulación ni un periodo marcado como
+# aplicado sin histórico real).
+# ---------------------------------------------------------------------------
+
+class TestConsistenciaHistoricoPeriodos(_Control3TestBase):
+    def test_escenario_a_historico_actualizado_periodos_no_se_autorrepara(self):
+        ruta_global = self._crear_global_fijo([_partida(self.CXC_EMPRESAS, "FORTALEZA", debe="100.00")])
+        self._ejecutar_sobre(ruta_global)
+
+        # Simula el corte: el histórico ya quedó escrito, pero el libro
+        # de periodos nunca se llegó a escribir (falló/se interrumpió
+        # justo después de guardar_historico y antes de
+        # _guardar_libro_periodos).
+        ruta_periodos = c3._ruta_libro_periodos(self.ruta_historico)
+        self.assertTrue(os.path.isfile(ruta_periodos))
+        os.remove(ruta_periodos)
+
+        resumen = self._ejecutar_sobre(ruta_global)
+        self.assertEqual(resumen["estado"], "YA_PROCESADO_SIN_CAMBIOS")
+        fila = self._historico()[(self.CXC_EMPRESAS, "FORTALEZA")]
+        self.assertEqual(fila["debe_acumulado"], "100.00")  # nunca se duplicó
+
+        libro = c3._cargar_libro_periodos(self.ruta_historico)
+        self.assertIn("AGOSTO_2026", libro)
+        self.assertEqual(libro["AGOSTO_2026"]["sha256_global"], _hash_archivo(ruta_global))
+        self.assertTrue(libro["AGOSTO_2026"].get("autorreparado"))
+
+    def test_escenario_b_periodos_dice_aplicado_pero_historico_no_reprocesa(self):
+        ruta_global = self._crear_global_fijo([_partida(self.CXC_EMPRESAS, "FORTALEZA", debe="100.00")])
+        sha = _hash_archivo(ruta_global)
+
+        # Simula el corte inverso: el libro de periodos "dice" que
+        # AGOSTO_2026 ya fue aplicado con este SHA, pero el histórico
+        # NUNCA llegó a escribirse (no existe ninguna fila que lo
+        # refleje). Nunca debe confiarse ciegamente en el libro.
+        c3._guardar_libro_periodos(self.ruta_historico, {
+            "AGOSTO_2026": {"sha256_global": sha, "fecha_ejecucion": "2026-01-01T00:00:00"},
+        })
+        self.assertFalse(os.path.isfile(self.ruta_historico))
+
+        resumen = self._ejecutar_sobre(ruta_global)
+        self.assertEqual(resumen["estado"], "OK")  # reprocesa de verdad, nunca YA_PROCESADO ciego
+        fila = self._historico()[(self.CXC_EMPRESAS, "FORTALEZA")]
+        self.assertEqual(fila["debe_acumulado"], "100.00")
+
+        # Un segundo rerun sobre el mismo GLOBAL ahora sí es idempotente
+        # (el libro quedó re-sincronizado con el histórico real).
+        resumen2 = self._ejecutar_sobre(ruta_global)
+        self.assertEqual(resumen2["estado"], "YA_PROCESADO_SIN_CAMBIOS")
+        fila2 = self._historico()[(self.CXC_EMPRESAS, "FORTALEZA")]
+        self.assertEqual(fila2["debe_acumulado"], "100.00")  # sigue sin duplicarse
+
+    def test_sha_distinto_prevalece_sobre_chequeo_de_historico(self):
+        # Aunque el histórico ya refleje AGOSTO_2026 con OTRO sha (de una
+        # corrida anterior legítima), un GLOBAL con SHA distinto para el
+        # mismo periodo sigue bloqueando (nunca se decide por el
+        # histórico cuando el libro registra explícitamente otro SHA).
+        ruta_global = self._crear_global_fijo([_partida(self.CXC_EMPRESAS, "FORTALEZA", debe="100.00")])
+        self._ejecutar_sobre(ruta_global)
+
+        ruta_v2 = self._ruta_global("SAP_GLOBAL_TIQ_AGOSTO_2026_V2.xlsx")
+        _crear_global(ruta_v2, [_partida(self.CXC_EMPRESAS, "FORTALEZA", debe="999999.00")])
+        resumen = c3.ejecutar_control(
+            ruta_global=ruta_v2, ruta_historico=self.ruta_historico,
+            nombre_archivo_global="SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx",
+            ruta_salida_xlsx=os.path.join(self.tmpdir, "CONTROL2.xlsx"),
+            ruta_salida_json=os.path.join(self.tmpdir, "CONTROL2.json"),
+        )
+        self.assertEqual(resumen["estado"], "GLOBAL_MODIFICADO_REQUIERE_REVISION")
+
+
 if __name__ == "__main__":
     unittest.main()

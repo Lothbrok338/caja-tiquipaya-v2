@@ -24,7 +24,13 @@ LLAVE (permanente, entre meses): CUENTA_MAYOR + ASIGNACION. La misma
 ASIGNACION bajo dos cuentas distintas son dos entidades lógicas distintas.
 Una partida de una de las 6 cuentas SIN Asignacion nunca se acumula ni se
 agrupa de forma silenciosa: se reporta como `ASIGNACION_FALTANTE_CXC_CXP`
-(fila GLOBAL, cuenta, glosa, debe, haber) y queda fuera de toda llave.
+en el JSON (fila GLOBAL, cuenta, glosa, debe, haber) y queda fuera de toda
+llave — nunca crea ni actualiza una fila del histórico. Además aparece en
+el Excel humano como fila EXCEPCIONAL (una por cada ocurrencia, nunca
+agrupadas): ESTADO=REVISAR, ASIGNACION="ASIGNACION FALTANTE",
+DEBE_MES/HABER_MES de esa partida puntual, y OBSERVACION_SISTEMA
+identificando la fila GLOBAL de origen — ordenadas junto a REVISAR, antes
+de cualquier otra fila (ver `_filas_excel_asignacion_faltante`).
 
 Layout del GLOBAL (idéntico a sap_writer.py/consolidador_mensual.py/
 control_asignaciones.py, nunca reinterpretado aquí — hoja EXACTA "1",
@@ -76,17 +82,42 @@ crear una tabla de movimientos mensuales separada.
 
 IDEMPOTENCIA: no se vuelve a acumular el mismo periodo+SHA del GLOBAL. Se
 verifica contra un pequeño LIBRO DE PERIODOS (sidecar
-`<HISTORICO>_PERIODOS.json`, junto al CSV histórico) que registra, por
-periodo, el sha256 del GLOBAL con el que ese periodo fue aplicado — NUNCA
-un histórico de movimientos: una sola entrada por periodo, para
-idempotencia pura. Es necesario porque una fila del histórico (acumulador
-por CUENTA+ASIGNACION) se sigue reescribiendo en periodos posteriores, así
-que su propio `sha256_global_ultimo`/`periodo_ultimo_movimiento` no basta
-para recordar con qué SHA se aplicó un periodo ya antiguo. Si el periodo
-nunca fue aplicado: se procesa normalmente. Si ya fue aplicado con el
-mismo SHA -> YA_PROCESADO_SIN_CAMBIOS (no se vuelve a leer/acumular el
-GLOBAL). Si fue aplicado con un SHA distinto -> GLOBAL_MODIFICADO_
-REQUIERE_REVISION (no se toca el histórico automáticamente).
+`05_CONTROLES/HISTORICO_CXC_CXP_PERIODOS.json`, junto al CSV histórico
+`05_CONTROLES/HISTORICO_CXC_CXP.csv`) que registra, por periodo, el sha256
+del GLOBAL con el que ese periodo fue aplicado — NUNCA un histórico de
+movimientos: una sola entrada por periodo, para idempotencia pura. Es
+necesario porque una fila del histórico (acumulador por CUENTA+
+ASIGNACION) se sigue reescribiendo en periodos posteriores, así que su
+propio `sha256_global_ultimo`/`periodo_ultimo_movimiento` no basta por sí
+solo para recordar con qué SHA se aplicó un periodo ya antiguo.
+
+El libro de periodos y el CSV histórico son DOS archivos separados y cada
+`guardar_*` es atómico por separado (escritura a `.tmp` + `os.replace`),
+pero no existe una transacción atómica ÚNICA entre ambos: una corrida
+interrumpida justo entre las dos escrituras podría, en teoría, dejarlos
+inconsistentes. `_estado_idempotencia` nunca confía en un solo archivo:
+CONTRASTA el libro de periodos contra el contenido REAL del histórico
+(`_historico_ya_refleja_periodo` — ¿existe ya una fila con
+`periodo_ultimo_movimiento`+`sha256_global_ultimo` iguales a este
+periodo+SHA?) antes de decidir, así que ninguna de las dos ventanas de
+corte puede causar doble acumulación ni un periodo marcado como aplicado
+sin histórico real:
+
+- Histórico actualizado pero libro de periodos NO (falta el registro):
+  detectado porque el histórico YA refleja el periodo -> se trata igual
+  que YA_PROCESADO_SIN_CAMBIOS (nunca se reacumula) y `ejecutar_control`
+  autorrepara el registro faltante en el libro.
+- Libro de periodos actualizado pero histórico NO (el registro existe y
+  el SHA coincide, pero el histórico no lo refleja): detectado porque
+  `_historico_ya_refleja_periodo` da False a pesar del registro -> se
+  reprocesa de forma segura (el histórico todavía no tiene esos importes,
+  así que acumular ahora es la primera vez real, nunca una duplicación).
+
+Si el periodo nunca fue aplicado (ni el libro ni el histórico lo
+reflejan): se procesa normalmente. Si el libro registra un SHA distinto
+al actual: GLOBAL_MODIFICADO_REQUIERE_REVISION (no se toca el histórico
+automáticamente), sin importar el estado del histórico — un SHA distinto
+siempre requiere revisión humana.
 
 PUENTE JSON DE OBSERVACIONES (`--observaciones-json`): igual que
 `--revision-json` en CONTROL 1, resuelve el mismo problema técnico (no
@@ -180,6 +211,11 @@ _RE_NOMBRE_GLOBAL = re.compile(r"^SAP_GLOBAL_TIQ_([A-Za-z]+)_(\d{4})\.xlsx$", re
 _ESTADO_ABIERTO = "ABIERTO"
 _ESTADO_CERRADO = "CERRADO"
 _ESTADO_REVISAR = "REVISAR"
+
+# Marcador de ASIGNACION para la fila EXCEPCIONAL de una partida sin
+# Asignacion (ver _filas_excel_asignacion_faltante). Nunca es una llave
+# real del histórico: no se guarda en HISTORICO_CXC_CXP.csv.
+_ASIGNACION_FALTANTE_MARCADOR = "ASIGNACION FALTANTE"
 
 _TIPO_EVENTO_APERTURA = "APERTURA"
 _TIPO_EVENTO_CIERRE = "CIERRE"
@@ -515,17 +551,59 @@ def _guardar_libro_periodos(ruta_historico, libro_periodos):
     os.replace(ruta_tmp, ruta)
 
 
-def _estado_idempotencia(libro_periodos, periodo, sha_actual):
-    """None: periodo nunca procesado (seguir normalmente).
+def _historico_ya_refleja_periodo(historico_dict, periodo, sha_actual):
+    """True si YA existe al menos una fila del histórico cuyo
+    periodo_ultimo_movimiento/sha256_global_ultimo coincide con
+    (periodo, sha_actual) — es decir, el CSV histórico ya tiene aplicada
+    la acumulación de este periodo+SHA, sin importar lo que diga (o no
+    diga) el libro de periodos. Es el chequeo de recuperación ante un
+    corte a mitad de camino: solo mira el periodo que se está evaluando
+    AHORA, así que no reintroduce el problema original (una fila se
+    sigue reescribiendo en periodos posteriores) — ese caso general sigue
+    resuelto por el libro de periodos."""
+    return any(
+        fila.get("periodo_ultimo_movimiento") == periodo and fila.get("sha256_global_ultimo") == sha_actual
+        for fila in historico_dict.values()
+    )
+
+
+def _estado_idempotencia(historico_dict, libro_periodos, periodo, sha_actual):
+    """None: periodo nunca procesado (seguir/reprocesar normalmente).
     YA_PROCESADO_SIN_CAMBIOS: el periodo ya fue aplicado con este mismo
-    SHA. GLOBAL_MODIFICADO_REQUIERE_REVISION: el periodo ya fue aplicado
-    con un SHA distinto."""
+    SHA Y el histórico ya lo refleja. GLOBAL_MODIFICADO_REQUIERE_REVISION:
+    el periodo ya fue aplicado con un SHA distinto.
+
+    Nunca confía ciegamente en un solo archivo: contrasta el libro de
+    periodos CONTRA el contenido real del histórico
+    (_historico_ya_refleja_periodo), para que un corte a mitad de camino
+    en cualquiera de los dos sentidos nunca produzca doble acumulación ni
+    un periodo marcado como aplicado sin que el histórico quedara
+    realmente actualizado (ver docstring del módulo, sección
+    IDEMPOTENCIA):
+
+    - histórico actualizado pero libro de periodos NO (falta el
+      registro): se detecta vía _historico_ya_refleja_periodo ->
+      YA_PROCESADO_SIN_CAMBIOS (nunca se reacumula) y el llamador
+      autorrepara el libro de periodos.
+    - libro de periodos actualizado pero histórico NO (el registro existe
+      y el SHA coincide, pero el histórico no lo refleja): se detecta
+      porque _historico_ya_refleja_periodo da False a pesar del registro
+      -> se devuelve None (reprocesar de forma segura; el histórico
+      todavía no tiene esos importes, así que acumular ahora es la
+      primera vez real, no una duplicación)."""
     registro = libro_periodos.get(periodo)
-    if not registro:
-        return None
-    if registro.get("sha256_global") == sha_actual:
-        return "YA_PROCESADO_SIN_CAMBIOS"
-    return "GLOBAL_MODIFICADO_REQUIERE_REVISION"
+    reflejado = _historico_ya_refleja_periodo(historico_dict, periodo, sha_actual)
+
+    if registro:
+        if registro.get("sha256_global") != sha_actual:
+            return "GLOBAL_MODIFICADO_REQUIERE_REVISION"
+        if reflejado:
+            return "YA_PROCESADO_SIN_CAMBIOS"
+        return None  # registro presente pero histórico no lo refleja: reprocesar
+
+    if reflejado:
+        return "YA_PROCESADO_SIN_CAMBIOS"  # histórico sí, libro no: no reacumular
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -749,8 +827,38 @@ def aplicar_observaciones(datos, periodo, sha_actual, historico_dict, ahora):
 # Excel humano (CONTROL_CXC_CXP_<MES>_<AÑO>.xlsx) — hoja única "CONTROL".
 # ---------------------------------------------------------------------------
 
-def _construir_filas_excel(historico_dict, grupos_mes, periodo_actual):
+def _filas_excel_asignacion_faltante(faltantes, periodo_actual):
+    """Una fila EXCEPCIONAL por cada partida sin Asignacion de las 6
+    cuentas (nunca agrupadas, nunca acumuladas, nunca una llave del
+    histórico): ESTADO=REVISAR, ASIGNACION=_ASIGNACION_FALTANTE_MARCADOR,
+    DEBE_MES/HABER_MES de esa partida puntual, DEBE_ACUMULADO/
+    HABER_ACUMULADO/SALDO vacíos (no hay acumulación real que mostrar) y
+    OBSERVACION_SISTEMA identificando la fila GLOBAL de origen."""
     filas = []
+    for f in faltantes:
+        tipo_label = _CUENTAS_CONTROL.get(f["cuenta"], (None, f["cuenta"]))[1]
+        filas.append({
+            "PERIODO_CONTROL": periodo_actual,
+            "CUENTA": f["cuenta"],
+            "TIPO": tipo_label,
+            "ASIGNACION": _ASIGNACION_FALTANTE_MARCADOR,
+            "DEBE_MES": Decimal(f["debe"]),
+            "HABER_MES": Decimal(f["haber"]),
+            "DEBE_ACUMULADO": "",
+            "HABER_ACUMULADO": "",
+            "SALDO": "",
+            "ESTADO": _ESTADO_REVISAR,
+            "OBSERVACION_SISTEMA": (
+                f"Asignación faltante en fila GLOBAL {f['fila_global']}. No incorporada al histórico."
+            ),
+            "OBSERVACION_AUDITOR": "",
+            "_fila_global": f["fila_global"],
+        })
+    return filas
+
+
+def _construir_filas_excel(historico_dict, grupos_mes, periodo_actual, faltantes=None):
+    filas = list(_filas_excel_asignacion_faltante(faltantes or [], periodo_actual))
     for clave, fila in historico_dict.items():
         mov = grupos_mes.get(clave)
         debe_mes = mov["debe"] if mov else Decimal("0.00")
@@ -769,7 +877,15 @@ def _construir_filas_excel(historico_dict, grupos_mes, periodo_actual):
             "OBSERVACION_SISTEMA": fila["observacion_sistema"],
             "OBSERVACION_AUDITOR": fila["observacion_auditor"],
         })
-    filas.sort(key=lambda f: (_ORDEN_ESTADO_XLSX.get(f["ESTADO"], 9), f["CUENTA"], f["ASIGNACION"]))
+
+    def _clave_orden(f):
+        # Las filas de asignación faltante van arriba, junto a REVISAR
+        # (grupo -1, antes que el propio grupo REVISAR real).
+        if f["ASIGNACION"] == _ASIGNACION_FALTANTE_MARCADOR:
+            return (-1, f["CUENTA"], f.get("_fila_global", 0))
+        return (_ORDEN_ESTADO_XLSX.get(f["ESTADO"], 9), f["CUENTA"], f["ASIGNACION"])
+
+    filas.sort(key=_clave_orden)
     return filas
 
 
@@ -864,7 +980,18 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
     libro_periodos = _cargar_libro_periodos(ruta_historico)
     ahora = datetime.datetime.now().isoformat(timespec="seconds")
 
-    estado_idemp = _estado_idempotencia(libro_periodos, periodo, sha_actual)
+    estado_idemp = _estado_idempotencia(historico, libro_periodos, periodo, sha_actual)
+
+    if estado_idemp == "YA_PROCESADO_SIN_CAMBIOS" and periodo not in libro_periodos and not dry_run:
+        # Autorreparación: el histórico ya refleja este periodo+SHA pero
+        # el libro de periodos no lo tenía registrado (corte a mitad de
+        # camino de una corrida anterior, DESPUÉS de escribir el
+        # histórico y ANTES de escribir el libro). Se reconstruye el
+        # registro faltante ahora — nunca se reacumula el histórico.
+        libro_periodos[periodo] = {
+            "sha256_global": sha_actual, "fecha_ejecucion": ahora, "autorreparado": True,
+        }
+        _guardar_libro_periodos(ruta_historico, libro_periodos)
 
     if estado_idemp == "GLOBAL_MODIFICADO_REQUIERE_REVISION":
         return {
@@ -990,7 +1117,7 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
         _guardar_libro_periodos(ruta_historico, libro_periodos)
         resumen["historico_actualizado"] = True
         if ruta_salida_xlsx:
-            filas_excel = _construir_filas_excel(nuevo_historico, grupos_mes, periodo)
+            filas_excel = _construir_filas_excel(nuevo_historico, grupos_mes, periodo, faltantes)
             guardar_control_xlsx(ruta_salida_xlsx, filas_excel)
             resumen["archivo_control_xlsx"] = ruta_salida_xlsx
         if ruta_salida_json:
