@@ -878,3 +878,291 @@ GLOBAL final sigue funcionando, el flujo `.xlsx` existente no tiene
 regresión, `--dry-run` con `--revision-json` no escribe nada, y la vía
 JSON ignora por completo un `.xlsx`/CSV legado existente en el mismo
 directorio.
+
+## 15. CONTROL 3 — SEGUIMIENTO ACUMULADO CxC/CxP
+
+Módulo **nuevo y aislado** (`control_cxc_cxp.py`), **posterior** al SAP
+GLOBAL mensual (`consolidador_mensual.py`) y a CONTROL 1
+(`control_asignaciones.py`). CONTROL 3 es exclusivamente de **seguimiento/
+auditoría**: LEE el GLOBAL, CALCULA saldos, ACUMULA entre meses, CLASIFICA
+(ABIERTO/CERRADO/REVISAR), GENERA un reporte Excel para el auditor y
+MANTIENE un histórico técnico. **Nunca** modifica el SAP GLOBAL, el motor
+diario, la consolidación mensual, CONTROL 1, cuentas, asignaciones ni
+importes. El GLOBAL se abre siempre con `read_only=True, data_only=True`
+y nunca recibe `.save()`.
+
+**Cuentas controladas (universo COMPLETO de esta primera versión, ninguna
+otra cuenta se evalúa):**
+
+| Cuenta | Tipo |
+|---|---|
+| `110201002` | CxC UNIDADES |
+| `210103002` | CxP UNIDADES |
+| `110201003` | CxC EMPRESAS |
+| `210103003` | CxP EMPRESAS |
+| `110201004` | CxC PARTICULARES |
+| `210103004` | CxP PARTICULARES |
+
+**Llave lógica permanente:** `CUENTA_MAYOR + ASIGNACION`. La misma
+Asignacion bajo dos cuentas distintas son dos entidades lógicas
+independientes (p. ej. `110201003+ABC123` ≠ `110201004+ABC123`). Una
+partida de una de las 6 cuentas con Asignacion vacía **nunca** se acumula
+ni se agrupa de forma silenciosa: se reporta como
+`ASIGNACION_FALTANTE_CXC_CXP` en el JSON (fila GLOBAL, cuenta, glosa,
+debe, haber) y queda fuera de toda llave — **nunca** crea ni actualiza una
+fila del histórico. Además aparece en el Excel humano como fila
+**EXCEPCIONAL** (una por cada ocurrencia, nunca fusionadas):
+`ESTADO=REVISAR`, `ASIGNACION="ASIGNACION FALTANTE"`, `DEBE_MES`/
+`HABER_MES` de esa partida puntual, `DEBE_ACUMULADO`/`HABER_ACUMULADO`/
+`SALDO` vacíos (no hay acumulación real que mostrar) y
+`OBSERVACION_SISTEMA` identificando la fila de origen — p. ej.
+"Asignación faltante en fila GLOBAL 278. No incorporada al histórico." —
+ordenadas **arriba de todo**, junto a REVISAR (antes que las filas
+REVISAR reales).
+
+**Layout del GLOBAL** (idéntico a sap_writer.py/consolidador_mensual.py/
+control_asignaciones.py, nunca reinterpretado aquí — hoja EXACTA `"1"`,
+partidas desde la fila 16; C=CuentaMayor, D=Glosa, E=Cargo/Debe, F=Haber,
+O=FechaValor, R=Asignacion). La hoja `"1"` es obligatoria (`ERROR_TECNICO`/
+`GLOBAL_HOJA_1_NO_ENCONTRADA` si no existe) y el nombre debe seguir la
+convención canónica `SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx` (`ERROR_TECNICO`/
+`GLOBAL_NOMBRE_NO_CANONICO` si no, sin fallback, antes de leer partidas).
+
+**Fórmula de saldo (siempre sobre el ACUMULADO, nunca solo del mes):**
+
+```
+CxC (110201002/110201003/110201004): SALDO = DEBE_ACUMULADO - HABER_ACUMULADO
+CxP (210103002/210103003/210103004): SALDO = HABER_ACUMULADO - DEBE_ACUMULADO
+```
+
+```
+SALDO > 0  -> ABIERTO
+SALDO == 0 -> CERRADO
+SALDO < 0  -> REVISAR  (sobrecompensación; el saldo se muestra TAL CUAL,
+                         nunca en valor absoluto)
+```
+
+**HISTORICO_CXC_CXP.csv** (`05_CONTROLES/HISTORICO_CXC_CXP.csv`, sugerido):
+una fila **permanente** por CUENTA+ASIGNACION (nunca una fila nueva por
+mes; se crea vacío si no existe — el primer GLOBAL procesado es el punto
+inicial del seguimiento). Columnas:
+
+```
+cuenta, tipo, asignacion, debe_acumulado, haber_acumulado, saldo, estado,
+periodo_primera_aparicion, periodo_ultimo_movimiento, periodo_ultimo_cierre,
+observacion_sistema, observacion_auditor, sha256_global_ultimo,
+fecha_actualizacion, historial_estados
+```
+
+`historial_estados` es el **único campo técnico adicional** agregado sobre
+el mínimo pedido: una lista JSON compacta de eventos `[tipo, periodo]`
+(`APERTURA`/`CIERRE`/`REAPERTURA`/`SOBRECOMPENSACION`/
+`REVISAR_SIN_APERTURA`) — estrictamente necesaria para reconstruir
+`OBSERVACION_SISTEMA` de forma correcta ante reaperturas sucesivas, sin
+crear una tabla de movimientos mensuales separada (explícitamente
+descartada en esta primera versión).
+
+**Snapshot mensual:** cada corrida procesa TODAS las llaves ya existentes
+en el histórico (union con las tocadas este mes) — una llave ABIERTA sigue
+apareciendo en el Excel del mes aunque no tenga movimiento nuevo
+(`DEBE_MES`/`HABER_MES` = 0.00), para que el auditor vea el estado
+completo del universo controlado, no solo lo tocado ese mes.
+
+**OBSERVACION_SISTEMA** (determinístico, sin IA): se reconstruye en cada
+corrida a partir de `historial_estados` + una cláusula final según el
+estado actual (`construir_observacion_sistema`). Los eventos posibles y su
+frase asociada:
+
+| Evento | Frase |
+|---|---|
+| `APERTURA` | "Cuenta abierta \<PERIODO\>." |
+| `CIERRE` | "Cerrada \<PERIODO\>." |
+| `REAPERTURA` | "Reabierta \<PERIODO\>." |
+| `SOBRECOMPENSACION` | "Sobrecompensación detectada \<PERIODO\>." |
+| `REVISAR_SIN_APERTURA` | "Saldo negativo detectado \<PERIODO\> sin apertura previa registrada." |
+
+Cláusula final: ABIERTO agrega "Continúa abierta a \<PERIODO\>." (si el
+último evento no es de este mismo periodo) + "Saldo pendiente Bs X.";
+CERRADO agrega "Continúa cerrada a \<PERIODO\>." si corresponde (sin
+mencionar saldo); REVISAR agrega "Continúa en REVISAR a \<PERIODO\>." si
+corresponde + "Saldo Bs X. REVISAR." (signo real, nunca absoluto). Formato
+boliviano `Bs 1.234,56` (miles con punto, decimales con coma).
+
+**OBSERVACION_AUDITOR:** texto libre, memoria del auditor. Python **nunca**
+la sobrescribe automáticamente durante la acumulación normal — se
+preserva entre meses tal cual. Solo se actualiza vía el puente JSON
+(`--observaciones-json`), y **solo** esa columna: nunca saldo, estado,
+importes, asignación ni cuenta.
+
+**Idempotencia:** CONTROL 3 nunca vuelve a acumular el mismo periodo+SHA.
+Se verifica **EXCLUSIVAMENTE** contra un sidecar dedicado en la
+**ubicación productiva** `05_CONTROLES/HISTORICO_CXC_CXP_PERIODOS.json`
+(junto a `05_CONTROLES/HISTORICO_CXC_CXP.csv`, sin carpetas adicionales),
+que es la fuente **autoritativa e inmutable** de qué periodo+SHA ya fue
+aplicado: `{periodo: {sha256_global, estado, ...}}`. **Nunca** se decide
+la idempotencia de un periodo a partir de `sha256_global_ultimo`/
+`periodo_ultimo_movimiento` del histórico — esos campos son **mutables**
+(una fila se sigue reescribiendo cuando la misma llave vuelve a moverse
+en un periodo posterior) y usarlos para invalidar un periodo antiguo ya
+aplicado era, de hecho, un **bug real detectado y corregido**: AGOSTO se
+acumulaba con `CUENTA+ASIGNACION=ABC`; SEPTIEMBRE volvía a mover esa MISMA
+llave (sobrescribiendo `periodo_ultimo_movimiento`/`sha256_global_ultimo`
+de esa fila a SEPTIEMBRE); un reintento accidental de AGOSTO ya no
+encontraba ninguna fila "de AGOSTO" y volvía a acumularlo encima —
+duplicando el saldo. Corregido eliminando por completo esa dependencia.
+
+**Mecanismo de escritura — transacción de dos fases con recuperación
+determinística:**
+
+```
+PENDIENTE  ->  escritura atómica del histórico  ->  APLICADO
+```
+
+`libro_periodos[periodo]` se escribe con `estado="PENDIENTE"` **antes**
+de tocar el histórico, y se sobrescribe a `estado="APLICADO"` **después**
+de que `guardar_historico` ya completó. `_estado_idempotencia` decide, en
+este orden:
+
+- Sin registro para el periodo -> procesar normalmente.
+- Registro con SHA **distinto** al actual -> **siempre**
+  `GLOBAL_MODIFICADO_REQUIERE_REVISION`, sin importar su estado
+  (PENDIENTE o APLICADO) ni el histórico.
+- Registro con el mismo SHA y `estado="APLICADO"` -> **siempre**
+  `YA_PROCESADO_SIN_CAMBIOS`, autoritativo, **nunca se reevalúa** contra
+  el histórico — así un movimiento posterior de la misma llave en otro
+  periodo ya no puede hacer que un periodo antiguo vuelva a acumularse.
+- Registro con el mismo SHA y `estado="PENDIENTE"` -> corte a mitad de
+  camino de la corrida que dejó esa marca; **solo aquí** es seguro
+  contrastar contra el histórico (`_historico_ya_refleja_periodo` —
+  seguro porque esa misma corrida interrumpida es la ÚLTIMA que pudo
+  tocar esas filas): si el histórico ya lo refleja -> se sella
+  `APLICADO` sin reacumular (`"recuperado": true`); si no -> se reprocesa
+  de cero (el histórico todavía no tiene esos importes, así que acumular
+  ahora es la primera vez real, nunca una duplicación).
+
+Demostrado por `tests/test_control_cxc_cxp.py::TestConsistenciaHistoricoPeriodos`
+(5 pruebas: el caso exacto reportado — AGOSTO no se reacumula tras un
+movimiento posterior de la misma llave en SEPTIEMBRE, saldo idéntico
+antes/después del rerun; recuperación PENDIENTE sin histórico escrito ->
+reprocesa una única vez; recuperación PENDIENTE con histórico ya escrito
+-> sella APLICADO sin reacumular; la idempotencia **no depende** de que
+exista una fila histórica del periodo — probado con un periodo sin
+ninguna llave válida, solo con ASIGNACION FALTANTE; SHA distinto sigue
+bloqueando).
+
+**Excel humano** (`CONTROL_CXC_CXP_<MES>_<AÑO>.xlsx`): hoja **única**
+`"CONTROL"` (sin pestañas adicionales), una fila por CUENTA+ASIGNACION.
+Columnas: `PERIODO_CONTROL, CUENTA, TIPO, ASIGNACION, DEBE_MES, HABER_MES,
+DEBE_ACUMULADO, HABER_ACUMULADO, SALDO, ESTADO, OBSERVACION_SISTEMA,
+OBSERVACION_AUDITOR`. Encabezados en negrita, autofiltro, fila superior
+congelada, formato numérico `#,##0.00` en importes, texto ajustado en
+OBSERVACION_SISTEMA/OBSERVACION_AUDITOR, relleno visual por ESTADO
+(ABIERTO=ámbar, CERRADO=verde, REVISAR=rojo — puramente visual, sin
+alterar datos) y **sin proteger la hoja** (el auditor debe poder escribir
+su observación). Orden: filas EXCEPCIONALES de asignación faltante
+(arriba de todo) -> `REVISAR` -> `ABIERTO` -> `CERRADO`, y dentro de cada
+grupo por CUENTA y luego ASIGNACION.
+
+**JSON de resultado** (`CONTROL_CXC_CXP_<MES>_<AÑO>.json`): incluye como
+mínimo `periodo, archivo_global, sha256_global, cuentas_evaluadas,
+llaves_evaluadas, abiertas, cerradas, revisar, asignaciones_faltantes,
+historico_actualizado, archivo_control_xlsx` (más `estado`,
+`detalle_asignaciones_faltantes` — lista completa con fila/cuenta/glosa/
+debe/haber — y otros campos de trazabilidad). `cuentas_evaluadas`/
+`llaves_evaluadas` cuentan lo **tocado en esta corrida**;
+`abiertas`/`cerradas`/`revisar` cuentan el **universo completo** del
+histórico tras la actualización (igual que el Excel).
+
+**Puente JSON de observaciones** (`--observaciones-json`, mismo problema
+técnico que `--revision-json` de CONTROL 1: no transportar/reconstruir
+XLSX vía Base64). Formato sugerido
+`CONTROL_CXC_CXP_<MES>_<AÑO>_OBSERVACIONES.json`:
+
+```json
+{
+  "periodo": "AGOSTO_2026",
+  "sha256_global": "...",
+  "observaciones": [
+    {"cuenta": "110201003", "asignacion": "FORTALEZA",
+     "observacion_auditor": "Esperando transferencia de Clínica."}
+  ]
+}
+```
+
+El auditor **nunca** edita este JSON — lo genera Cowork a partir de lo que
+ya leyó del `.xlsx` en Drive. Validación todo-o-nada contra el estado
+ACTUAL (`periodo` y `sha256_global` deben coincidir con el GLOBAL que se
+está procesando en esa corrida; cada CUENTA+ASIGNACION debe existir ya en
+el histórico; sin duplicados): si **cualquier** entrada falla, no se
+aplica **ninguna** (`problemas_observaciones_json` en el resumen). Solo
+puede escribir `observacion_auditor` — nunca crea llaves nuevas, nunca
+toca saldo/estado/importes/asignación/cuenta. Funciona tanto en la misma
+corrida que acumula un GLOBAL nuevo como en una corrida posterior sobre un
+periodo ya `YA_PROCESADO_SIN_CAMBIOS` (caso típico: el auditor escribió su
+observación después de que el mes ya fue cerrado).
+
+**CLI** (`control_cxc_cxp.py`): `--global` (obligatorio), `--historico`
+(obligatorio, se crea si no existe), `--salida-xlsx`/`--salida-json`
+(obligatorios), `--nombre-archivo` (opcional, como en CONTROL 1),
+`--observaciones-json` (opcional), `--dry-run` (no modifica histórico, no
+genera/reemplaza xlsx/json/sidecar de periodos — solo calcula y reporta).
+
+**Estructura de salida sugerida** (el script no la impone; recibe rutas
+explícitas por CLI):
+
+```
+05_CONTROLES/
+  HISTORICO_CXC_CXP.csv
+  HISTORICO_CXC_CXP_PERIODOS.json      (sidecar de idempotencia)
+  CONTROL_3_CXC_CXP/
+    2026-08/
+      CONTROL_CXC_CXP_AGOSTO_2026.xlsx
+      CONTROL_CXC_CXP_AGOSTO_2026.json
+      CONTROL_CXC_CXP_AGOSTO_2026_OBSERVACIONES.json   (solo si existe)
+```
+
+No modifica `CONTROL_1_ASIGNACIONES/` ni `MARCADORES_PROCESAMIENTO/`.
+
+**Seguridad:** solo lectura sobre el GLOBAL (nunca escribe SAP diarios,
+cierres, maestros ni plantilla SAP). Sin dependencias de Google Drive,
+OneDrive ni clientes de LLM (Anthropic/OpenAI). Nunca Base64. Decimal en
+todos los cálculos de saldo (nunca float).
+
+**Primera ejecución real (fuera de Code):** Cowork ejecutará CONTROL 3 por
+primera vez sobre el GLOBAL final de AGOSTO 2026 (ya cerrado
+contablemente) únicamente como semilla del histórico — CONTROL 3 no
+modifica ese GLOBAL, solo lo lee y genera `HISTORICO_CXC_CXP.csv`,
+`CONTROL_CXC_CXP_AGOSTO_2026.xlsx` y `CONTROL_CXC_CXP_AGOSTO_2026.json`
+como punto inicial del seguimiento para septiembre en adelante.
+
+Tests: `tests/test_control_cxc_cxp.py` (47 pruebas: las 6 cuentas y sus
+fórmulas CxC/CxP — abierta, cerrada mismo mes, cerrada en mes posterior,
+saldo negativo -> REVISAR; llave CUENTA+ASIGNACION — acumula sin fila
+nueva, misma Asignacion en cuentas distintas son entidades distintas,
+cuentas fuera del universo se ignoran; movimientos parciales mantienen
+ABIERTO; las 5 variantes de OBSERVACION_SISTEMA (apertura, continuidad,
+cierre, abre-y-cierra-mismo-mes, reapertura, sobrecompensación, negativo
+sin apertura previa) verificadas con el texto EXACTO esperado;
+OBSERVACION_AUDITOR se conserva entre meses; puente JSON — modifica
+únicamente observacion_auditor, no puede crear llaves inexistentes, no
+puede alterar saldo/estado/importes aunque el JSON los incluya, periodo/
+SHA distinto rechaza el lote completo; asignación faltante se reporta con
+detalle completo y no se acumula silenciosamente; nombre GLOBAL no
+canónico y hoja distinta de `"1"` bloquean con `ERROR_TECNICO` sin tocar
+histórico; idempotencia completa (mismo SHA -> `YA_PROCESADO_SIN_CAMBIOS`,
+SHA distinto -> `GLOBAL_MODIFICADO_REQUIERE_REVISION`, rerun no duplica
+acumulados); el GLOBAL permanece byte-idéntico después de CONTROL 3;
+`--dry-run` no escribe absolutamente nada (ni histórico, ni xlsx, ni json,
+ni sidecar de periodos); Excel con una sola hoja `"CONTROL"`, una fila por
+CUENTA+ASIGNACION, columnas visibles completas, TIPO correcto para las 6
+cuentas, y orden REVISAR->ABIERTO->CERRADO; el snapshot mensual conserva
+llaves sin movimiento del mes; asignación faltante como fila EXCEPCIONAL
+en el Excel (ESTADO=REVISAR, ASIGNACION="ASIGNACION FALTANTE", una fila
+por ocurrencia sin fusionar, arriba de todo junto a REVISAR, nunca crea
+llave del histórico); y consistencia histórico<->libro de periodos con el
+mecanismo PENDIENTE->APLICADO (`TestConsistenciaHistoricoPeriodos`: un
+periodo antiguo YA APLICADO nunca se reacumula aunque la misma llave se
+mueva en un periodo posterior; recuperación PENDIENTE con y sin histórico
+ya escrito; idempotencia sin depender de fila histórica del periodo; SHA
+distinto sigue bloqueando). Suite completa del repo: 369/369 tests OK
+(322 preexistentes + 47 nuevas, sin regresión).
