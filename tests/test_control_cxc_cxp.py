@@ -1027,6 +1027,75 @@ class TestCierreManual(_Control3TestBase):
         self.assertEqual(_hash_archivo(ruta), sha_antes)
         self.assertEqual(os.path.getmtime(ruta), mtime_antes)
 
+    def test_cierre_manual_declarado_sobre_periodo_ya_aplicado_no_reacumula(self):
+        """Flujo: 1) AGOSTO se procesa normalmente y queda APLICADO en el
+        libro de periodos. 2) el auditor declara CERRADO MANUALMENTE vía
+        --observaciones-json sobre el MISMO GLOBAL/periodo/SHA ya
+        aplicado. 3) un tercer rerun sin --observaciones-json sigue
+        siendo idempotente."""
+        ruta = self._crear_global_fijo([_partida(self.CXC_EMPRESAS, "ABC123", debe="5000.00")])
+
+        # 1) AGOSTO normal.
+        r1 = self._ejecutar_sobre(ruta)
+        self.assertEqual(r1["estado"], "OK")
+        fila_1 = self._historico()[(self.CXC_EMPRESAS, "ABC123")]
+        self.assertEqual(fila_1["debe_acumulado"], "5000.00")
+        self.assertEqual(fila_1["saldo"], "5000.00")
+
+        # 2) AGOSTO queda APLICADO en el sidecar, con el SHA del GLOBAL.
+        sha = _hash_archivo(ruta)
+        libro_tras_r1 = c3._cargar_libro_periodos(self.ruta_historico)
+        self.assertEqual(libro_tras_r1["AGOSTO_2026"], {
+            "sha256_global": sha, "estado": "APLICADO", "fecha_ejecucion": libro_tras_r1["AGOSTO_2026"]["fecha_ejecucion"],
+        })
+
+        # 3) El auditor declara cierre manual sobre esa llave, vía el
+        #    puente JSON, pasando el MISMO --global/periodo/SHA.
+        ruta_xlsx = os.path.join(self.tmpdir, "CONTROL.xlsx")
+        r2 = self._declarar_observacion(
+            ruta, "AGOSTO_2026", "CERRADO MANUALMENTE POR TESORERIA", self.CXC_EMPRESAS, "ABC123",
+            ruta_salida_xlsx=ruta_xlsx,
+        )
+
+        # Resultado obligatorio de la corrida 2:
+        self.assertEqual(r2["estado"], "YA_PROCESADO_SIN_CAMBIOS")  # NUNCA "OK" (no es un mes nuevo)
+        self.assertEqual(r2["observaciones_aplicadas"], 1)
+        self.assertEqual(r2["problemas_observaciones_json"], [])
+
+        fila_2 = self._historico()[(self.CXC_EMPRESAS, "ABC123")]
+        self.assertEqual(fila_2["debe_acumulado"], "5000.00")  # NO reacumula DEBE
+        self.assertEqual(fila_2["haber_acumulado"], "0.00")    # NO reacumula HABER
+        self.assertEqual(fila_2["saldo"], "5000.00")            # saldo contable intacto
+        self.assertEqual(fila_2["observacion_auditor"], "CERRADO MANUALMENTE POR TESORERIA")
+        self.assertEqual(fila_2["cierre_manual"], "SI")
+        self.assertEqual(fila_2["periodo_cierre_manual"], "AGOSTO_2026")
+
+        # El Excel se actualiza para reflejar el cierre manual.
+        wb = openpyxl.load_workbook(ruta_xlsx)
+        ws = wb["CONTROL"]
+        header = [c.value for c in ws[1]]
+        fila_xlsx = dict(zip(header, next(ws.iter_rows(min_row=2, values_only=True))))
+        self.assertEqual(fila_xlsx["ESTADO"], "CERRADO MANUALMENTE")
+        self.assertEqual(float(fila_xlsx["SALDO"]), 5000.0)
+
+        # El sidecar de periodos sigue APLICADO con el MISMO SHA (esta
+        # rama nunca lo toca).
+        libro_tras_r2 = c3._cargar_libro_periodos(self.ruta_historico)
+        self.assertEqual(libro_tras_r2, libro_tras_r1)
+
+        # 4) Un tercer rerun (mismo GLOBAL, sin observaciones-json) sigue
+        #    siendo idempotente: no escribe absolutamente nada.
+        with open(self.ruta_historico, encoding="utf-8") as f:
+            historico_antes_r3 = f.read()
+        mtime_periodos_antes_r3 = os.path.getmtime(c3._ruta_libro_periodos(self.ruta_historico))
+        r3 = self._ejecutar_sobre(ruta)
+        self.assertEqual(r3["estado"], "YA_PROCESADO_SIN_CAMBIOS")
+        self.assertFalse(r3["historico_actualizado"])
+        with open(self.ruta_historico, encoding="utf-8") as f:
+            historico_despues_r3 = f.read()
+        self.assertEqual(historico_antes_r3, historico_despues_r3)
+        self.assertEqual(os.path.getmtime(c3._ruta_libro_periodos(self.ruta_historico)), mtime_periodos_antes_r3)
+
 
 if __name__ == "__main__":
     unittest.main()
