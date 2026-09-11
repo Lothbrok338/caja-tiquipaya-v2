@@ -994,6 +994,45 @@ preserva entre meses tal cual. Solo se actualiza vía el puente JSON
 (`--observaciones-json`), y **solo** esa columna: nunca saldo, estado,
 importes, asignación ni cuenta.
 
+**Cierre manual por auditor:** interfaz humana única — `OBSERVACION_AUDITOR`.
+Si el texto **empieza** con `CERRADO MANUALMENTE` (case-insensitive, sin
+espacios extremos, tolerante a tildes solo para la comparación —
+`_es_cierre_manual`; una mención aislada como "Todavía no está cerrado"
+**nunca** activa nada), CONTROL 3 lo interpreta de forma determinística
+(sin IA) como cierre declarado por el auditor porque el cierre real lo
+hizo otra área y puede no verse como neteo dentro del GLOBAL. **Nunca**
+modifica el saldo calculado ni crea movimiento artificial ni toca el
+GLOBAL: el histórico conserva el saldo contable real. Campos técnicos
+agregados (mínimo estrictamente necesario): `cierre_manual` (`"SI"`
+mientras esté VIGENTE) y `periodo_cierre_manual` (periodo de la
+declaración más reciente — **nunca se borra**, ni siquiera si un
+movimiento posterior invalida el cierre). Efectos:
+
+- Mientras vigente: `ESTADO` mostrado en el Excel = `CERRADO MANUALMENTE`
+  (no altera la columna `estado` contable pura), con `OBSERVACION_SISTEMA`
+  = `"Cierre manual registrado <PERIODO>. Saldo contable al cierre Bs
+  X,XX."`.
+- `CERRADO MANUALMENTE` + **sin** movimiento nuevo en meses posteriores =
+  oculto del Excel mensual (permanece únicamente en
+  `HISTORICO_CXC_CXP.csv`).
+- **Guardrail:** cualquier movimiento DEBE/HABER posterior para la MISMA
+  llave invalida el cierre (`cierre_manual` -> `""`, `periodo_cierre_manual`
+  se conserva como antecedente) y la hace **reaparecer automáticamente**
+  con `ESTADO=REVISAR` **forzado** (sin importar el signo del saldo
+  recalculado) y `OBSERVACION_SISTEMA` = `"Movimiento posterior a cierre
+  manual detectado <PERIODO>. REVISAR."`, mostrando el saldo contable
+  actualizado real.
+- Una nueva observación `CERRADO MANUALMENTE...` posterior (vía el mismo
+  puente JSON) vuelve a cerrarla, actualizando `periodo_cierre_manual` al
+  periodo actual.
+
+No agrega botones/flags/columnas nuevas que el auditor deba llenar: la
+interfaz sigue siendo únicamente `OBSERVACION_AUDITOR`. No rompe la
+idempotencia (`HISTORICO_CXC_CXP_PERIODOS.json` sigue siendo la única
+fuente autoritativa de periodos aplicados; el cierre manual nunca altera
+importes históricos ni permite reacumular). Tests:
+`tests/test_control_cxc_cxp.py::TestCierreManual` (8 pruebas).
+
 **Idempotencia:** CONTROL 3 nunca vuelve a acumular el mismo periodo+SHA.
 Se verifica **EXCLUSIVAMENTE** contra un sidecar dedicado en la
 **ubicación productiva** `05_CONTROLES/HISTORICO_CXC_CXP_PERIODOS.json`
@@ -1135,7 +1174,7 @@ modifica ese GLOBAL, solo lo lee y genera `HISTORICO_CXC_CXP.csv`,
 `CONTROL_CXC_CXP_AGOSTO_2026.xlsx` y `CONTROL_CXC_CXP_AGOSTO_2026.json`
 como punto inicial del seguimiento para septiembre en adelante.
 
-Tests: `tests/test_control_cxc_cxp.py` (47 pruebas: las 6 cuentas y sus
+Tests: `tests/test_control_cxc_cxp.py` (55 pruebas: las 6 cuentas y sus
 fórmulas CxC/CxP — abierta, cerrada mismo mes, cerrada en mes posterior,
 saldo negativo -> REVISAR; llave CUENTA+ASIGNACION — acumula sin fila
 nueva, misma Asignacion en cuentas distintas son entidades distintas,
@@ -1164,5 +1203,12 @@ mecanismo PENDIENTE->APLICADO (`TestConsistenciaHistoricoPeriodos`: un
 periodo antiguo YA APLICADO nunca se reacumula aunque la misma llave se
 mueva en un periodo posterior; recuperación PENDIENTE con y sin histórico
 ya escrito; idempotencia sin depender de fila histórica del periodo; SHA
-distinto sigue bloqueando). Suite completa del repo: 369/369 tests OK
-(322 preexistentes + 47 nuevas, sin regresión).
+distinto sigue bloqueando); y cierre manual por auditor
+(`TestCierreManual`, 8 pruebas: detección case-insensitive/tildes/mención
+aislada, saldo intacto, ESTADO=CERRADO MANUALMENTE y OBSERVACION_SISTEMA
+en el Excel, periodo conservado, oculta del Excel sin movimiento
+posterior pero persiste en el CSV, movimiento posterior reaparece con
+REVISAR forzado y el texto exacto esperado, antecedente nunca se borra,
+segundo cierre manual vuelve a cerrar, GLOBAL nunca se modifica). Suite
+completa del repo: 377/377 tests OK (322 preexistentes + 55 de CONTROL 3,
+sin regresión).

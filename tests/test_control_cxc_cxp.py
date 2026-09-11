@@ -856,5 +856,246 @@ class TestConsistenciaHistoricoPeriodos(_Control3TestBase):
         self.assertEqual(resumen["estado"], "GLOBAL_MODIFICADO_REQUIERE_REVISION")
 
 
+# ---------------------------------------------------------------------------
+# CIERRE MANUAL POR AUDITOR: activado únicamente por OBSERVACION_AUDITOR
+# empezando con "CERRADO MANUALMENTE" (vía el puente JSON, que es la
+# única interfaz técnica hacia esa columna). Nunca toca saldo/importes ni
+# el GLOBAL; se oculta del Excel mensual sin movimiento nuevo; un
+# movimiento posterior la hace reaparecer forzando REVISAR.
+# ---------------------------------------------------------------------------
+
+class TestCierreManual(_Control3TestBase):
+    def _declarar_observacion(self, ruta_global, periodo, texto, cuenta, asignacion, **kwargs):
+        sha = _hash_archivo(ruta_global)
+        ruta_json = os.path.join(self.tmpdir, f"OBS_{periodo}.json")
+        with open(ruta_json, "w", encoding="utf-8") as f:
+            json.dump({
+                "periodo": periodo, "sha256_global": sha,
+                "observaciones": [{"cuenta": cuenta, "asignacion": asignacion, "observacion_auditor": texto}],
+            }, f)
+        return self._ejecutar_sobre(ruta_global, ruta_observaciones_json=ruta_json, **kwargs)
+
+    def test_deteccion_case_insensitive_tildes_y_mencion_aislada(self):
+        self.assertTrue(c3._es_cierre_manual("CERRADO MANUALMENTE POR TESORERIA"))
+        self.assertTrue(c3._es_cierre_manual("cerrado manualmente por tesorería"))
+        self.assertTrue(c3._es_cierre_manual("  CERRADO MANUALMENTE - REGULARIZADO POR OTRA AREA  "))
+        self.assertFalse(c3._es_cierre_manual("Todavía no está cerrado"))  # (2)
+
+    def test_1_observacion_activa_cierre_manual(self):
+        ruta = self._crear_global_fijo([_partida(self.CXC_EMPRESAS, "ABC123", debe="5000.00")])
+        self._ejecutar_sobre(ruta)
+        resumen = self._declarar_observacion(
+            ruta, "AGOSTO_2026", "CERRADO MANUALMENTE POR TESORERIA", self.CXC_EMPRESAS, "ABC123",
+        )
+        self.assertEqual(resumen["observaciones_aplicadas"], 1)
+        fila = self._historico()[(self.CXC_EMPRESAS, "ABC123")]
+        self.assertEqual(fila["cierre_manual"], "SI")
+
+    def test_2_mencion_aislada_no_activa_cierre_manual(self):
+        ruta = self._crear_global_fijo([_partida(self.CXC_EMPRESAS, "ABC123", debe="5000.00")])
+        self._ejecutar_sobre(ruta)
+        self._declarar_observacion(ruta, "AGOSTO_2026", "Todavia no esta cerrado", self.CXC_EMPRESAS, "ABC123")
+        fila = self._historico()[(self.CXC_EMPRESAS, "ABC123")]
+        self.assertEqual(fila.get("cierre_manual", ""), "")
+        self.assertEqual(fila["observacion_auditor"], "Todavia no esta cerrado")
+
+    def test_3_4_5_saldo_intacto_estado_y_periodo_de_cierre_manual(self):
+        ruta = self._crear_global_fijo([_partida(self.CXC_EMPRESAS, "ABC123", debe="5000.00")])
+        self._ejecutar_sobre(ruta)
+        self._declarar_observacion(
+            ruta, "AGOSTO_2026", "CERRADO MANUALMENTE POR TESORERIA", self.CXC_EMPRESAS, "ABC123",
+        )
+        fila = self._historico()[(self.CXC_EMPRESAS, "ABC123")]
+        self.assertEqual(fila["saldo"], "5000.00")  # (3) saldo NUNCA se reemplaza por 0
+        self.assertEqual(fila["debe_acumulado"], "5000.00")
+        self.assertEqual(fila["periodo_cierre_manual"], "AGOSTO_2026")  # (5)
+
+        wb = openpyxl.load_workbook(os.path.join(self.tmpdir, "CONTROL.xlsx"))
+        ws = wb["CONTROL"]
+        header = [c.value for c in ws[1]]
+        fila_xlsx = dict(zip(header, next(ws.iter_rows(min_row=2, values_only=True))))
+        self.assertEqual(fila_xlsx["ESTADO"], "CERRADO MANUALMENTE")  # (4)
+        self.assertEqual(float(fila_xlsx["SALDO"]), 5000.0)
+        self.assertEqual(fila_xlsx["OBSERVACION_AUDITOR"], "CERRADO MANUALMENTE POR TESORERIA")
+        self.assertEqual(
+            fila_xlsx["OBSERVACION_SISTEMA"],
+            "Cierre manual registrado AGOSTO 2026. Saldo contable al cierre Bs 5.000,00.",
+        )
+
+    def test_6_7_mes_siguiente_sin_movimiento_se_oculta_pero_persiste_en_csv(self):
+        ruta_ago = self._crear_global_fijo(
+            [_partida(self.CXC_EMPRESAS, "ABC123", debe="5000.00")], "SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx",
+        )
+        self._ejecutar_sobre(ruta_ago)
+        self._declarar_observacion(
+            ruta_ago, "AGOSTO_2026", "CERRADO MANUALMENTE POR TESORERIA", self.CXC_EMPRESAS, "ABC123",
+        )
+
+        ruta_sep = self._crear_global_fijo(
+            [_partida(self.CXC_UNIDADES, "OTRA", debe="1.00")], "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx",
+        )
+        ruta_xlsx_sep = os.path.join(self.tmpdir, "CONTROL_SEP.xlsx")
+        self._ejecutar_sobre(ruta_sep, ruta_salida_xlsx=ruta_xlsx_sep)
+
+        wb = openpyxl.load_workbook(ruta_xlsx_sep)
+        ws = wb["CONTROL"]
+        header = [c.value for c in ws[1]]
+        idx_asig = header.index("ASIGNACION")
+        asignaciones = [row[idx_asig].value for row in ws.iter_rows(min_row=2)]
+        self.assertNotIn("ABC123", asignaciones)  # (6) oculta del Excel mensual
+
+        historico = self._historico()  # (7) sigue existiendo en HISTORICO_CXC_CXP.csv
+        self.assertIn((self.CXC_EMPRESAS, "ABC123"), historico)
+        self.assertEqual(historico[(self.CXC_EMPRESAS, "ABC123")]["cierre_manual"], "SI")
+        self.assertEqual(historico[(self.CXC_EMPRESAS, "ABC123")]["saldo"], "5000.00")
+
+    def test_8_9_10_movimiento_posterior_reaparece_como_revisar(self):
+        ruta_ago = self._crear_global_fijo(
+            [_partida(self.CXC_EMPRESAS, "ABC123", debe="5000.00")], "SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx",
+        )
+        self._ejecutar_sobre(ruta_ago)
+        self._declarar_observacion(
+            ruta_ago, "AGOSTO_2026", "CERRADO MANUALMENTE POR TESORERIA", self.CXC_EMPRESAS, "ABC123",
+        )
+
+        ruta_sep = self._crear_global_fijo(
+            [_partida(self.CXC_EMPRESAS, "ABC123", debe="1000.00")], "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx",
+        )
+        ruta_xlsx_sep = os.path.join(self.tmpdir, "CONTROL_SEP.xlsx")
+        self._ejecutar_sobre(ruta_sep, ruta_salida_xlsx=ruta_xlsx_sep)
+
+        wb = openpyxl.load_workbook(ruta_xlsx_sep)
+        ws = wb["CONTROL"]
+        header = [c.value for c in ws[1]]
+        filas = [dict(zip(header, row)) for row in ws.iter_rows(min_row=2, values_only=True)]
+        fila_abc = next(f for f in filas if f["ASIGNACION"] == "ABC123")
+        self.assertEqual(fila_abc["ESTADO"], "REVISAR")  # (8)+(9): reaparece con estado REVISAR
+        self.assertEqual(float(fila_abc["SALDO"]), 6000.0)  # saldo contable actualizado real
+        self.assertEqual(  # (10)
+            fila_abc["OBSERVACION_SISTEMA"],
+            "Movimiento posterior a cierre manual detectado SEPTIEMBRE 2026. REVISAR.",
+        )
+
+        hist = self._historico()[(self.CXC_EMPRESAS, "ABC123")]
+        self.assertEqual(hist.get("cierre_manual", ""), "")  # cierre manual invalidado
+        self.assertEqual(hist["periodo_cierre_manual"], "AGOSTO_2026")  # antecedente NUNCA se borra
+        self.assertEqual(hist["saldo"], "6000.00")
+
+    def test_11_segundo_cierre_manual_posterior_vuelve_a_cerrar(self):
+        ruta_ago = self._crear_global_fijo(
+            [_partida(self.CXC_EMPRESAS, "ABC123", debe="5000.00")], "SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx",
+        )
+        self._ejecutar_sobre(ruta_ago)
+        self._declarar_observacion(
+            ruta_ago, "AGOSTO_2026", "CERRADO MANUALMENTE POR TESORERIA", self.CXC_EMPRESAS, "ABC123",
+        )
+
+        ruta_sep = self._crear_global_fijo(
+            [_partida(self.CXC_EMPRESAS, "ABC123", debe="1000.00")], "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx",
+        )
+        self._ejecutar_sobre(ruta_sep)
+        self._declarar_observacion(
+            ruta_sep, "SEPTIEMBRE_2026", "CERRADO MANUALMENTE POR CONTABILIDAD", self.CXC_EMPRESAS, "ABC123",
+        )
+
+        hist = self._historico()[(self.CXC_EMPRESAS, "ABC123")]
+        self.assertEqual(hist["cierre_manual"], "SI")
+        self.assertEqual(hist["periodo_cierre_manual"], "SEPTIEMBRE_2026")
+        self.assertEqual(hist["saldo"], "6000.00")  # sigue sin alterarse
+
+        # Mes siguiente sin movimiento: vuelve a ocultarse.
+        ruta_oct = self._crear_global_fijo(
+            [_partida(self.CXC_UNIDADES, "OTRA2", debe="1.00")], "SAP_GLOBAL_TIQ_OCTUBRE_2026.xlsx",
+        )
+        ruta_xlsx_oct = os.path.join(self.tmpdir, "CONTROL_OCT.xlsx")
+        self._ejecutar_sobre(ruta_oct, ruta_salida_xlsx=ruta_xlsx_oct)
+        wb = openpyxl.load_workbook(ruta_xlsx_oct)
+        ws = wb["CONTROL"]
+        header = [c.value for c in ws[1]]
+        idx_asig = header.index("ASIGNACION")
+        asignaciones = [row[idx_asig].value for row in ws.iter_rows(min_row=2)]
+        self.assertNotIn("ABC123", asignaciones)
+
+    def test_12_no_modifica_global(self):
+        ruta = self._crear_global_fijo([_partida(self.CXC_EMPRESAS, "ABC123", debe="5000.00")])
+        sha_antes = _hash_archivo(ruta)
+        mtime_antes = os.path.getmtime(ruta)
+        self._ejecutar_sobre(ruta)
+        self._declarar_observacion(
+            ruta, "AGOSTO_2026", "CERRADO MANUALMENTE POR TESORERIA", self.CXC_EMPRESAS, "ABC123",
+        )
+        self.assertEqual(_hash_archivo(ruta), sha_antes)
+        self.assertEqual(os.path.getmtime(ruta), mtime_antes)
+
+    def test_cierre_manual_declarado_sobre_periodo_ya_aplicado_no_reacumula(self):
+        """Flujo: 1) AGOSTO se procesa normalmente y queda APLICADO en el
+        libro de periodos. 2) el auditor declara CERRADO MANUALMENTE vía
+        --observaciones-json sobre el MISMO GLOBAL/periodo/SHA ya
+        aplicado. 3) un tercer rerun sin --observaciones-json sigue
+        siendo idempotente."""
+        ruta = self._crear_global_fijo([_partida(self.CXC_EMPRESAS, "ABC123", debe="5000.00")])
+
+        # 1) AGOSTO normal.
+        r1 = self._ejecutar_sobre(ruta)
+        self.assertEqual(r1["estado"], "OK")
+        fila_1 = self._historico()[(self.CXC_EMPRESAS, "ABC123")]
+        self.assertEqual(fila_1["debe_acumulado"], "5000.00")
+        self.assertEqual(fila_1["saldo"], "5000.00")
+
+        # 2) AGOSTO queda APLICADO en el sidecar, con el SHA del GLOBAL.
+        sha = _hash_archivo(ruta)
+        libro_tras_r1 = c3._cargar_libro_periodos(self.ruta_historico)
+        self.assertEqual(libro_tras_r1["AGOSTO_2026"], {
+            "sha256_global": sha, "estado": "APLICADO", "fecha_ejecucion": libro_tras_r1["AGOSTO_2026"]["fecha_ejecucion"],
+        })
+
+        # 3) El auditor declara cierre manual sobre esa llave, vía el
+        #    puente JSON, pasando el MISMO --global/periodo/SHA.
+        ruta_xlsx = os.path.join(self.tmpdir, "CONTROL.xlsx")
+        r2 = self._declarar_observacion(
+            ruta, "AGOSTO_2026", "CERRADO MANUALMENTE POR TESORERIA", self.CXC_EMPRESAS, "ABC123",
+            ruta_salida_xlsx=ruta_xlsx,
+        )
+
+        # Resultado obligatorio de la corrida 2:
+        self.assertEqual(r2["estado"], "YA_PROCESADO_SIN_CAMBIOS")  # NUNCA "OK" (no es un mes nuevo)
+        self.assertEqual(r2["observaciones_aplicadas"], 1)
+        self.assertEqual(r2["problemas_observaciones_json"], [])
+
+        fila_2 = self._historico()[(self.CXC_EMPRESAS, "ABC123")]
+        self.assertEqual(fila_2["debe_acumulado"], "5000.00")  # NO reacumula DEBE
+        self.assertEqual(fila_2["haber_acumulado"], "0.00")    # NO reacumula HABER
+        self.assertEqual(fila_2["saldo"], "5000.00")            # saldo contable intacto
+        self.assertEqual(fila_2["observacion_auditor"], "CERRADO MANUALMENTE POR TESORERIA")
+        self.assertEqual(fila_2["cierre_manual"], "SI")
+        self.assertEqual(fila_2["periodo_cierre_manual"], "AGOSTO_2026")
+
+        # El Excel se actualiza para reflejar el cierre manual.
+        wb = openpyxl.load_workbook(ruta_xlsx)
+        ws = wb["CONTROL"]
+        header = [c.value for c in ws[1]]
+        fila_xlsx = dict(zip(header, next(ws.iter_rows(min_row=2, values_only=True))))
+        self.assertEqual(fila_xlsx["ESTADO"], "CERRADO MANUALMENTE")
+        self.assertEqual(float(fila_xlsx["SALDO"]), 5000.0)
+
+        # El sidecar de periodos sigue APLICADO con el MISMO SHA (esta
+        # rama nunca lo toca).
+        libro_tras_r2 = c3._cargar_libro_periodos(self.ruta_historico)
+        self.assertEqual(libro_tras_r2, libro_tras_r1)
+
+        # 4) Un tercer rerun (mismo GLOBAL, sin observaciones-json) sigue
+        #    siendo idempotente: no escribe absolutamente nada.
+        with open(self.ruta_historico, encoding="utf-8") as f:
+            historico_antes_r3 = f.read()
+        mtime_periodos_antes_r3 = os.path.getmtime(c3._ruta_libro_periodos(self.ruta_historico))
+        r3 = self._ejecutar_sobre(ruta)
+        self.assertEqual(r3["estado"], "YA_PROCESADO_SIN_CAMBIOS")
+        self.assertFalse(r3["historico_actualizado"])
+        with open(self.ruta_historico, encoding="utf-8") as f:
+            historico_despues_r3 = f.read()
+        self.assertEqual(historico_antes_r3, historico_despues_r3)
+        self.assertEqual(os.path.getmtime(c3._ruta_libro_periodos(self.ruta_historico)), mtime_periodos_antes_r3)
+
+
 if __name__ == "__main__":
     unittest.main()

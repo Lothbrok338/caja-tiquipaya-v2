@@ -66,13 +66,33 @@ sobrescribe automáticamente; solo se actualiza vía el puente JSON
 (`--observaciones-json`), y solo esa columna — nunca saldo/estado/
 importes/asignación/cuenta.
 
+CIERRE MANUAL POR AUDITOR (misma interfaz: OBSERVACION_AUDITOR): si el
+texto EMPIEZA con "CERRADO MANUALMENTE" (case-insensitive, sin espacios
+extremos, tolerante a tildes SOLO para comparar — ver _es_cierre_manual;
+una mención aislada de "cerrado" en cualquier otro lugar del texto NUNCA
+activa nada), CONTROL 3 lo interpreta de forma determinística (sin IA)
+como el cierre declarado por el auditor porque otra área ya lo resolvió
+fuera del GLOBAL. NUNCA modifica el saldo calculado, NUNCA crea un
+movimiento artificial, NUNCA toca el GLOBAL: el histórico conserva el
+saldo contable real. Campos técnicos: `cierre_manual` ("SI" mientras esté
+VIGENTE) y `periodo_cierre_manual` (periodo de la declaración más
+reciente — NUNCA se borra, ni siquiera si se invalida). Mientras vigente,
+ESTADO=CERRADO MANUALMENTE en el Excel y, sin movimiento nuevo en meses
+posteriores, la llave se OCULTA del Excel mensual (sigue en
+HISTORICO_CXC_CXP.csv). Un movimiento DEBE/HABER posterior invalida el
+cierre (cierre_manual -> "", periodo_cierre_manual se conserva) y hace
+reaparecer la llave automáticamente con ESTADO=REVISAR forzado
+(independiente del signo real del saldo). Una nueva declaración
+"CERRADO MANUALMENTE..." posterior vuelve a cerrarla.
+
 HISTORICO TÉCNICO (`HISTORICO_CXC_CXP.csv`): UNA fila permanente por
 CUENTA+ASIGNACION (nunca una fila nueva por mes). Columnas:
 
     cuenta, tipo, asignacion, debe_acumulado, haber_acumulado, saldo,
     estado, periodo_primera_aparicion, periodo_ultimo_movimiento,
     periodo_ultimo_cierre, observacion_sistema, observacion_auditor,
-    sha256_global_ultimo, fecha_actualizacion, historial_estados
+    sha256_global_ultimo, fecha_actualizacion, historial_estados,
+    cierre_manual, periodo_cierre_manual
 
 `historial_estados` es el único campo técnico adicional agregado sobre el
 mínimo pedido: una lista JSON compacta de eventos [tipo, periodo] (ver
@@ -172,6 +192,7 @@ import hashlib
 import json
 import os
 import re
+import unicodedata
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 import openpyxl
@@ -217,6 +238,11 @@ _ESTADO_ABIERTO = "ABIERTO"
 _ESTADO_CERRADO = "CERRADO"
 _ESTADO_REVISAR = "REVISAR"
 
+# Estado EFECTIVO (solo para el Excel humano; nunca se usa en la lógica
+# contable ni en `estado`) cuando la llave está bajo cierre manual del
+# auditor vigente (ver CIERRE MANUAL más abajo).
+_ESTADO_CERRADO_MANUALMENTE = "CERRADO MANUALMENTE"
+
 # Marcador de ASIGNACION para la fila EXCEPCIONAL de una partida sin
 # Asignacion (ver _filas_excel_asignacion_faltante). Nunca es una llave
 # real del histórico: no se guarda en HISTORICO_CXC_CXP.csv.
@@ -228,6 +254,14 @@ _TIPO_EVENTO_REAPERTURA = "REAPERTURA"
 _TIPO_EVENTO_SOBRECOMPENSACION = "SOBRECOMPENSACION"
 _TIPO_EVENTO_REVISAR_SIN_APERTURA = "REVISAR_SIN_APERTURA"
 
+# CIERRE MANUAL POR AUDITOR: activado únicamente por el texto de
+# OBSERVACION_AUDITOR (nunca un botón/flag/columna nueva que llenar). No
+# se integra al historial_estados contable (APERTURA/CIERRE/...): es un
+# overlay independiente que NUNCA toca saldo/estado/importes/asignación/
+# cuenta — ver _es_cierre_manual/_actualizar_fila/aplicar_observaciones.
+_PREFIJO_CIERRE_MANUAL = "CERRADO MANUALMENTE"
+_CIERRE_MANUAL_SI = "SI"
+
 _COLUMNAS_HISTORICO = [
     "cuenta", "tipo", "asignacion", "debe_acumulado", "haber_acumulado", "saldo",
     "estado", "periodo_primera_aparicion", "periodo_ultimo_movimiento",
@@ -236,6 +270,12 @@ _COLUMNAS_HISTORICO = [
     # Campo técnico adicional (ver docstring): historial de eventos para
     # reconstruir OBSERVACION_SISTEMA ante reaperturas múltiples.
     "historial_estados",
+    # Cierre manual del auditor (ver docstring, sección CIERRE MANUAL):
+    # cierre_manual="SI" mientras el cierre manual esté VIGENTE (sin
+    # movimiento posterior que lo invalide); periodo_cierre_manual
+    # conserva PARA SIEMPRE el periodo de la declaración más reciente,
+    # incluso después de invalidarse (nunca se borra el antecedente).
+    "cierre_manual", "periodo_cierre_manual",
 ]
 
 _HOJA_CONTROL = "CONTROL"
@@ -257,8 +297,13 @@ _RELLENO_CERRADO = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_ty
 _FUENTE_CERRADO = Font(color="006100")
 _RELLENO_REVISAR = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 _FUENTE_REVISAR = Font(color="9C0006", bold=True)
+_RELLENO_CERRADO_MANUALMENTE = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+_FUENTE_CERRADO_MANUALMENTE = Font(color="404040")
 
-_ORDEN_ESTADO_XLSX = {_ESTADO_REVISAR: 0, _ESTADO_ABIERTO: 1, _ESTADO_CERRADO: 2}
+_ORDEN_ESTADO_XLSX = {
+    _ESTADO_REVISAR: 0, _ESTADO_ABIERTO: 1, _ESTADO_CERRADO: 2,
+    _ESTADO_CERRADO_MANUALMENTE: 3,
+}
 
 
 class HojaNoEncontradaError(RuntimeError):
@@ -721,11 +766,43 @@ def construir_observacion_sistema(historial, estado_actual, saldo_actual, period
 
 
 # ---------------------------------------------------------------------------
+# Cierre manual del auditor: activado ÚNICAMENTE por el texto de
+# OBSERVACION_AUDITOR (nunca un botón/flag/columna nueva). Comparación
+# case-insensitive, sin espacios extremos, tolerante a tildes.
+# ---------------------------------------------------------------------------
+
+def _normalizar_para_comparar(texto):
+    """Solo para COMPARAR contra el prefijo CERRADO MANUALMENTE — nunca
+    se usa para modificar el texto real de observacion_auditor, que se
+    guarda siempre tal cual lo escribió el auditor."""
+    texto = (texto or "").strip().upper()
+    texto = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in texto if not unicodedata.combining(c))
+
+
+def _es_cierre_manual(observacion_auditor):
+    """True si observacion_auditor EMPIEZA con "CERRADO MANUALMENTE"
+    (una mención aislada de "cerrado" en cualquier otro lugar del texto
+    NUNCA activa el cierre manual — p. ej. "Todavía no está cerrado")."""
+    return _normalizar_para_comparar(observacion_auditor).startswith(_PREFIJO_CIERRE_MANUAL)
+
+
+# ---------------------------------------------------------------------------
 # Actualización de una fila del histórico (una llave CUENTA+ASIGNACION).
 # ---------------------------------------------------------------------------
 
 def _actualizar_fila(clave, tipo_cuenta, tipo_label, prev_row, debe_mes, haber_mes,
                       periodo_actual, sha_actual, ahora):
+    tocado_este_mes = debe_mes != Decimal("0.00") or haber_mes != Decimal("0.00")
+    cierre_manual_vigente = bool(prev_row) and prev_row.get("cierre_manual") == _CIERRE_MANUAL_SI
+
+    # Llave bajo cierre manual VIGENTE y sin movimiento nuevo: se
+    # CONGELA tal cual (nunca se re-renderiza ni se re-evalúa mientras no
+    # haya un movimiento real que la invalide). El ocultamiento del Excel
+    # en meses posteriores se decide en _construir_filas_excel.
+    if cierre_manual_vigente and not tocado_este_mes:
+        return dict(prev_row)
+
     cuenta, asignacion = clave
     prev_debe = _decimal_o_cero(prev_row.get("debe_acumulado")) if prev_row else Decimal("0.00")
     prev_haber = _decimal_o_cero(prev_row.get("haber_acumulado")) if prev_row else Decimal("0.00")
@@ -737,8 +814,6 @@ def _actualizar_fila(clave, tipo_cuenta, tipo_label, prev_row, debe_mes, haber_m
 
     historial = _cargar_historial(prev_row)
     historial_actualizado = historial + _nuevos_eventos(historial, prev_estado, estado, periodo_actual)
-
-    tocado_este_mes = debe_mes != Decimal("0.00") or haber_mes != Decimal("0.00")
 
     periodo_primera_aparicion = (
         prev_row.get("periodo_primera_aparicion") if prev_row and prev_row.get("periodo_primera_aparicion")
@@ -753,7 +828,24 @@ def _actualizar_fila(clave, tipo_cuenta, tipo_label, prev_row, debe_mes, haber_m
         else (prev_row.get("sha256_global_ultimo", "") if prev_row else "")
     )
 
-    return {
+    observacion_sistema = construir_observacion_sistema(historial_actualizado, estado, saldo, periodo_actual)
+
+    # GUARDRAIL: movimiento DEBE/HABER posterior a un cierre manual
+    # VIGENTE invalida ese cierre (nunca se borra periodo_cierre_manual,
+    # que conserva el antecedente para siempre) y fuerza REVISAR — sin
+    # importar el signo real del saldo recalculado — para que la llave
+    # vuelva a aparecer automáticamente en el Excel. El marcador
+    # transitorio `_revisar_forzado` (no es columna del histórico) le
+    # indica a _construir_filas_excel el ESTADO a mostrar este run.
+    revisar_forzado = False
+    periodo_cierre_manual = prev_row.get("periodo_cierre_manual", "") if prev_row else ""
+    if cierre_manual_vigente and tocado_este_mes:
+        revisar_forzado = True
+        observacion_sistema = (
+            f"Movimiento posterior a cierre manual detectado {_periodo_legible(periodo_actual)}. REVISAR."
+        )
+
+    fila = {
         "cuenta": cuenta,
         "tipo": tipo_label,
         "asignacion": asignacion,
@@ -764,12 +856,17 @@ def _actualizar_fila(clave, tipo_cuenta, tipo_label, prev_row, debe_mes, haber_m
         "periodo_primera_aparicion": periodo_primera_aparicion,
         "periodo_ultimo_movimiento": periodo_ultimo_movimiento,
         "periodo_ultimo_cierre": _ultimo_cierre(historial_actualizado),
-        "observacion_sistema": construir_observacion_sistema(historial_actualizado, estado, saldo, periodo_actual),
+        "observacion_sistema": observacion_sistema,
         "observacion_auditor": prev_row.get("observacion_auditor", "") if prev_row else "",
         "sha256_global_ultimo": sha256_global_ultimo,
         "fecha_actualizacion": ahora,
         "historial_estados": _serializar_historial(historial_actualizado),
+        "cierre_manual": "",  # un movimiento nuevo siempre desactiva el cierre manual vigente
+        "periodo_cierre_manual": periodo_cierre_manual,
     }
+    if revisar_forzado:
+        fila["_revisar_forzado"] = True
+    return fila
 
 
 # ---------------------------------------------------------------------------
@@ -832,8 +929,22 @@ def aplicar_observaciones(datos, periodo, sha_actual, historico_dict, ahora):
         return False, problemas, 0
 
     for clave, texto in validas:
-        historico_dict[clave]["observacion_auditor"] = texto
-        historico_dict[clave]["fecha_actualizacion"] = ahora
+        fila = historico_dict[clave]
+        fila["observacion_auditor"] = texto
+        fila["fecha_actualizacion"] = ahora
+
+        # Interpretación determinística (nunca IA) de CERRADO MANUALMENTE:
+        # ocurre SIEMPRE dentro de CONTROL 3, nunca en el puente en sí.
+        # NUNCA toca saldo/estado/importes/asignación/cuenta — solo estos
+        # dos campos técnicos + el texto mostrado en OBSERVACION_SISTEMA.
+        if _es_cierre_manual(texto):
+            fila["cierre_manual"] = _CIERRE_MANUAL_SI
+            fila["periodo_cierre_manual"] = periodo
+            fila["observacion_sistema"] = (
+                f"Cierre manual registrado {_periodo_legible(periodo)}. "
+                f"Saldo contable al cierre Bs {_formato_bs(Decimal(fila['saldo']))}."
+            )
+            fila.pop("_revisar_forzado", None)  # un nuevo cierre manual reemplaza cualquier marca previa
 
     return True, [], len(validas)
 
@@ -872,9 +983,31 @@ def _filas_excel_asignacion_faltante(faltantes, periodo_actual):
     return filas
 
 
+def _oculta_del_excel_por_cierre_manual(fila, periodo_actual):
+    """CERRADO MANUALMENTE + sin movimiento nuevo = oculto del Excel
+    mensual (permanece únicamente en HISTORICO_CXC_CXP.csv). Solo se
+    muestra en el periodo exacto de la declaración (o redeclaración)."""
+    return fila.get("cierre_manual") == _CIERRE_MANUAL_SI and fila.get("periodo_cierre_manual") != periodo_actual
+
+
+def _estado_mostrado_excel(fila):
+    """Estado EFECTIVO para el Excel (nunca se guarda en `estado`, que
+    sigue siendo el estado contable puro): REVISAR forzado si un
+    movimiento acaba de invalidar un cierre manual vigente;
+    CERRADO MANUALMENTE si sigue vigente; si no, el estado contable tal
+    cual."""
+    if fila.get("_revisar_forzado"):
+        return _ESTADO_REVISAR
+    if fila.get("cierre_manual") == _CIERRE_MANUAL_SI:
+        return _ESTADO_CERRADO_MANUALMENTE
+    return fila["estado"]
+
+
 def _construir_filas_excel(historico_dict, grupos_mes, periodo_actual, faltantes=None):
     filas = list(_filas_excel_asignacion_faltante(faltantes or [], periodo_actual))
     for clave, fila in historico_dict.items():
+        if _oculta_del_excel_por_cierre_manual(fila, periodo_actual):
+            continue
         mov = grupos_mes.get(clave)
         debe_mes = mov["debe"] if mov else Decimal("0.00")
         haber_mes = mov["haber"] if mov else Decimal("0.00")
@@ -888,7 +1021,7 @@ def _construir_filas_excel(historico_dict, grupos_mes, periodo_actual, faltantes
             "DEBE_ACUMULADO": Decimal(fila["debe_acumulado"]),
             "HABER_ACUMULADO": Decimal(fila["haber_acumulado"]),
             "SALDO": Decimal(fila["saldo"]),
-            "ESTADO": fila["estado"],
+            "ESTADO": _estado_mostrado_excel(fila),
             "OBSERVACION_SISTEMA": fila["observacion_sistema"],
             "OBSERVACION_AUDITOR": fila["observacion_auditor"],
         })
@@ -957,6 +1090,9 @@ def guardar_control_xlsx(ruta, filas):
             elif celda_estado.value == _ESTADO_REVISAR:
                 celda_estado.fill = _RELLENO_REVISAR
                 celda_estado.font = _FUENTE_REVISAR
+            elif celda_estado.value == _ESTADO_CERRADO_MANUALMENTE:
+                celda_estado.fill = _RELLENO_CERRADO_MANUALMENTE
+                celda_estado.font = _FUENTE_CERRADO_MANUALMENTE
 
     ruta_tmp = f"{ruta}.tmp"
     wb.save(ruta_tmp)
