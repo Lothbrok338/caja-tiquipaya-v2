@@ -18,4 +18,13 @@ export NODES_EXCLUDE='[]'
 # del POC (fuera del repo, ver FASE B): ~/poc_n8n_tiquipaya.
 export N8N_RESTRICT_FILE_ACCESS_TO="~/.n8n-files;${HOME}/poc_n8n_tiquipaya"
 
+# N8N_EDITOR_BASE_URL corrige la URL publica usada por OAuth/UI: este
+# Codespace se accede via la URL HTTPS de reenvio de puerto, no via
+# localhost, y n8n necesita saberlo para construir el redirect_uri de
+# OAuth2 (por ejemplo, para Google Drive) correctamente.
+export N8N_EDITOR_BASE_URL="https://${CODESPACE_NAME}-5678.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN}"
+# WEBHOOK_URL corrige las URLs publicas de Webhook/Form Trigger, que no
+# heredan N8N_EDITOR_BASE_URL (se calculan por separado).
+export WEBHOOK_URL="${N8N_EDITOR_BASE_URL}"
+
 exec n8n start

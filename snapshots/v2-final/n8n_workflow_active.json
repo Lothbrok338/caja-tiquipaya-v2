@@ -1,0 +1,4939 @@
+{
+  "name": "TIQ · PROCESAR CIERRES PENDIENTES · POC",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "51a885e8-7baf-41ca-925a-4ac4f1d184a2",
+      "name": "INICIO - Procesar cierres",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "p-fecha-inicio",
+              "name": "fecha_inicio",
+              "value": "2030-03-05",
+              "type": "string"
+            },
+            {
+              "id": "p-fecha-fin",
+              "name": "fecha_fin",
+              "value": "2030-03-08",
+              "type": "string"
+            },
+            {
+              "id": "p-cierres-dir",
+              "name": "cierres_dir",
+              "value": "/home/codespace/poc_n8n_tiquipaya/cierres",
+              "type": "string"
+            },
+            {
+              "id": "p-maestro",
+              "name": "maestro",
+              "value": "/home/codespace/poc_n8n_tiquipaya/maestro/MACROS MARZO SINTETICO.xlsm",
+              "type": "string"
+            },
+            {
+              "id": "p-plantilla",
+              "name": "plantilla",
+              "value": "/home/codespace/poc_n8n_tiquipaya/plantilla/Plantilla_SAP_maestra_SINTETICA.xlsx",
+              "type": "string"
+            },
+            {
+              "id": "p-salidas-dir",
+              "name": "salidas_dir",
+              "value": "/home/codespace/poc_n8n_tiquipaya/salidas",
+              "type": "string"
+            },
+            {
+              "id": "p-resultados-dir",
+              "name": "resultados_dir",
+              "value": "/home/codespace/poc_n8n_tiquipaya/resultados",
+              "type": "string"
+            },
+            {
+              "id": "p-controles-dir",
+              "name": "controles_dir",
+              "value": "/home/codespace/poc_n8n_tiquipaya/controles",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ff420bb6-d90f-4320-a213-6b207bb22d47",
+      "name": "PARAMETROS - Rango y rutas",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        528,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 run_batch.py --fecha-inicio \"{{ $json.fecha_inicio }}\" --fecha-fin \"{{ $json.fecha_fin }}\" --cierres-dir \"{{ $json.cierres_dir }}\" --maestro \"{{ $json.maestro }}\" --plantilla \"{{ $json.plantilla }}\" --salidas-dir \"{{ $json.salidas_dir }}\" --resultados-dir \"{{ $json.resultados_dir }}\" --controles-dir \"{{ $json.controles_dir }}\""
+      },
+      "id": "22001b51-32e0-4c2a-bb28-a208d511bf90",
+      "name": "EJECUTAR - Motor Python",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        800,
+        320
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "et-estado",
+              "name": "estado_final",
+              "value": "ERROR_TECNICO",
+              "type": "string"
+            },
+            {
+              "id": "et-mensaje",
+              "name": "mensaje_auditor",
+              "value": "={{ ($json.data && typeof $json.data.resumen_estados === 'object' && $json.data.resumen_estados !== null && !Array.isArray($json.data.resumen_estados) && Array.isArray($json.data.cierres)) ? (\"ERROR_TECNICO detectado en resultado_batch.json: \" + JSON.stringify($json.data.resumen_estados)) : ($json.data ? (\"resultado_batch.json tiene estructura inesperada o incompleta. JSON recibido en 'data': \" + JSON.stringify($json.data)) : (\"Fallo de ejecucion de run_batch.py (fallo a nivel de proceso, sin resultado_batch.json): \" + ($json.error ?? \"(sin detalle disponible)\"))) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "3b512bde-db76-4319-b8b2-76e936cb387e",
+      "name": "ERROR TECNICO - Revisar ejecucion",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2224,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $('PARAMETROS - Rango y rutas').isExecuted ? $('PARAMETROS - Rango y rutas').item.json.resultados_dir : $('MATERIALIZAR - Rutas locales (Drive real)').item.json.resultados_dir }}/resultado_batch.json",
+        "options": {}
+      },
+      "id": "ad5ed279-ca87-4bf8-ab47-b27e71b7c65e",
+      "name": "LEER - Resultado del batch",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1088,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "id": "4b700758-a32e-4734-897a-c930dcf5f2c5",
+      "name": "INTERPRETAR - JSON del motor",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1360,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.data.resumen_estados.ERROR_TECNICO || 0 }}",
+                    "operator": {
+                      "type": "number",
+                      "operation": "gt"
+                    },
+                    "rightValue": 0
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ERROR TECNICO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.data.resumen_estados.ERROR_REVISAR || 0 }}",
+                    "operator": {
+                      "type": "number",
+                      "operation": "gt"
+                    },
+                    "rightValue": 0
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "REVISAR"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.data.resumen_estados.LISTO_PARA_PUBLICAR || 0 }}",
+                    "operator": {
+                      "type": "number",
+                      "operation": "gt"
+                    },
+                    "rightValue": 0
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "OK"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "SIN ACCION"
+        }
+      },
+      "id": "2382e79d-e04a-484d-9c79-702f22536d21",
+      "name": "DECIDIR - Estado del cierre",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1920,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rv-estado",
+              "name": "estado_final",
+              "value": "REVISAR",
+              "type": "string"
+            },
+            {
+              "id": "rv-mensaje",
+              "name": "mensaje_auditor",
+              "value": "={{ \"ERROR_REVISAR: \" + $json.data.resumen_estados.ERROR_REVISAR + \" cierre(s) requieren revision del auditor. Ver detalle_error en cada entrada de cierres dentro de resultado_batch.json.\" }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "f5241a82-31c9-401c-a686-33ece5350e42",
+      "name": "REVISAR - Requiere auditor",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2224,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok-estado",
+              "name": "estado_final",
+              "value": "OK",
+              "type": "string"
+            },
+            {
+              "id": "ok-mensaje",
+              "name": "mensaje_auditor",
+              "value": "={{ \"LISTO_PARA_PUBLICAR: \" + $json.data.resumen_estados.LISTO_PARA_PUBLICAR + \" de \" + $json.data.total_cierres_rango + \" cierres del rango. Revisar el SAP generado antes de publicar en Drive/SAP real.\" }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "7d99c349-be6b-4997-9ff7-f22fcfc99a56",
+      "name": "OK - Listo para publicar",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2224,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "sa-estado",
+              "name": "estado_final",
+              "value": "SIN_ACCION",
+              "type": "string"
+            },
+            {
+              "id": "sa-mensaje",
+              "name": "mensaje_auditor",
+              "value": "={{ \"Sin accion requerida: \" + JSON.stringify($json.data.resumen_estados) + \" (solo YA_PROCESADO y/o SIN_ARCHIVO).\" }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "73c20baf-7677-4dd4-b199-ba3c35a4af2d",
+      "name": "SIN ACCION - Ya procesado o sin archivo",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2224,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## TIQ · PROCESAR CIERRES PENDIENTES · POC\n\nPOC 100% SINTETICO. No toca produccion, Drive, agosto/septiembre 2026 reales ni marcadores productivos.\n\nDos puntos de entrada equivalentes, ambos bajo demanda:\n- INICIO - Procesar cierres (Manual Trigger): para pruebas/dev, requiere abrir PARAMETROS.\n- INICIO - Procesar cierres (Formulario): pide solo Fecha inicio / Fecha fin; las rutas tecnicas quedan fijas internamente.\n\nn8n solo orquesta: invoca run_batch.py (entrypoint oficial) y enruta segun el JSON que Python ya produce. No reimplementa reglas contables.",
+        "color": 4
+      },
+      "id": "850a2707-6b7c-4d35-94a7-b8092d6197a7",
+      "name": "Sticky Note aa463ce9",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        112,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## VALIDAR + DECIDIR - prioridad conservadora\n\n0) VALIDAR confirma tecnicamente que 'resumen_estados' (objeto) y 'cierres' (array) existen en el JSON. Si la estructura es invalida o incompleta -> ERROR TECNICO directo, NUNCA SIN ACCION. Es una validacion puramente tecnica, no reclasifica estados contables.\n\n1) ERROR_TECNICO > 0 -> ERROR TECNICO\n2) ERROR_REVISAR > 0 -> REVISAR\n3) LISTO_PARA_PUBLICAR > 0 -> OK\n4) fallback (solo YA_PROCESADO / SIN_ARCHIVO) -> SIN ACCION\n\nUn mismo batch puede traer varios estados mezclados; el orden decide la rama mas exigente. ERROR TECNICO tambien se alcanza directamente si run_batch.py falla a nivel de proceso (parametros/entorno invalidos, sin resultado_batch.json).",
+        "height": 288,
+        "color": 3
+      },
+      "id": "02faf336-dcc5-4546-8633-f7efde583845",
+      "name": "Sticky Note 3a393b14",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        112,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ !!($json.data && typeof $json.data.resumen_estados === 'object' && $json.data.resumen_estados !== null && !Array.isArray($json.data.resumen_estados) && Array.isArray($json.data.cierres)) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "rightValue": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2530e19b-2143-46a7-b6ff-4ac8e2f4f1d8",
+      "name": "VALIDAR - Estructura del resultado",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1648,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "pf-fecha-inicio",
+              "name": "fecha_inicio",
+              "value": "={{ $json['Fecha inicio'] }}",
+              "type": "string"
+            },
+            {
+              "id": "pf-fecha-fin",
+              "name": "fecha_fin",
+              "value": "={{ $json['Fecha fin'] }}",
+              "type": "string"
+            },
+            {
+              "id": "pf-cierres-dir",
+              "name": "cierres_dir",
+              "value": "/home/codespace/poc_n8n_tiquipaya/cierres",
+              "type": "string"
+            },
+            {
+              "id": "pf-maestro",
+              "name": "maestro",
+              "value": "/home/codespace/poc_n8n_tiquipaya/maestro/MACROS MARZO SINTETICO.xlsm",
+              "type": "string"
+            },
+            {
+              "id": "pf-plantilla",
+              "name": "plantilla",
+              "value": "/home/codespace/poc_n8n_tiquipaya/plantilla/Plantilla_SAP_maestra_SINTETICA.xlsx",
+              "type": "string"
+            },
+            {
+              "id": "pf-salidas-dir",
+              "name": "salidas_dir",
+              "value": "/home/codespace/poc_n8n_tiquipaya/salidas",
+              "type": "string"
+            },
+            {
+              "id": "pf-resultados-dir",
+              "name": "resultados_dir",
+              "value": "/home/codespace/poc_n8n_tiquipaya/resultados",
+              "type": "string"
+            },
+            {
+              "id": "pf-controles-dir",
+              "name": "controles_dir",
+              "value": "/home/codespace/poc_n8n_tiquipaya/controles",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "47a9622e-180f-4f50-b0a3-87a54cee2adb",
+      "name": "PARAMETROS - Rango (desde formulario)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        528,
+        912
+      ]
+    },
+    {
+      "id": "a94796ef-0ecc-4650-ab26-cc1459829d2a",
+      "name": "BUSCAR - Cierre del dia en Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        800,
+        912
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "={{ $json.nombre_archivo }}",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "44fb9067-a4af-40f8-8d7d-032fbd9393f7",
+      "name": "DESCARGAR - Cierre del dia",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1080,
+        912
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "authentication": "oAuth2",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "f00ca49e-3964-4062-b145-2026fabe03bf",
+      "name": "ESCRIBIR - Cierre a disco",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1360,
+        912
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ \"/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/cierres/\" + $json.name }}",
+        "dataPropertyName": "data"
+      }
+    },
+    {
+      "id": "52ecec08-52f4-4947-a944-5918e404527e",
+      "name": "BUSCAR - Carpeta del mes (Maestro)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1640,
+        912
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "={{ $('PARAMETROS - Rango (desde formulario)').item.json.fecha_inicio.split('-')[0] + \"-\" + $('PARAMETROS - Rango (desde formulario)').item.json.fecha_inicio.split('-')[1] }}",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "17ErHuUwCkRW750NiSvjjv69778IyEflS"
+          },
+          "whatToSearch": "folders",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "4d3eef09-0e72-4163-9fe8-4a2c34dc62a2",
+      "name": "BUSCAR - Archivo MACROS del mes",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1920,
+        912
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "MACROS",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $json.id }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "8f8ab634-28ba-4baa-b664-6ae1f57bc100",
+      "name": "DESCARGAR - Maestro del mes",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2200,
+        912
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "authentication": "oAuth2",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "30c65881-021c-4c24-9036-9494d3ec1165",
+      "name": "ESCRIBIR - Maestro a disco",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        2480,
+        912
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ \"/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/maestro/\" + $json.name }}",
+        "dataPropertyName": "data"
+      }
+    },
+    {
+      "id": "f58912c6-d3af-42fb-ae6e-49b5c5bf64e4",
+      "name": "DESCARGAR - Plantilla SAP",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2760,
+        912
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "authentication": "oAuth2",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1RUH99XheyDx0z88SA_YFt3kgWrvbLc9Z"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "5982d8f0-9661-4db0-86fb-9148631c34af",
+      "name": "ESCRIBIR - Plantilla a disco",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        3040,
+        912
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/plantilla/Plantilla SAP maestra.xlsx",
+        "dataPropertyName": "data"
+      }
+    },
+    {
+      "id": "5a0ce27b-0182-4ff0-8f01-d5f614a437b8",
+      "name": "BUSCAR - Marcadores existentes",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3320,
+        912
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "9c54ef6c-5cf6-4fd9-995b-83381f50efb5",
+      "name": "DESCARGAR - Marcador",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3600,
+        912
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "authentication": "oAuth2",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "cc698153-77f1-42d5-91dc-b1e79fb3bc13",
+      "name": "ESCRIBIR - Marcador a disco",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        3880,
+        912
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ \"/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/controles/MARCADORES_PROCESAMIENTO/\" + $json.name }}",
+        "dataPropertyName": "data"
+      }
+    },
+    {
+      "id": "45c28470-3abf-4f85-9858-1dd3e89cee62",
+      "name": "MATERIALIZAR - Rutas locales (Drive real)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        4160,
+        912
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "executeOnce": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "mdr-fecha-inicio",
+              "name": "fecha_inicio",
+              "value": "={{ $('PARAMETROS - Rango (desde formulario)').item.json.fecha_inicio }}",
+              "type": "string"
+            },
+            {
+              "id": "mdr-fecha-fin",
+              "name": "fecha_fin",
+              "value": "={{ $('PARAMETROS - Rango (desde formulario)').item.json.fecha_fin }}",
+              "type": "string"
+            },
+            {
+              "id": "mdr-cierres-dir",
+              "name": "cierres_dir",
+              "value": "/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/cierres",
+              "type": "string"
+            },
+            {
+              "id": "mdr-maestro",
+              "name": "maestro",
+              "value": "={{ \"/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/maestro/\" + $('BUSCAR - Archivo MACROS del mes').item.json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "mdr-plantilla",
+              "name": "plantilla",
+              "value": "/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/plantilla/Plantilla SAP maestra.xlsx",
+              "type": "string"
+            },
+            {
+              "id": "mdr-salidas-dir",
+              "name": "salidas_dir",
+              "value": "/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/salidas",
+              "type": "string"
+            },
+            {
+              "id": "mdr-resultados-dir",
+              "name": "resultados_dir",
+              "value": "/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/resultados",
+              "type": "string"
+            },
+            {
+              "id": "mdr-controles-dir",
+              "name": "controles_dir",
+              "value": "/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/controles",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "dc1f77c7-a218-42d9-beeb-e07cfc5b9947",
+      "name": "CONFIRMAR - Aprobacion del auditor",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2520,
+        100
+      ],
+      "parameters": {
+        "resume": "form",
+        "formTitle": "Confirmar publicacion del cierre",
+        "formDescription": "Revisa el resumen de cada cierre antes de decidir. Aprobar publica el cierre de forma definitiva.",
+        "formFields": {
+          "values": [
+            {
+              "fieldType": "html",
+              "html": "={{ $json.resumen_html }}"
+            },
+            {
+              "fieldLabel": "Decision",
+              "fieldType": "radio",
+              "defaultValue": "={{ $json.decision_default }}",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "={{ $json.permite_aprobar ? 'Aprobar y publicar' : 'Dejar pendiente para revision' }}"
+                  },
+                  {
+                    "option": "={{ $json.permite_aprobar ? 'Rechazar' : 'Rechazar de todas formas' }}"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Observaciones",
+              "fieldType": "textarea",
+              "placeholder": "",
+              "defaultValue": "",
+              "requiredField": false
+            }
+          ]
+        }
+      },
+      "webhookId": "c634d2b1-9180-4695-9415-d253f1f8642d"
+    },
+    {
+      "id": "0a931302-603c-4aeb-be7a-40902e022aab",
+      "name": "DECIDIR - Aprobado",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2800,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json['Decision'] }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "Aprobar y publicar"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "523f0780-12b1-40e1-bf98-76bc612246b2",
+      "name": "PUBLICACION - Rechazada por auditor",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        3080,
+        -80
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rc-estado",
+              "name": "estado_final",
+              "value": "RECHAZADO",
+              "type": "string"
+            },
+            {
+              "id": "rc-mensaje",
+              "name": "mensaje_auditor",
+              "value": "={{ \"El auditor rechazo la publicacion. Observaciones: \" + ($json['Observaciones'] || '(sin observaciones)') }}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "5b4733d2-85a7-45c7-8c10-c9678712307b",
+      "name": "EJECUTAR - Generar marcador local (publicar_cierre.py)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        6160,
+        220
+      ],
+      "parameters": {
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 publicar_cierre.py --resultado \"{{ $('OK - Listo para publicar').item.json.data.cierres[0].ruta_resultado }}\" --sap-publicado-por-usuario true --sap-verificado-en-drive true --resultado-publicado true --cierre-movido-a-procesados true --observaciones \"{{ $('CONFIRMAR - Aprobacion del auditor').item.json['Observaciones'] }}\" --salida-marcador \"/home/codespace/poc_n8n_tiquipaya/MARCADOR_SIMULADO/PROCESADO_{{ $('OK - Listo para publicar').item.json.data.cierres[0].hash }}.json\""
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "ae4feca3-5d82-4119-b902-ea0f21b9d1e2",
+      "name": "FIN - Publicacion completa en Drive",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        7000,
+        220
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fin-estado",
+              "name": "estado_final",
+              "value": "PUBLICADO",
+              "type": "string"
+            },
+            {
+              "id": "fin-mensaje",
+              "name": "mensaje_auditor",
+              "value": "={{ \"Cierre \" + $('OK - Listo para publicar').item.json.data.cierres[0].archivo + \" publicado en Drive: SAP y RESULTADO subidos a 04_SALIDAS, cierre movido a 03_PROCESADOS, marcador \" + $json.name + \" creado en 05_CONTROLES/MARCADORES_PROCESAMIENTO.\" }}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "f9723411-6a9d-485d-91bd-3ed65b2e93c4",
+      "name": "PUBLICACION - Marcador no autorizado",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        3360,
+        340
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "no-estado",
+              "name": "estado_final",
+              "value": "MARCADOR_NO_AUTORIZADO",
+              "type": "string"
+            },
+            {
+              "id": "no-mensaje",
+              "name": "mensaje_auditor",
+              "value": "={{ \"publicar_cierre.py rechazo generar el marcador (faltan confirmaciones). Detalle: \" + ($json.error ?? 'ver historial de ejecucion') }}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "4ff2a141-3d57-4594-9ff7-7c9b96d64340",
+      "name": "Sticky Note Publicacion",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2520,
+        -280
+      ],
+      "parameters": {
+        "content": "## Rama posterior a OK - V1 real de publicacion en Drive\n\nAprobacion humana nativa (Wait + form), sin agentes ni canales externos.\n\nSi se Aprueba: SUBIR SAP -> SUBIR RESULTADO -> MOVER CIERRE a 03_PROCESADOS -> publicar_cierre.py (marcador LOCAL) -> SUBIR MARCADOR a Drive. Cada paso usa nodos nativos de Google Drive (binario nativo, sin Base64). Sin reintentos automaticos: cualquier fallo en SAP/RESULTADO/MOVER detiene toda la ejecucion antes de llegar a publicar_cierre.py, por lo que el marcador nunca se genera ni se sube si algo anterior fallo. El marcador es siempre el ULTIMO artefacto subido.\n\nSi se Rechaza: no se toca Drive en absoluto.",
+        "color": 5
+      }
+    },
+    {
+      "id": "6032ec26-f13f-47b3-9102-6053404efb5b",
+      "name": "BUSCAR - Carpeta del mes en 04_SALIDAS",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3080,
+        220
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "={{ $('OK - Listo para publicar').item.json.data.cierres[0].fecha.split('-')[0] + \"-\" + $('OK - Listo para publicar').item.json.data.cierres[0].fecha.split('-')[1] }}",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1DOBzBBvlxbFzq3dFgGgl7Ax-oo62P0fL"
+          },
+          "whatToSearch": "folders",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "cf9b544e-67bd-49d5-a590-effb15b7a22e",
+      "name": "BUSCAR - Carpeta SAP del mes",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3360,
+        220
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "SAP",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $json.id }}"
+          },
+          "whatToSearch": "folders",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "6b6aadf3-efc5-4256-921d-4da7c05c1de2",
+      "name": "IF - Carpeta SAP existe",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3640,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ !!$json.id }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "rightValue": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "666e2c22-db61-489c-812c-b96416adfea1",
+      "name": "CREAR - Carpeta SAP del mes",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3640,
+        420
+      ],
+      "parameters": {
+        "resource": "folder",
+        "operation": "create",
+        "authentication": "oAuth2",
+        "name": "SAP",
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('BUSCAR - Carpeta del mes en 04_SALIDAS').item.json.id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "c77ee6ad-d662-4e6d-8e42-739e9592ef56",
+      "name": "LEER - SAP local a subir",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        3920,
+        220
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('OK - Listo para publicar').item.json.data.cierres[0].ruta_sap }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "4edaa316-d917-4fac-9c7a-6a0cba3afbbd",
+      "name": "SUBIR - SAP a Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4200,
+        220
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "authentication": "oAuth2",
+        "inputDataFieldName": "data",
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('BUSCAR - Carpeta SAP del mes').item.json.id || $('CREAR - Carpeta SAP del mes').item.json.id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "a36bf141-2242-4b0f-8c9b-04e13c541907",
+      "name": "BUSCAR - Carpeta RESULTADOS del mes",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4480,
+        220
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "RESULTADOS",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('BUSCAR - Carpeta del mes en 04_SALIDAS').item.json.id }}"
+          },
+          "whatToSearch": "folders",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "695c02c9-f7ec-4c56-87a6-ad40b30db484",
+      "name": "IF - Carpeta RESULTADOS existe",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4760,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ !!$json.id }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "rightValue": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "9b56c8a9-3a83-48d6-8cd4-21c1141a7b1e",
+      "name": "CREAR - Carpeta RESULTADOS del mes",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4760,
+        420
+      ],
+      "parameters": {
+        "resource": "folder",
+        "operation": "create",
+        "authentication": "oAuth2",
+        "name": "RESULTADOS",
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('BUSCAR - Carpeta del mes en 04_SALIDAS').item.json.id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "e3b2590e-276d-484d-b155-2c9c63b3757e",
+      "name": "LEER - Resultado local a subir",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        5040,
+        220
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('OK - Listo para publicar').item.json.data.cierres[0].ruta_resultado }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "8c82526f-2da3-4fc5-80b5-300d4db37f40",
+      "name": "SUBIR - Resultado a Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        5320,
+        220
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "authentication": "oAuth2",
+        "inputDataFieldName": "data",
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('BUSCAR - Carpeta RESULTADOS del mes').item.json.id || $('CREAR - Carpeta RESULTADOS del mes').item.json.id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "b56e23a7-daab-4ab2-aee7-f6db0ce205ef",
+      "name": "BUSCAR - Carpeta del mes en 03_PROCESADOS",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        5600,
+        220
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "={{ $('OK - Listo para publicar').item.json.data.cierres[0].fecha.split('-')[0] + \"-\" + $('OK - Listo para publicar').item.json.data.cierres[0].fecha.split('-')[1] }}",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1fFditg9LtgNexM6YPzlAaDkfzteRVtpZ"
+          },
+          "whatToSearch": "folders",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "df19c875-e118-4360-ba5b-89f55c1bf7c8",
+      "name": "MOVER - Cierre a 03_PROCESADOS",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        5880,
+        220
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "move",
+        "authentication": "oAuth2",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('BUSCAR - Cierre del dia en Drive').item.json.id }}"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "52ee283b-0754-4132-b1d5-b898022d5231",
+      "name": "LEER - Marcador local a subir",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        6440,
+        220
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ JSON.parse($('EJECUTAR - Generar marcador local (publicar_cierre.py)').item.json.stdout).marcador_ruta_local }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "8041f207-9b4e-4ca4-8b56-93cb4601f405",
+      "name": "SUBIR - Marcador PROCESADO a Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        6720,
+        220
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "authentication": "oAuth2",
+        "inputDataFieldName": "data",
+        "name": "={{ JSON.parse($('EJECUTAR - Generar marcador local (publicar_cierre.py)').item.json.stdout).marcador_nombre }}",
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "4e43d8cb-d550-4318-91fb-43e60ecd1945",
+      "name": "INICIO - Procesar cierres (Formulario)",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        912
+      ],
+      "parameters": {
+        "formTitle": "CAJAS GABO · CAJA TIQUIPAYA",
+        "formDescription": "Procesamiento de cierres",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Fecha inicio",
+              "fieldType": "date",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Fecha fin",
+              "fieldType": "date",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "buttonLabel": "PROCESAR CIERRES",
+          "respondWithOptions": {
+            "values": {
+              "formSubmittedText": "Corrida iniciada. Revisa el historial de ejecuciones de n8n para ver el resultado."
+            }
+          }
+        }
+      },
+      "webhookId": "66ef2e37-fba9-4747-8476-fa0cc5b8d101"
+    },
+    {
+      "id": "df87e868-12d7-4f90-b58d-35a64ce22440",
+      "name": "LIMPIAR - Marcadores locales obsoletos",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        3180,
+        700
+      ],
+      "parameters": {
+        "command": "find \"/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/controles/MARCADORES_PROCESAMIENTO\" -mindepth 1 -maxdepth 1 -type f -name \"PROCESADO_*.json\" -delete"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "5672eceb-0ba5-4ecb-b8d1-4237a9f858ff",
+      "name": "PREPARAR - Cierres listos (detalle)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2280,
+        260
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const item = $input.first().json;\nconst cierres = (item.data && Array.isArray(item.data.cierres)) ? item.data.cierres : [];\nconst listos = cierres.filter((c) => c.estado === 'LISTO_PARA_PUBLICAR');\nreturn listos.map((c) => ({ json: c }));"
+      }
+    },
+    {
+      "id": "4158d4cd-9f18-4678-8024-316be90dc3f2",
+      "name": "LEER - Detalle SAP del cierre",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        2280,
+        420
+      ],
+      "parameters": {
+        "fileSelector": "={{ $json.ruta_resultado }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "b13159cb-c27e-4f51-91d5-da9656b9ccf9",
+      "name": "INTERPRETAR - Detalle SAP del cierre",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        2280,
+        580
+      ],
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      }
+    },
+    {
+      "id": "06211190-888a-4929-a346-95b098076b1e",
+      "name": "COMBINAR - Detalle y rango completo",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2420,
+        340
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      }
+    },
+    {
+      "id": "ecc13927-ea52-4adf-b90d-4be0cce443b5",
+      "name": "CONSTRUIR - Resumen auditor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "function formatMoney(v) {\n  if (v === null || v === undefined || v === '') return 'N/D';\n  const n = Number(v);\n  if (Number.isNaN(n)) return String(v);\n  const fixed = n.toFixed(2);\n  const partes = fixed.split('.');\n  const conMiles = partes[0].replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.');\n  return 'Bs ' + conMiles + ',' + partes[1];\n}\n\nfunction formatFecha(iso) {\n  if (!iso) return 'N/D';\n  const partes = String(iso).split('-');\n  if (partes.length !== 3) return String(iso);\n  return partes[2] + '/' + partes[1] + '/' + partes[0];\n}\n\nfunction escapeHtml(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;');\n}\n\nconst allItems = $input.all();\nlet batch = null;\nconst detallesArchivo = [];\n\nfor (const it of allItems) {\n  const d = it.json && it.json.data;\n  if (d && Array.isArray(d.cierres)) {\n    batch = d;\n  } else if (d) {\n    detallesArchivo.push(d);\n  }\n}\n\nconst cierres = batch ? batch.cierres : [];\nconst total = batch ? batch.total_cierres_rango : cierres.length;\nconst listos = cierres.filter((c) => c.estado === 'LISTO_PARA_PUBLICAR');\nconst revision = cierres.filter((c) => c.estado === 'ERROR_REVISAR');\nconst hayRevision = revision.length > 0;\nconst otros = total - listos.length - revision.length;\n\nfunction detalleDe(cierre) {\n  return detallesArchivo.find((d) => d.sha256_origen === cierre.hash) || {};\n}\n\nconst bannerEstilo = hayRevision\n  ? 'background:#fbedde;border:1px solid #a66423;color:#8a4e13;'\n  : 'background:#e3f2e9;border:1px solid #2f7d5a;color:#2f7d5a;';\n\nconst headline = hayRevision\n  ? listos.length + ' de ' + total + ' cierres cuadrados · ' + revision.length + (revision.length === 1 ? ' requiere revision' : ' requieren revision')\n  : total + ' de ' + total + ' cierres cuadrados y listos para publicar';\n\nconst asideOtros = otros > 0\n  ? '<div style=\"font-size:12.5px;color:#8a978f;margin-top:4px;\">' + otros + ' dia(s) del rango sin accion (ya procesado o sin archivo).</div>'\n  : '';\n\nconst bloqueoBlock = hayRevision\n  ? '<div style=\"margin-top:12px;background:#fbedde;border:1px solid #a66423;color:#8a4e13;border-radius:8px;padding:12px 14px;font-size:13.5px;line-height:1.7;\">' +\n    '<div style=\"font-weight:700;font-size:14.5px;\">⚠️ PUBLICACION BLOQUEADA</div>' +\n    '<div>' + revision.length + (revision.length === 1 ? ' cierre requiere' : ' cierres requieren') + ' revision antes de continuar.</div>' +\n    '<div>Decision: Dejar pendiente para revision</div>' +\n    '</div>'\n  : '';\n\nfunction campo(etiqueta, valor) {\n  return '<div style=\"display:flex;justify-content:space-between;gap:14px;padding:3px 0;font-size:13.5px;\">' +\n    '<span style=\"color:#54655f;\">' + etiqueta + '</span>' +\n    '<span style=\"font-weight:600;color:#182722;\">' + valor + '</span>' +\n    '</div>';\n}\n\nfunction tarjetaCuadrado(c) {\n  const d = detalleDe(c);\n  const sapLinea = (d.sap_validacion === 'OK')\n    ? '<div style=\"margin-top:8px;font-weight:600;color:#2f7d5a;\">SAP validado correctamente</div>'\n    : '<div style=\"margin-top:8px;font-weight:600;\">Validacion SAP: ' + escapeHtml(d.sap_validacion || 'N/D') + '</div>';\n  return '<div style=\"border:1px solid #dbe3dd;border-left:5px solid #2f7d5a;border-radius:8px;padding:14px 16px;margin-bottom:12px;\">' +\n    '<div style=\"font-weight:700;font-size:15px;margin-bottom:10px;\">' + formatFecha(c.fecha) + ' · CIERRE CUADRADO</div>' +\n    campo('Total conciliado', formatMoney(d.universo_ajustado)) +\n    campo('Diferencia', formatMoney(c.diferencia)) +\n    campo('Bloqueos', c.blockers) +\n    campo('Cargo', formatMoney(d.cargo)) +\n    campo('Haber', formatMoney(d.haber)) +\n    campo('Diferencia del asiento', formatMoney(d.diferencia_asiento)) +\n    sapLinea +\n    '</div>';\n}\n\nfunction tarjetaRevision(c) {\n  return '<div style=\"border:1px solid #dbe3dd;border-left:5px solid #a66423;border-radius:8px;padding:14px 16px;margin-bottom:12px;\">' +\n    '<div style=\"font-weight:700;font-size:15px;margin-bottom:8px;\">' + formatFecha(c.fecha) + ' · REQUIERE REVISION</div>' +\n    '<div style=\"font-size:13.5px;color:#8a4e13;\">' + escapeHtml(c.detalle_error || 'Este dia necesita revision antes de poder publicarse.') + '</div>' +\n    '</div>';\n}\n\nconst filasRevision = revision.map(tarjetaRevision).join('');\nconst filasCuadrados = listos.map(tarjetaCuadrado).join('');\n\nconst etiquetaSeccion = (texto, color) =>\n  '<div style=\"font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:' + color + ';margin:16px 0 8px;\">' + texto + '</div>';\n\nconst cuerpo = hayRevision\n  ? etiquetaSeccion('Requiere revision', '#8a4e13') + filasRevision +\n    etiquetaSeccion('Cierres cuadrados', '#8a978f') + filasCuadrados\n  : filasCuadrados;\n\nconst resumenHtml =\n  '<div style=\"font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#182722;\">' +\n    '<div style=\"' + bannerEstilo + 'border-radius:8px;padding:12px 16px;\">' +\n      '<div style=\"font-size:16px;font-weight:700;\">' + headline + '</div>' +\n      asideOtros +\n      bloqueoBlock +\n    '</div>' +\n    '<div style=\"margin-top:14px;\">' + cuerpo + '</div>' +\n  '</div>';\n\nreturn [{\n  json: {\n    resumen_html: resumenHtml,\n    permite_aprobar: !hayRevision,\n    decision_default: hayRevision ? 'Dejar pendiente para revision' : ''\n  }\n}];\n"
+      }
+    },
+    {
+      "id": "57f8b3e0-9979-4dfb-8ec5-4e8d8ec29a6c",
+      "name": "PREPARAR - Cierres en revision (detalle)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2280,
+        1240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const item = $input.first().json;\nconst cierres = (item.data && Array.isArray(item.data.cierres)) ? item.data.cierres : [];\nconst revision = cierres.filter((c) => c.estado === 'ERROR_REVISAR');\nreturn revision.map((c) => ({ json: c }));"
+      }
+    },
+    {
+      "id": "0964e9f5-be54-4f0b-929e-f9d1bed961d4",
+      "name": "LEER - Detalle de excepciones del cierre",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        2280,
+        1400
+      ],
+      "parameters": {
+        "fileSelector": "={{ $json.ruta_resultado }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "530d1856-780c-4420-b79d-48b8b0e6b2ec",
+      "name": "INTERPRETAR - Detalle de excepciones del cierre",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        2280,
+        1560
+      ],
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      }
+    },
+    {
+      "id": "cdf9dd10-d58d-476d-8c0f-ade4fc4006f3",
+      "name": "COMBINAR - Detalle y rango en revision",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2420,
+        1320
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      }
+    },
+    {
+      "id": "d29207b6-04ac-4c5a-b3f9-1afd6a670be9",
+      "name": "CONSTRUIR - Revision de excepciones",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        1480
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "function escapeHtml(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;');\n}\n\nfunction formatMoney(v) {\n  if (v === null || v === undefined || v === '') return 'N/D';\n  const n = Number(v);\n  if (Number.isNaN(n)) return String(v);\n  const fixed = n.toFixed(2);\n  const partes = fixed.split('.');\n  const conMiles = partes[0].replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.');\n  return 'Bs ' + conMiles + ',' + partes[1];\n}\n\nfunction formatFecha(iso) {\n  if (!iso) return 'N/D';\n  const partes = String(iso).split('-');\n  if (partes.length !== 3) return String(iso);\n  return partes[2] + '/' + partes[1] + '/' + partes[0];\n}\n\nconst allItems = $input.all();\nlet batch = null;\nconst detalles = [];\n\nfor (const it of allItems) {\n  const d = it.json && it.json.data;\n  if (d && Array.isArray(d.cierres)) {\n    batch = d;\n  } else if (d) {\n    detalles.push(d);\n  }\n}\n\nconst resumenEstados = batch ? (batch.resumen_estados || {}) : {};\nconst total = batch ? batch.total_cierres_rango : detalles.length;\nconst sinArchivo = resumenEstados.SIN_ARCHIVO || 0;\nconst cierresProcesados = total - sinArchivo;\nconst cuadrados = resumenEstados.LISTO_PARA_PUBLICAR || 0;\nconst totalRevision = resumenEstados.ERROR_REVISAR || 0;\n\ndetalles.sort((a, b) => String(a.fecha_cierre || '').localeCompare(String(b.fecha_cierre || '')));\n\nconst totalExcepciones = detalles.reduce((acc, d) => acc + ((d.excepciones || []).length), 0);\n\nconst NOMBRE_CATEGORIA = {\n  COMUNICACION_INTERNA: 'Comunicacion interna',\n  VOUCHER: 'Voucher',\n  ATC: 'ATC',\n};\n\nfunction campo(etiqueta, valor) {\n  if (valor === null || valor === undefined || valor === '') return '';\n  return '<div style=\"display:flex;justify-content:space-between;gap:14px;padding:2px 0;font-size:13px;\">' +\n    '<span style=\"color:#54655f;\">' + etiqueta + '</span>' +\n    '<span style=\"font-weight:600;color:#182722;text-align:right;\">' + valor + '</span>' +\n    '</div>';\n}\n\nfunction tarjetaExcepcion(exc) {\n  const filas = [campo('Motivo', escapeHtml(exc.motivo_legible))];\n\n  if (exc.categoria === 'COMUNICACION_INTERNA') {\n    filas.push(campo('SFC', escapeHtml(exc.sfc)));\n    filas.push(campo('Factura/Referencia', escapeHtml(exc.factura)));\n    filas.push(campo('Fecha', formatFecha(exc.fecha)));\n    filas.push(campo('Importe', formatMoney(exc.importe)));\n    filas.push(campo('Glosa', escapeHtml(exc.glosa)));\n    filas.push(campo('Cuenta contable', escapeHtml(exc.cuenta_contable)));\n    filas.push(campo('Asignacion', escapeHtml(exc.asignacion)));\n  } else if (exc.categoria === 'VOUCHER') {\n    filas.push(campo('SFC', escapeHtml(exc.sfc)));\n    filas.push(campo('Codigo informado', escapeHtml(exc.codigo_informado)));\n    filas.push(campo('Fecha', formatFecha(exc.fecha)));\n    filas.push(campo('Importe', formatMoney(exc.importe)));\n    if (exc.cantidad_candidatos > 0) {\n      const codigos = (exc.candidatos || []).map((c) => escapeHtml(c.codigo)).filter(Boolean).join(', ');\n      filas.push(campo('Candidatos encontrados', exc.cantidad_candidatos + (codigos ? ' (' + codigos + ')' : '')));\n    }\n  } else if (exc.categoria === 'ATC') {\n    filas.push(campo('Bruto', formatMoney(exc.bruto)));\n    filas.push(campo('Neto', formatMoney(exc.neto)));\n    filas.push(campo('Comision', formatMoney(exc.comision)));\n    filas.push(campo('Diferencia', formatMoney(exc.diferencia)));\n    if (exc.neto_cuenta_contable || exc.neto_asignacion) {\n      filas.push(campo('Cuenta neto', escapeHtml(exc.neto_cuenta_contable)));\n      filas.push(campo('Asignacion neto', escapeHtml(exc.neto_asignacion)));\n    }\n    if (exc.comision_cuenta_contable || exc.comision_asignacion) {\n      filas.push(campo('Cuenta comision', escapeHtml(exc.comision_cuenta_contable)));\n      filas.push(campo('Asignacion comision', escapeHtml(exc.comision_asignacion)));\n    }\n  }\n\n  return '<div style=\"border:1px solid #e3ddd0;border-radius:6px;padding:10px 12px;margin-bottom:8px;background:#fffaf3;\">' +\n    filas.join('') + '</div>';\n}\n\nfunction bloqueFecha(d) {\n  const excepciones = d.excepciones || [];\n  const porCategoria = {};\n  for (const exc of excepciones) {\n    const key = exc.categoria || 'OTROS';\n    (porCategoria[key] = porCategoria[key] || []).push(exc);\n  }\n  const orden = ['COMUNICACION_INTERNA', 'VOUCHER', 'ATC'];\n  const categoriasPresentes = orden.filter((cat) => (porCategoria[cat] || []).length > 0);\n\n  const bloques = categoriasPresentes.map((cat) => {\n    const items = porCategoria[cat].map(tarjetaExcepcion).join('');\n    return '<div style=\"margin:10px 0 6px;font-size:12px;font-weight:700;color:#8a4e13;text-transform:uppercase;letter-spacing:.03em;\">' +\n      escapeHtml(NOMBRE_CATEGORIA[cat] || cat) + ' (' + porCategoria[cat].length + ')' +\n      '</div>' + items;\n  }).join('');\n\n  return '<div style=\"border:1px solid #dbe3dd;border-left:5px solid #a66423;border-radius:8px;padding:14px 16px;margin-bottom:16px;\">' +\n    '<div style=\"font-weight:700;font-size:15px;margin-bottom:2px;\">' + formatFecha(d.fecha_cierre) + '</div>' +\n    '<div style=\"font-size:12px;color:#8a978f;margin-bottom:8px;\">' + escapeHtml(d.archivo_origen) + '</div>' +\n    bloques +\n    '</div>';\n}\n\nconst cuerpo = detalles.map(bloqueFecha).join('');\n\nconst resumenHtml =\n  '<div style=\"font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#182722;\">' +\n    '<div style=\"margin-bottom:14px;padding:12px 16px;border:1px solid #dbe3dd;border-left:5px solid #2f7d5a;border-radius:8px;background:#f3f8f5;\">' +\n      '<a href=\"/webhook/tiq-revision\" target=\"_blank\" style=\"font-weight:700;color:#2f7d5a;text-decoration:none;border-bottom:1px solid #2f7d5a;\">Abrir modulo de correccion &rarr;</a>' +\n      '<div style=\"font-size:12px;color:#54655f;margin-top:4px;\">Se abre en una pestana nueva (FASE 3, en DRAFT). Esta pantalla sigue disponible para dejar la revision pendiente sin corregir nada.</div>' +\n    '</div>' +\n    '<div style=\"background:#fbedde;border:1px solid #a66423;color:#8a4e13;border-radius:8px;padding:12px 16px;margin-bottom:16px;\">' +\n      '<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:6px 18px;font-size:13.5px;\">' +\n        '<div>Cierres procesados: <strong>' + cierresProcesados + '</strong></div>' +\n        '<div>Cierres cuadrados: <strong>' + cuadrados + '</strong></div>' +\n        '<div>Requieren revision: <strong>' + totalRevision + '</strong></div>' +\n        '<div>Excepciones encontradas: <strong>' + totalExcepciones + '</strong></div>' +\n      '</div>' +\n    '</div>' +\n    cuerpo +\n  '</div>';\n\nreturn [{\n  json: {\n    resumen_html: resumenHtml,\n  },\n}];\n",
+        "parameters": {
+          "jsCode": "function escapeHtml(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;');\n}\n\nfunction formatMoney(v) {\n  if (v === null || v === undefined || v === '') return 'N/D';\n  const n = Number(v);\n  if (Number.isNaN(n)) return String(v);\n  const fixed = n.toFixed(2);\n  const partes = fixed.split('.');\n  const conMiles = partes[0].replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.');\n  return 'Bs ' + conMiles + ',' + partes[1];\n}\n\nfunction formatFecha(iso) {\n  if (!iso) return 'N/D';\n  const partes = String(iso).split('-');\n  if (partes.length !== 3) return String(iso);\n  return partes[2] + '/' + partes[1] + '/' + partes[0];\n}\n\nconst allItems = $input.all();\nlet batch = null;\nconst detalles = [];\n\nfor (const it of allItems) {\n  const d = it.json && it.json.data;\n  if (d && Array.isArray(d.cierres)) {\n    batch = d;\n  } else if (d) {\n    detalles.push(d);\n  }\n}\n\nconst resumenEstados = batch ? (batch.resumen_estados || {}) : {};\nconst total = batch ? batch.total_cierres_rango : detalles.length;\nconst sinArchivo = resumenEstados.SIN_ARCHIVO || 0;\nconst cierresProcesados = total - sinArchivo;\nconst cuadrados = resumenEstados.LISTO_PARA_PUBLICAR || 0;\nconst totalRevision = resumenEstados.ERROR_REVISAR || 0;\n\ndetalles.sort((a, b) => String(a.fecha_cierre || '').localeCompare(String(b.fecha_cierre || '')));\n\nconst totalExcepciones = detalles.reduce((acc, d) => acc + ((d.excepciones || []).length), 0);\n\nconst NOMBRE_CATEGORIA = {\n  COMUNICACION_INTERNA: 'Comunicacion interna',\n  VOUCHER: 'Voucher',\n  ATC: 'ATC',\n};\n\nfunction campo(etiqueta, valor) {\n  if (valor === null || valor === undefined || valor === '') return '';\n  return '<div style=\"display:flex;justify-content:space-between;gap:14px;padding:2px 0;font-size:13px;\">' +\n    '<span style=\"color:#54655f;\">' + etiqueta + '</span>' +\n    '<span style=\"font-weight:600;color:#182722;text-align:right;\">' + valor + '</span>' +\n    '</div>';\n}\n\nfunction tarjetaExcepcion(exc) {\n  const filas = [campo('Motivo', escapeHtml(exc.motivo_legible))];\n\n  if (exc.categoria === 'COMUNICACION_INTERNA') {\n    filas.push(campo('SFC', escapeHtml(exc.sfc)));\n    filas.push(campo('Factura/Referencia', escapeHtml(exc.factura)));\n    filas.push(campo('Fecha', formatFecha(exc.fecha)));\n    filas.push(campo('Importe', formatMoney(exc.importe)));\n    filas.push(campo('Glosa', escapeHtml(exc.glosa)));\n    filas.push(campo('Cuenta contable', escapeHtml(exc.cuenta_contable)));\n    filas.push(campo('Asignacion', escapeHtml(exc.asignacion)));\n  } else if (exc.categoria === 'VOUCHER') {\n    filas.push(campo('SFC', escapeHtml(exc.sfc)));\n    filas.push(campo('Codigo informado', escapeHtml(exc.codigo_informado)));\n    filas.push(campo('Fecha', formatFecha(exc.fecha)));\n    filas.push(campo('Importe', formatMoney(exc.importe)));\n    if (exc.cantidad_candidatos > 0) {\n      const codigos = (exc.candidatos || []).map((c) => escapeHtml(c.codigo)).filter(Boolean).join(', ');\n      filas.push(campo('Candidatos encontrados', exc.cantidad_candidatos + (codigos ? ' (' + codigos + ')' : '')));\n    }\n  } else if (exc.categoria === 'ATC') {\n    filas.push(campo('Bruto', formatMoney(exc.bruto)));\n    filas.push(campo('Neto', formatMoney(exc.neto)));\n    filas.push(campo('Comision', formatMoney(exc.comision)));\n    filas.push(campo('Diferencia', formatMoney(exc.diferencia)));\n    if (exc.neto_cuenta_contable || exc.neto_asignacion) {\n      filas.push(campo('Cuenta neto', escapeHtml(exc.neto_cuenta_contable)));\n      filas.push(campo('Asignacion neto', escapeHtml(exc.neto_asignacion)));\n    }\n    if (exc.comision_cuenta_contable || exc.comision_asignacion) {\n      filas.push(campo('Cuenta comision', escapeHtml(exc.comision_cuenta_contable)));\n      filas.push(campo('Asignacion comision', escapeHtml(exc.comision_asignacion)));\n    }\n  }\n\n  return '<div style=\"border:1px solid #e3ddd0;border-radius:6px;padding:10px 12px;margin-bottom:8px;background:#fffaf3;\">' +\n    filas.join('') + '</div>';\n}\n\nfunction bloqueFecha(d) {\n  const excepciones = d.excepciones || [];\n  const porCategoria = {};\n  for (const exc of excepciones) {\n    const key = exc.categoria || 'OTROS';\n    (porCategoria[key] = porCategoria[key] || []).push(exc);\n  }\n  const orden = ['COMUNICACION_INTERNA', 'VOUCHER', 'ATC'];\n  const categoriasPresentes = orden.filter((cat) => (porCategoria[cat] || []).length > 0);\n\n  const bloques = categoriasPresentes.map((cat) => {\n    const items = porCategoria[cat].map(tarjetaExcepcion).join('');\n    return '<div style=\"margin:10px 0 6px;font-size:12px;font-weight:700;color:#8a4e13;text-transform:uppercase;letter-spacing:.03em;\">' +\n      escapeHtml(NOMBRE_CATEGORIA[cat] || cat) + ' (' + porCategoria[cat].length + ')' +\n      '</div>' + items;\n  }).join('');\n\n  return '<div style=\"border:1px solid #dbe3dd;border-left:5px solid #a66423;border-radius:8px;padding:14px 16px;margin-bottom:16px;\">' +\n    '<div style=\"font-weight:700;font-size:15px;margin-bottom:2px;\">' + formatFecha(d.fecha_cierre) + '</div>' +\n    '<div style=\"font-size:12px;color:#8a978f;margin-bottom:8px;\">' + escapeHtml(d.archivo_origen) + '</div>' +\n    bloques +\n    '</div>';\n}\n\nconst cuerpo = detalles.map(bloqueFecha).join('');\n\nconst resumenHtml =\n  '<div style=\"font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#182722;\">' +\n    '<div style=\"margin-bottom:14px;padding:12px 16px;border:1px solid #dbe3dd;border-left:5px solid #2f7d5a;border-radius:8px;background:#f3f8f5;\">' +\n      '<a href=\"/webhook/tiq-revision\" target=\"_blank\" style=\"font-weight:700;color:#2f7d5a;text-decoration:none;border-bottom:1px solid #2f7d5a;\">Abrir modulo de correccion &rarr;</a>' +\n      '<div style=\"font-size:12px;color:#54655f;margin-top:4px;\">Se abre en una pestana nueva (FASE 3, en DRAFT). Esta pantalla sigue disponible para dejar la revision pendiente sin corregir nada.</div>' +\n    '</div>' +\n    '<div style=\"background:#fbedde;border:1px solid #a66423;color:#8a4e13;border-radius:8px;padding:12px 16px;margin-bottom:16px;\">' +\n      '<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:6px 18px;font-size:13.5px;\">' +\n        '<div>Cierres procesados: <strong>' + cierresProcesados + '</strong></div>' +\n        '<div>Cierres cuadrados: <strong>' + cuadrados + '</strong></div>' +\n        '<div>Requieren revision: <strong>' + totalRevision + '</strong></div>' +\n        '<div>Excepciones encontradas: <strong>' + totalExcepciones + '</strong></div>' +\n      '</div>' +\n    '</div>' +\n    cuerpo +\n  '</div>';\n\nreturn [{\n  json: {\n    resumen_html: resumenHtml,\n  },\n}];\n"
+        }
+      }
+    },
+    {
+      "id": "943d98fc-3fe9-4ea0-8d66-2be8bd86af4e",
+      "name": "CONFIRMAR - Revision de excepciones",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2680,
+        1320
+      ],
+      "parameters": {
+        "resume": "form",
+        "formTitle": "REVISION DE EXCEPCIONES - CAJA TIQUIPAYA",
+        "formDescription": "Detalle de las excepciones encontradas en este rango. Todavia no es posible corregir nada desde aqui.",
+        "formFields": {
+          "values": [
+            {
+              "fieldType": "html",
+              "html": "={{ $json.resumen_html }}"
+            },
+            {
+              "fieldLabel": "Observaciones",
+              "fieldType": "textarea",
+              "placeholder": "",
+              "defaultValue": "",
+              "requiredField": false
+            }
+          ]
+        },
+        "options": {
+          "buttonLabel": "Dejar pendiente para revision"
+        }
+      },
+      "webhookId": "27e6dbbd-12b9-4827-99ca-9ba7f279eb83"
+    },
+    {
+      "id": "42934372-8301-40d8-b65b-b483706fd37e",
+      "name": "FIN - Revision registrada",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2960,
+        1320
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rr-estado",
+              "name": "estado_final",
+              "value": "REVISION_REGISTRADA",
+              "type": "string"
+            },
+            {
+              "id": "rr-mensaje",
+              "name": "mensaje_auditor",
+              "value": "={{ \"Revision de excepciones registrada. Observaciones: \" + ($json['Observaciones'] || '(sin observaciones)') }}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "04e6745e-e319-4a72-adb0-85dbb201b52b",
+      "name": "FASE3 - Sticky",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -620,
+        2100
+      ],
+      "parameters": {
+        "content": "## FASE 3 - DRAFT (Parte A)\nFrontend + Webhooks de revision/correccion. NO PUBLICADO todavia.",
+        "height": 220,
+        "width": 460,
+        "color": 5
+      }
+    },
+    {
+      "id": "1cb14b67-5644-459f-9a0d-9766875e548b",
+      "name": "FASE3 - Webhook GET pagina",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -600,
+        2200
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "tiq-revision",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "4765817b-f6f9-45c6-ad29-6c917523dbcd"
+    },
+    {
+      "id": "b19bbdaa-f416-4ee1-b77f-6a43cdc12617",
+      "name": "FASE3 - Responder pagina HTML",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -120,
+        2200
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.stdout }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "4e52933a-aa63-489b-8bd2-3c63e4fdc9b3",
+      "name": "FASE3 - Webhook GET datos",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -600,
+        2400
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "tiq-revision/datos",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "28a2c1bb-506f-494f-b0b9-8ca69e04d2c4"
+    },
+    {
+      "id": "c0e6c72c-bb55-4a59-a9fe-542fb99e80d1",
+      "name": "FASE3 - Parametros resultados_dir",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -360,
+        2400
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f3-resdir",
+              "name": "resultados_dir",
+              "value": "={{ $json.query.resultados_dir || '/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/resultados' }}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "f2ea106e-1dda-4485-a66b-e6e191435a92",
+      "name": "FASE3 - Leer resultado_batch.json",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        -120,
+        2400
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.resultados_dir }}/resultado_batch.json",
+        "options": {}
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "267d205d-0518-40f2-8ab1-f738fe9ff2e2",
+      "name": "FASE3 - Interpretar resultado_batch.json",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        120,
+        2400
+      ],
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "21b9b98e-a8a1-4067-836a-392d0d691be4",
+      "name": "FASE3 - Campos corregibles (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        360,
+        2400
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -c \"import json,correcciones_tiquipaya as c; print(json.dumps({k: sorted(v) for k, v in c.CAMPOS_CORREGIBLES.items()}))\"",
+        "parameters": {
+          "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -c \"import json,correcciones_tiquipaya as c; print(json.dumps({k: sorted(v) for k, v in c.CAMPOS_CORREGIBLES.items()}))\""
+        }
+      }
+    },
+    {
+      "id": "3cded4d7-1514-4dd3-aa64-ac1d24eda58a",
+      "name": "FASE3 - Construir respuesta datos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        600,
+        2400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "function identificadoresDe(exc) {\n  if (exc.categoria === 'COMUNICACION_INTERNA') {\n    return { sfc: exc.sfc, factura: exc.factura };\n  }\n  if (exc.categoria === 'VOUCHER') {\n    return { sfc: exc.sfc, codigo_informado: exc.codigo_informado };\n  }\n  if (exc.categoria === 'ATC') {\n    return {};\n  }\n  return {};\n}\n\nconst batchItem = $('FASE3 - Interpretar resultado_batch.json').item.json;\nconst batch = (batchItem && batchItem.data) || {};\nconst camposRaw = ($('FASE3 - Campos corregibles (Python)').item.json.stdout) || '{}';\nlet camposCorregibles = {};\ntry { camposCorregibles = JSON.parse(camposRaw); } catch (e) { camposCorregibles = {}; }\n\nconst cierres = Array.isArray(batch.cierres) ? batch.cierres : [];\nconst cierresConIdentificadores = cierres.map((c) => {\n  const excepciones = (c.excepciones || []).map((exc) => Object.assign({}, exc, { identificadores: identificadoresDe(exc) }));\n  return Object.assign({}, c, { excepciones: excepciones });\n});\n\nlet batchToken = null;\ntry { batchToken = $('FASE3 - Calcular batch_token').first().json.stdout.trim(); } catch (e) { batchToken = null; }\n\nreturn [{\n  json: {\n    resultado: 'OK',\n    parametros: batch.parametros || {},\n    total_cierres_rango: batch.total_cierres_rango,\n    resumen_estados: batch.resumen_estados,\n    cierres: cierresConIdentificadores,\n    campos_corregibles: camposCorregibles,\n    batch_token: batchToken,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "efc97b09-fe98-4a3c-9ae9-2a2f70cdf1c1",
+      "name": "FASE3 - Responder datos JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        840,
+        2400
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "046f6770-d6b9-4ff2-b463-c2a9a208e9f1",
+      "name": "FASE3 - Webhook POST observacion",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -600,
+        2600
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tiq-revision/observacion",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "01738a12-4a27-4a9b-8135-e4d609d30416"
+    },
+    {
+      "id": "bb672265-6b22-4147-8279-d900d193ecfc",
+      "name": "FASE3 - Construir observacion (base64)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -360,
+        2600
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const body = $json.body || {};\nconst parametros = body.parametros || {};\nconst controlesDir = parametros.controles_dir || '';\nconst hash = body.hash_origen || 'SIN_HASH';\nconst dir = controlesDir + '/CORRECCIONES_AUDITOR';\nconst ruta = dir + '/OBSERVACIONES_' + hash + '.jsonl';\n\nconst registro = {\n  fecha_hora: new Date().toISOString(),\n  usuario_auditor: body.usuario_auditor || null,\n  fecha_cierre: body.fecha_cierre || null,\n  categoria: body.categoria || null,\n  tipo: body.tipo || null,\n  identificadores: body.identificadores || {},\n  texto: body.texto || '',\n};\n\nreturn [{\n  json: {\n    directorio: dir,\n    ruta_observaciones: ruta,\n    registro_b64: Buffer.from(JSON.stringify(registro) + '\\n', 'utf8').toString('base64'),\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "4c0cc1d8-596b-49fc-9d28-9467784a31ce",
+      "name": "FASE3 - Guardar observacion (append)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -120,
+        2600
+      ],
+      "parameters": {
+        "command": "=mkdir -p \"{{ $json.directorio }}\" && printf '%s' \"{{ $json.registro_b64 }}\" | base64 -d >> \"{{ $json.ruta_observaciones }}\""
+      }
+    },
+    {
+      "id": "c2a7f36f-8ccc-4eb1-86d7-d4817a5620cc",
+      "name": "FASE3 - Responder observacion OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        120,
+        2600
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "dd9fcb5b-f5d0-4778-a5a7-d0d16f0c9d64",
+      "name": "FASE3 - Webhook POST pendiente",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -600,
+        2800
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tiq-revision/pendiente",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "d164f318-6e4f-4e60-ae95-54000a216a0a"
+    },
+    {
+      "id": "0cf9d47d-04ae-490f-93ef-13b851b6ddb9",
+      "name": "FASE3 - Construir pendiente (base64)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -360,
+        2800
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const body = $json.body || {};\nconst parametros = body.parametros || {};\nconst controlesDir = parametros.controles_dir || '';\nconst hash = body.hash_origen || 'SIN_HASH';\nconst dir = controlesDir + '/CORRECCIONES_AUDITOR';\nconst ruta = dir + '/REVISIONES_PENDIENTES.jsonl';\n\nconst registro = {\n  fecha_hora: new Date().toISOString(),\n  usuario_auditor: body.usuario_auditor || null,\n  fecha_cierre: body.fecha_cierre || null,\n  hash_origen: hash,\n  nota: body.texto || 'Revision dejada pendiente desde el modulo de correccion (sin corregir nada).',\n};\n\nreturn [{\n  json: {\n    directorio: dir,\n    ruta_pendientes: ruta,\n    registro_b64: Buffer.from(JSON.stringify(registro) + '\\n', 'utf8').toString('base64'),\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "bf853be7-7803-49ed-a74e-cf0a8d041add",
+      "name": "FASE3 - Guardar pendiente (append)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -120,
+        2800
+      ],
+      "parameters": {
+        "command": "=mkdir -p \"{{ $json.directorio }}\" && printf '%s' \"{{ $json.registro_b64 }}\" | base64 -d >> \"{{ $json.ruta_pendientes }}\""
+      }
+    },
+    {
+      "id": "3c024dbb-800e-4db6-943b-d21f38f76d2d",
+      "name": "FASE3 - Responder pendiente OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        120,
+        2800
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "a00f9d07-020c-41c6-bbc5-a77e7a1ea6a1",
+      "name": "FASE3 - Webhook POST corregir",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -600,
+        3000
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tiq-revision/corregir",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "bdf5a7ea-01d4-4ea0-b272-a674252a31b0"
+    },
+    {
+      "id": "4c6bda94-5662-4e0a-adb1-bdcc7070a2dc",
+      "name": "FASE3 - Construir correccion sin version",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -360,
+        3000
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const body = $json.body || {};\nconst parametros = body.parametros || {};\nconst cierre = body.cierre || {};\nconst correccion = body.correccion || {};\n\nconst correccionSinVersion = {\n  fecha_cierre: cierre.fecha,\n  sha256_origen: cierre.hash,\n  categoria: correccion.categoria,\n  tipo: correccion.tipo,\n  identificadores: correccion.identificadores || {},\n  campo_corregido: correccion.campo_corregido,\n  valor_original: (correccion.valor_original === undefined ? null : correccion.valor_original),\n  valor_autorizado: correccion.valor_autorizado,\n  motivo: correccion.motivo,\n  usuario_auditor: correccion.usuario_auditor,\n  fecha_hora: correccion.fecha_hora || new Date().toISOString(),\n};\n\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst rutaCierre = (parametros.cierres_dir || '') + '/' + (cierre.archivo || '');\nconst rutaCorreccionTmp = '/tmp/tiq_correccion_' + executionId + '.json';\n\nreturn [{\n  json: {\n    correccion_b64: Buffer.from(JSON.stringify(correccionSinVersion), 'utf8').toString('base64'),\n    ruta_correccion_tmp: rutaCorreccionTmp,\n    ruta_resultado: cierre.ruta_resultado,\n    ruta_cierre: rutaCierre,\n    maestro: parametros.maestro,\n    plantilla_sap: parametros.plantilla,\n    resultados_dir: parametros.resultados_dir,\n    salidas_dir: parametros.salidas_dir,\n    controles_dir: parametros.controles_dir,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "4cdcf525-1d9f-4f58-8431-df7bdcfc1266",
+      "name": "FASE3 - Escribir correccion temporal",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -120,
+        3000
+      ],
+      "parameters": {
+        "command": "=printf '%s' \"{{ $json.correccion_b64 }}\" | base64 -d > \"{{ $json.ruta_correccion_tmp }}\""
+      }
+    },
+    {
+      "id": "a8f9e758-99b4-40c8-8374-befcf910db46",
+      "name": "FASE3 - Ejecutar aplicar_correccion.py",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        120,
+        3000
+      ],
+      "parameters": {
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 aplicar_correccion.py --resultado \"{{ $('FASE3 - Construir correccion sin version').item.json.ruta_resultado }}\" --correccion-sin-version \"{{ $('FASE3 - Construir correccion sin version').item.json.ruta_correccion_tmp }}\" --cierre \"{{ $('FASE3 - Construir correccion sin version').item.json.ruta_cierre }}\" --maestro \"{{ $('FASE3 - Construir correccion sin version').item.json.maestro }}\" --plantilla-sap \"{{ $('FASE3 - Construir correccion sin version').item.json.plantilla_sap }}\" --resultados-dir \"{{ $('FASE3 - Construir correccion sin version').item.json.resultados_dir }}\" --salidas-dir \"{{ $('FASE3 - Construir correccion sin version').item.json.salidas_dir }}\" --controles-dir \"{{ $('FASE3 - Construir correccion sin version').item.json.controles_dir }}\" ; true"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "369a9489-2de6-4c64-8305-9cdaa4497996",
+      "name": "FASE3 - Interpretar resultado de correccion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        360,
+        3000
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const raw = $json.stdout || '';\nlet parsed = null;\nlet parseError = null;\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  parseError = e;\n}\n\nconst esValido = parsed && typeof parsed === 'object' && !Array.isArray(parsed) &&\n  (parsed.resultado === 'OK' || parsed.resultado === 'ERROR');\n\nif (!esValido) {\n  return [{\n    json: {\n      resultado: 'ERROR',\n      codigo: 'ERROR_TECNICO',\n      detalle: 'aplicar_correccion.py no devolvio una respuesta valida (stdout vacio, salida no JSON, o fallo inesperado del CLI). ' +\n        (parseError ? ('Detalle de parseo: ' + parseError.message + '. ') : '') +\n        'stderr: ' + ($json.stderr || '(vacio)') + ' | stdout: ' + (raw || '(vacio)'),\n    },\n  }];\n}\n\nreturn [{ json: parsed }];\n"
+      }
+    },
+    {
+      "id": "33f9d386-fbdf-40a4-b663-a16c40cd81fa",
+      "name": "FASE3 - Responder correccion JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        600,
+        3000
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "fdea3df8-e462-492b-8fbc-a87b82213e1f",
+      "name": "FASE3 - Leer pagina HTML canonica",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -360,
+        2200
+      ],
+      "parameters": {
+        "command": "=cat \"/workspaces/caja-tiquipaya-v2/n8n_frontend/revision_correccion.html\""
+      }
+    },
+    {
+      "id": "3e8477ca-adb6-4caf-9b27-ca083dfd2d1c",
+      "name": "FASE3 - Responder sin datos",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        840,
+        2500
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "54a0e454-d5f6-4295-983d-2d349b07b96b",
+      "name": "FASE3 - Construir error sin datos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        2550
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { resultado: 'ERROR', codigo: 'SIN_DATOS_REVISION', detalle: 'No hay resultados de cierres disponibles para revisar.' } }];"
+      }
+    },
+    {
+      "id": "5cabad08-7205-4149-b473-8e0e3d96473d",
+      "name": "FASE3 - Construir respuesta observacion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        2650
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { resultado: 'OK', ruta_observaciones: $('FASE3 - Construir observacion (base64)').item.json.ruta_observaciones } }];"
+      }
+    },
+    {
+      "id": "abdde6a9-d116-4f99-9338-3fbb5973dc37",
+      "name": "FASE3 - Construir respuesta pendiente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        2850
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { resultado: 'OK' } }];"
+      }
+    },
+    {
+      "id": "1ea8dcba-ec4f-4493-adec-ff9833edb20d",
+      "name": "LIMPIAR - Cierres locales temporales",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        560,
+        1120
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "find \"/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/cierres\" -mindepth 1 -maxdepth 1 -type f -name \"CIERRE *.xlsm\" -delete"
+      }
+    },
+    {
+      "id": "3d5fca74-7100-4f17-8edb-a219f88336d3",
+      "name": "GENERAR - Fechas del rango",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        1120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const base = $('PARAMETROS - Rango (desde formulario)').first().json;\nconst inicio = base.fecha_inicio;\nconst fin = base.fecha_fin;\n\nfunction parseISO(s) {\n  const [y, m, d] = s.split('-').map(Number);\n  return new Date(Date.UTC(y, m - 1, d));\n}\nfunction pad(n) {\n  return String(n).padStart(2, '0');\n}\n\nconst start = parseISO(inicio);\nconst end = parseISO(fin);\n\nconst items = [];\nfor (let dt = new Date(start); dt <= end; dt.setUTCDate(dt.getUTCDate() + 1)) {\n  const y = dt.getUTCFullYear();\n  const m = pad(dt.getUTCMonth() + 1);\n  const d = pad(dt.getUTCDate());\n  const fecha_iso = `${y}-${m}-${d}`;\n  const fecha_archivo = `${d}-${m}-${y}`;\n  const nombre_archivo = `CIERRE ${fecha_archivo}.xlsm`;\n  items.push({ json: { fecha_iso, fecha_archivo, nombre_archivo } });\n}\n\nreturn items;\n"
+      }
+    },
+    {
+      "id": "6d273eff-6f14-4fe8-9894-c12f75ad5109",
+      "name": "IF - Encontrado en Drive",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1080,
+        1120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-existe-id",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0096b682-3aaa-4bdc-ab11-2115aa7b3f77",
+      "name": "CONVERGER - Cierres materializados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        1120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { cierres_materializados: $input.all().length } }];\n"
+      }
+    },
+    {
+      "id": "e69dfb3e-3169-471c-9d46-a7a872267252",
+      "name": "FASE3 - Calcular batch_token",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -360,
+        2300
+      ],
+      "parameters": {
+        "command": "=sha256sum \"{{ $json.resultados_dir }}/resultado_batch.json\" | awk '{print $1}'"
+      }
+    },
+    {
+      "id": "d60301c2-cc3a-4fff-9892-26e3db474147",
+      "name": "FASE3 - Webhook POST publicar-listos",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -600,
+        4200
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tiq-revision/publicar-listos",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "c13df02e-4c12-4f59-8469-b62d8b4a7d9b"
+    },
+    {
+      "id": "bb4cef2b-5842-4111-8807-e2df907d5287",
+      "name": "FASE3 - Parametros resultados_dir (publicar)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -360,
+        4200
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "p1",
+              "name": "resultados_dir",
+              "value": "/home/codespace/poc_n8n_tiquipaya/FASE_C_DRIVE_REAL/resultados",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "2ffe9b0e-0878-4eef-b72a-f97fe0788439",
+      "name": "FASE3 - Leer resultado_batch.json (publicar)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        -120,
+        4140
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.resultados_dir }}/resultado_batch.json",
+        "options": {}
+      }
+    },
+    {
+      "id": "5c588857-5200-482b-a62d-6021a468aade",
+      "name": "FASE3 - Interpretar resultado_batch.json (publicar)",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        120,
+        4140
+      ],
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      }
+    },
+    {
+      "id": "5357ff56-714a-46f9-9577-5c02df3fb2d2",
+      "name": "FASE3 - Calcular batch_token actual (publicar)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -120,
+        4260
+      ],
+      "parameters": {
+        "command": "=sha256sum \"{{ $json.resultados_dir }}/resultado_batch.json\" | awk '{print $1}'"
+      }
+    },
+    {
+      "id": "865bdded-428f-4e29-a424-639b964824b8",
+      "name": "FASE3 - Combinar batch y hash (publicar)",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        360,
+        4200
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      }
+    },
+    {
+      "id": "789f5eb2-112c-4095-8064-13eab68a0679",
+      "name": "FASE3 - Validar batch_token (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        600,
+        4200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const items = $input.all();\nlet batchItem = null;\nlet hashItem = null;\nfor (const it of items) {\n  if (it.json && it.json.data) batchItem = it.json;\n  else if (it.json && typeof it.json.stdout === 'string') hashItem = it.json;\n}\nconst hashActual = hashItem ? hashItem.stdout.trim() : null;\nconst body = ($('FASE3 - Webhook POST publicar-listos').first().json.body) || {};\nconst tokenRecibido = body.batch_token || null;\nconst usuarioAuditor = body.usuario_auditor || '';\n\nreturn [{\n  json: {\n    token_ok: !!hashActual && !!tokenRecibido && hashActual === tokenRecibido,\n    batch: batchItem,\n    hash_actual: hashActual,\n    batch_token_recibido: tokenRecibido,\n    usuario_auditor: usuarioAuditor,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "cbd334aa-999e-4c18-b021-91601451891b",
+      "name": "IF - Batch token coincide (publicar)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        840,
+        4200
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.token_ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "rightValue": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "dd0d4bae-4eed-40df-b49e-cf6e722790b4",
+      "name": "FASE3 - Responder BATCH_DESACTUALIZADO (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        4060
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { resultado: 'ERROR', codigo: 'BATCH_DESACTUALIZADO', detalle: 'El resultado_batch.json cambio desde que se cargo la pantalla. Recarga los datos antes de publicar.' } }];\n"
+      }
+    },
+    {
+      "id": "c33c6e65-d65f-4a4f-bb0c-c215c66a7923",
+      "name": "FASE3 - Responder publicar-listos JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1320,
+        4060
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "9897d25a-bc6f-4ee2-90d8-d0235032f888",
+      "name": "FASE3 - Filtrar cierres LISTO_PARA_PUBLICAR (autoritativo)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        4260
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const batch = $json.batch || {};\nconst cierres = (batch.data && Array.isArray(batch.data.cierres)) ? batch.data.cierres : [];\nconst listos = cierres.filter((c) => c.estado === 'LISTO_PARA_PUBLICAR');\nreturn listos.map((c) => ({\n  json: {\n    fecha: c.fecha,\n    archivo: c.archivo,\n    hash: c.hash,\n    ruta_sap: c.ruta_sap,\n    ruta_resultado: c.ruta_resultado,\n  },\n}));\n"
+      }
+    },
+    {
+      "id": "e51be353-1032-4afe-b4b8-badc7175fb4e",
+      "name": "IF - Hay cierres listos (publicar)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1320,
+        4260
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hash }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "f37d8d53-6601-45ab-8139-329dd931c640",
+      "name": "FASE3 - Reportar sin cierres listos (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        4340
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { resultado: 'OK', publicados: [], omitidos: [], fallidos: [], mensaje: 'No hay cierres LISTO_PARA_PUBLICAR en este momento.' } }];\n"
+      }
+    },
+    {
+      "id": "9d4bb38b-0ae2-4160-a374-ef268f3214a0",
+      "name": "FASE3 - LOOP publicacion por cierre (publicar)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1560,
+        4520
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "788ba737-57ba-4f27-9c14-b774fbeff6f9",
+      "name": "FASE3 - Buscar marcador existente (publicar)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1800,
+        4120
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "={{ 'PROCESADO_' + $json.hash + '.json' }}",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "7a696ef2-2427-4fcf-b4d2-4492c589740c",
+      "name": "FASE3 - Anotar marcador (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2040,
+        4120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const original = $('FASE3 - LOOP publicacion por cierre (publicar)').first().json;\nconst encontrado = $input.first().json;\nreturn [{\n  json: {\n    ...original,\n    estado_publicacion: (encontrado && encontrado.id) ? 'YA_PUBLICADO' : null,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "37a39b8f-e05f-4326-99b4-9ee29be2caa6",
+      "name": "IF - Sigue pendiente tras marcador (publicar)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2280,
+        4120
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ !$json.estado_publicacion }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "rightValue": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "9cfdbf6c-e1d4-4813-8fb5-a3eec183de4f",
+      "name": "FASE3 - Buscar cierre en 00_ENTRADA_CIERRES (publicar)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2520,
+        4020
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "={{ $json.archivo }}",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "8c157398-8b21-4f95-8899-1f54f4443e7d",
+      "name": "FASE3 - Anotar localizacion (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2760,
+        4020
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const prev = $('FASE3 - Anotar marcador (publicar)').first().json;\nconst candidatos = $input.all().map((it) => it.json).filter((j) => j && j.name);\nconst exactos = candidatos.filter((j) => j.name === prev.archivo);\n\nlet nuevoEstado = null;\nlet entradaId = null;\nif (exactos.length === 1) {\n  entradaId = exactos[0].id;\n} else if (exactos.length === 0) {\n  nuevoEstado = 'CIERRE_NO_LOCALIZADO_EN_00_ENTRADA';\n} else {\n  nuevoEstado = 'CIERRE_AMBIGUO_EN_00_ENTRADA';\n}\n\nreturn [{\n  json: {\n    ...prev,\n    entrada_id: entradaId,\n    estado_publicacion: prev.estado_publicacion || nuevoEstado,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "d8915c44-fe41-4ea8-9892-ba38aa3d1f57",
+      "name": "FASE3 - Pasar sin localizar (ya resuelto) (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2520,
+        4220
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const prev = $('FASE3 - Anotar marcador (publicar)').first().json;\nreturn [{ json: { ...prev, entrada_id: null } }];\n"
+      }
+    },
+    {
+      "id": "b6a7c464-fdc0-4f8e-af6c-e927a008f8bc",
+      "name": "FASE3 - Carpeta del mes 04_SALIDAS (publicar)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3000,
+        4020
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "={{ $json.fecha.split('-')[0] + '-' + $json.fecha.split('-')[1] }}",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1DOBzBBvlxbFzq3dFgGgl7Ax-oo62P0fL"
+          },
+          "whatToSearch": "folders",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "8071dabb-4add-46a5-b4a4-aa6a67a39581",
+      "name": "FASE3 - Anotar carpeta 04_SALIDAS (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3240,
+        4020
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const prev = $('FASE3 - Anotar localizacion (publicar)').first().json;\nconst carpeta = $input.first().json;\nreturn [{ json: { ...prev, carpeta_04_salidas_id: carpeta && carpeta.id ? carpeta.id : null } }];\n"
+      }
+    },
+    {
+      "id": "28199b29-31f0-4521-acdc-e952ae6ce39d",
+      "name": "FASE3 - Carpeta SAP del mes (publicar)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3480,
+        3920
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "SAP",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $json.carpeta_04_salidas_id }}"
+          },
+          "whatToSearch": "folders",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "5401321a-ca78-487f-9651-96a96728eb7b",
+      "name": "IF - Carpeta SAP existe (publicar)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3720,
+        3920
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ !!$json.id }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "rightValue": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "9c66a3d1-fa80-40cc-b691-bf6ad678aaef",
+      "name": "FASE3 - Crear carpeta SAP del mes (publicar)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3960,
+        3840
+      ],
+      "parameters": {
+        "resource": "folder",
+        "operation": "create",
+        "authentication": "oAuth2",
+        "name": "SAP",
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('FASE3 - Anotar carpeta 04_SALIDAS (publicar)').item.json.carpeta_04_salidas_id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "bb83a898-adbd-4ea1-ad23-cc38419a38ef",
+      "name": "FASE3 - Anotar carpeta SAP (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4200,
+        3920
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const prev = $('FASE3 - Anotar carpeta 04_SALIDAS (publicar)').first().json;\nconst carpeta = $input.first().json;\nreturn [{ json: { ...prev, sap_folder_id: carpeta && carpeta.id ? carpeta.id : null } }];\n"
+      }
+    },
+    {
+      "id": "d41e86d6-1496-4034-84c8-096a833cc200",
+      "name": "FASE3 - Carpeta RESULTADOS del mes (publicar)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4440,
+        4020
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "RESULTADOS",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $json.carpeta_04_salidas_id }}"
+          },
+          "whatToSearch": "folders",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "6f3d9fc6-3a47-49f9-b687-8dbc7c176c3d",
+      "name": "IF - Carpeta RESULTADOS existe (publicar)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4680,
+        4020
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ !!$json.id }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "rightValue": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "925d8be9-3b40-4188-a733-48c17bcb7fd9",
+      "name": "FASE3 - Crear carpeta RESULTADOS del mes (publicar)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4920,
+        3940
+      ],
+      "parameters": {
+        "resource": "folder",
+        "operation": "create",
+        "authentication": "oAuth2",
+        "name": "RESULTADOS",
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('FASE3 - Anotar carpeta SAP (publicar)').item.json.carpeta_04_salidas_id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "0546cb27-c8b0-445d-b683-4f888a89a05f",
+      "name": "FASE3 - Anotar carpeta RESULTADOS (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5160,
+        4020
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const prev = $('FASE3 - Anotar carpeta SAP (publicar)').first().json;\nconst carpeta = $input.first().json;\nreturn [{ json: { ...prev, resultados_folder_id: carpeta && carpeta.id ? carpeta.id : null } }];\n"
+      }
+    },
+    {
+      "id": "77f61846-571f-4539-8ae1-1671af20395a",
+      "name": "FASE3 - Leer SAP local (publicar)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        5400,
+        4020
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.ruta_sap }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "42fb6489-ec18-4f62-acbe-1a2ff7999163",
+      "name": "FASE3 - Subir SAP a Drive (publicar)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        5640,
+        3960
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "authentication": "oAuth2",
+        "inputDataFieldName": "data",
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('FASE3 - Anotar carpeta RESULTADOS (publicar)').item.json.sap_folder_id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "9fac5ecf-aab5-4419-b6fe-ae9ee5598d06",
+      "name": "FASE3 - Anotar subida SAP (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5880,
+        4020
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const prev = $('FASE3 - Anotar carpeta RESULTADOS (publicar)').first().json;\nconst items = $input.all();\nlet problema = null;\nfor (const it of items) {\n  if (it.json && it.json.error) { problema = problema || 'no_ok'; }\n}\nconst huboError = items.some((it) => it.json && it.json.error);\nreturn [{\n  json: {\n    ...prev,\n    estado_publicacion: prev.estado_publicacion || (huboError ? 'ERROR_AL_SUBIR_SAP' : null),\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "4144dead-ccce-449a-9331-dc34f07f0572",
+      "name": "FASE3 - Leer RESULTADO local (publicar)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        6120,
+        4020
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.ruta_resultado }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c019145b-19e3-493d-9596-925817d1ae69",
+      "name": "FASE3 - Subir RESULTADO a Drive (publicar)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        6360,
+        3960
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "authentication": "oAuth2",
+        "inputDataFieldName": "data",
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('FASE3 - Anotar subida SAP (publicar)').item.json.resultados_folder_id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "564fa00b-bb3d-409d-8b60-d98f15e7f1ff",
+      "name": "FASE3 - Anotar subida RESULTADO (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6600,
+        4020
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const prev = $('FASE3 - Anotar subida SAP (publicar)').first().json;\nconst items = $input.all();\nconst huboError = items.some((it) => it.json && it.json.error);\nreturn [{\n  json: {\n    ...prev,\n    estado_publicacion: prev.estado_publicacion || (huboError ? 'ERROR_AL_SUBIR_RESULTADO' : null),\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "8e381bd4-01cf-4625-bf7b-5493a4f8b6a0",
+      "name": "FASE3 - Carpeta del mes 03_PROCESADOS (publicar)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        6840,
+        4020
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "authentication": "oAuth2",
+        "searchMethod": "name",
+        "queryString": "={{ $json.fecha.split('-')[0] + '-' + $json.fecha.split('-')[1] }}",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1fFditg9LtgNexM6YPzlAaDkfzteRVtpZ"
+          },
+          "whatToSearch": "folders",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "e3059d29-cc12-4554-b5be-279988b9e591",
+      "name": "FASE3 - Mover cierre a 03_PROCESADOS (publicar)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        7080,
+        4020
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "move",
+        "authentication": "oAuth2",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('FASE3 - Anotar subida RESULTADO (publicar)').item.json.entrada_id }}"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "311ba7de-29ee-4fb0-8499-75812c8de0d5",
+      "name": "FASE3 - Anotar movimiento (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7320,
+        4020
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const prev = $('FASE3 - Anotar subida RESULTADO (publicar)').first().json;\nconst items = $input.all();\nconst huboError = items.some((it) => it.json && it.json.error);\nreturn [{\n  json: {\n    ...prev,\n    estado_publicacion: prev.estado_publicacion || (huboError ? 'ERROR_AL_MOVER_CIERRE' : null),\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "e91c8401-da0e-482a-af03-969a5d5002c8",
+      "name": "IF - Listo para generar marcador (publicar)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        7560,
+        4020
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ !$json.estado_publicacion }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "rightValue": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "59a014ec-e616-44a8-a33a-de76db0e84e3",
+      "name": "FASE3 - Pasar sin generar marcador (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7800,
+        4200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { ...$input.first().json } }];\n"
+      }
+    },
+    {
+      "id": "02c76f80-5bd7-446c-bafd-bea683d585aa",
+      "name": "FASE3 - Generar marcador (publicar_cierre.py) (publicar)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        7800,
+        3960
+      ],
+      "parameters": {
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 publicar_cierre.py --resultado \"{{ $json.ruta_resultado }}\" --sap-publicado-por-usuario true --sap-verificado-en-drive true --resultado-publicado true --cierre-movido-a-procesados true --observaciones \"Publicado via modulo REVISION Y CORRECCION por {{ $('FASE3 - Validar batch_token (publicar)').first().json.usuario_auditor }}\" --salida-marcador \"/home/codespace/poc_n8n_tiquipaya/MARCADOR_SIMULADO/PROCESADO_{{ $json.hash }}.json\" ; true"
+      }
+    },
+    {
+      "id": "b28b3fbf-4a91-4d21-8319-4edc0eb01565",
+      "name": "FASE3 - Interpretar resultado marcador (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8040,
+        3960
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const prev = $('FASE3 - Anotar movimiento (publicar)').first().json;\nconst raw = $json.stdout || '';\nlet parsed = null;\ntry { parsed = JSON.parse(raw); } catch (e) { parsed = null; }\nconst esValido = parsed && typeof parsed === 'object' && (parsed.resultado === 'OK' || parsed.resultado === 'ERROR');\nif (!esValido) {\n  return [{ json: { ...prev, marcador_resultado: 'ERROR', marcador_codigo: 'ERROR_TECNICO', marcador_ruta_local: null, marcador_nombre: null } }];\n}\nreturn [{\n  json: {\n    ...prev,\n    marcador_resultado: parsed.resultado,\n    marcador_codigo: parsed.codigo || null,\n    marcador_ruta_local: parsed.marcador_ruta_local || null,\n    marcador_nombre: parsed.marcador_nombre || null,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "d08b2a53-137c-4da2-9d68-61468f5a9e83",
+      "name": "IF - Marcador generado OK (publicar)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        8280,
+        3960
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.marcador_resultado }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "OK"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "51cf993e-72e1-4a14-8b4b-b110b0d4f0a6",
+      "name": "FASE3 - Anotar fallo marcador (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8520,
+        4080
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const prev = $input.first().json;\nreturn [{ json: { ...prev, estado_publicacion: prev.estado_publicacion || ('MARCADOR_' + (prev.marcador_codigo || 'DESCONOCIDO')) } }];\n"
+      }
+    },
+    {
+      "id": "e0a6d839-aee5-4b26-a66b-172f28dbfe19",
+      "name": "FASE3 - Leer marcador local (publicar)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        8520,
+        3880
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.marcador_ruta_local }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ecaa8301-63f9-48ff-9b2f-eb2576e53490",
+      "name": "FASE3 - Subir marcador a Drive (publicar)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        8760,
+        3880
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "authentication": "oAuth2",
+        "inputDataFieldName": "data",
+        "name": "={{ $('FASE3 - Interpretar resultado marcador (publicar)').item.json.marcador_nombre }}",
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "4728150c-6083-42da-9efb-0ced5b187bd5",
+      "name": "FASE3 - Anotar publicacion final (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9000,
+        3960
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "let prev;\ntry { prev = $('FASE3 - Interpretar resultado marcador (publicar)').first().json; } catch (e) { prev = $input.first().json; }\nconst items = $input.all();\nconst huboErrorLeerOSubir = items.some((it) => it.json && it.json.error);\nreturn [{\n  json: {\n    ...prev,\n    estado_publicacion: prev.estado_publicacion || (huboErrorLeerOSubir ? 'ERROR_AL_SUBIR_MARCADOR' : 'PUBLICADO'),\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "2c6a8b01-e90d-4246-a628-5a7384724028",
+      "name": "FASE3 - Preparar retorno al loop (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9240,
+        4120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const it = $input.first().json;\nreturn [{\n  json: {\n    fecha: it.fecha,\n    archivo: it.archivo,\n    hash: it.hash,\n    estado_publicacion: it.estado_publicacion || 'PUBLICADO',\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "c128d8ac-3ede-4814-80a0-52e249f76acc",
+      "name": "FASE3 - Combinar resultados por cierre (publicar)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9720,
+        4120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const items = $input.all().map((it) => it.json);\nconst publicados = items.filter((c) => c.estado_publicacion === 'PUBLICADO').map((c) => ({ fecha: c.fecha, archivo: c.archivo, hash: c.hash }));\nconst omitidos = items.filter((c) => c.estado_publicacion === 'YA_PUBLICADO').map((c) => ({ fecha: c.fecha, archivo: c.archivo, hash: c.hash }));\nconst fallidos = items\n  .filter((c) => c.estado_publicacion && c.estado_publicacion !== 'PUBLICADO' && c.estado_publicacion !== 'YA_PUBLICADO')\n  .map((c) => ({ fecha: c.fecha, archivo: c.archivo, hash: c.hash, codigo: c.estado_publicacion }));\n\nreturn [{\n  json: {\n    resultado: 'OK',\n    publicados: publicados,\n    omitidos: omitidos,\n    fallidos: fallidos,\n  },\n}];\n"
+      }
+    }
+  ],
+  "connections": {
+    "INICIO - Procesar cierres": {
+      "main": [
+        [
+          {
+            "node": "PARAMETROS - Rango y rutas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PARAMETROS - Rango y rutas": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR - Motor Python",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR - Motor Python": {
+      "main": [
+        [
+          {
+            "node": "LEER - Resultado del batch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ERROR TECNICO - Revisar ejecucion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER - Resultado del batch": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR - JSON del motor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DECIDIR - Estado del cierre": {
+      "main": [
+        [
+          {
+            "node": "ERROR TECNICO - Revisar ejecucion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "REVISAR - Requiere auditor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "OK - Listo para publicar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "SIN ACCION - Ya procesado o sin archivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR - JSON del motor": {
+      "main": [
+        [
+          {
+            "node": "VALIDAR - Estructura del resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VALIDAR - Estructura del resultado": {
+      "main": [
+        [
+          {
+            "node": "DECIDIR - Estado del cierre",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ERROR TECNICO - Revisar ejecucion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - Cierre del dia": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR - Cierre a disco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Carpeta del mes (Maestro)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Archivo MACROS del mes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Archivo MACROS del mes": {
+      "main": [
+        [
+          {
+            "node": "DESCARGAR - Maestro del mes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - Maestro del mes": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR - Maestro a disco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR - Maestro a disco": {
+      "main": [
+        [
+          {
+            "node": "DESCARGAR - Plantilla SAP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - Plantilla SAP": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR - Plantilla a disco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Marcadores existentes": {
+      "main": [
+        [
+          {
+            "node": "DESCARGAR - Marcador",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - Marcador": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR - Marcador a disco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR - Marcador a disco": {
+      "main": [
+        [
+          {
+            "node": "MATERIALIZAR - Rutas locales (Drive real)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MATERIALIZAR - Rutas locales (Drive real)": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR - Motor Python",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONFIRMAR - Aprobacion del auditor": {
+      "main": [
+        [
+          {
+            "node": "DECIDIR - Aprobado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DECIDIR - Aprobado": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Carpeta del mes en 04_SALIDAS",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PUBLICACION - Rechazada por auditor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR - Generar marcador local (publicar_cierre.py)": {
+      "main": [
+        [
+          {
+            "node": "LEER - Marcador local a subir",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PUBLICACION - Marcador no autorizado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Carpeta del mes en 04_SALIDAS": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Carpeta SAP del mes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Carpeta SAP del mes": {
+      "main": [
+        [
+          {
+            "node": "IF - Carpeta SAP existe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Carpeta SAP existe": {
+      "main": [
+        [
+          {
+            "node": "LEER - SAP local a subir",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CREAR - Carpeta SAP del mes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CREAR - Carpeta SAP del mes": {
+      "main": [
+        [
+          {
+            "node": "LEER - SAP local a subir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER - SAP local a subir": {
+      "main": [
+        [
+          {
+            "node": "SUBIR - SAP a Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SUBIR - SAP a Drive": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Carpeta RESULTADOS del mes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Carpeta RESULTADOS del mes": {
+      "main": [
+        [
+          {
+            "node": "IF - Carpeta RESULTADOS existe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Carpeta RESULTADOS existe": {
+      "main": [
+        [
+          {
+            "node": "LEER - Resultado local a subir",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CREAR - Carpeta RESULTADOS del mes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CREAR - Carpeta RESULTADOS del mes": {
+      "main": [
+        [
+          {
+            "node": "LEER - Resultado local a subir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER - Resultado local a subir": {
+      "main": [
+        [
+          {
+            "node": "SUBIR - Resultado a Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SUBIR - Resultado a Drive": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Carpeta del mes en 03_PROCESADOS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Carpeta del mes en 03_PROCESADOS": {
+      "main": [
+        [
+          {
+            "node": "MOVER - Cierre a 03_PROCESADOS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MOVER - Cierre a 03_PROCESADOS": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR - Generar marcador local (publicar_cierre.py)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER - Marcador local a subir": {
+      "main": [
+        [
+          {
+            "node": "SUBIR - Marcador PROCESADO a Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SUBIR - Marcador PROCESADO a Drive": {
+      "main": [
+        [
+          {
+            "node": "FIN - Publicacion completa en Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INICIO - Procesar cierres (Formulario)": {
+      "main": [
+        [
+          {
+            "node": "PARAMETROS - Rango (desde formulario)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR - Plantilla a disco": {
+      "main": [
+        [
+          {
+            "node": "LIMPIAR - Marcadores locales obsoletos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LIMPIAR - Marcadores locales obsoletos": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Marcadores existentes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OK - Listo para publicar": {
+      "main": [
+        [
+          {
+            "node": "PREPARAR - Cierres listos (detalle)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "COMBINAR - Detalle y rango completo",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "PREPARAR - Cierres listos (detalle)": {
+      "main": [
+        [
+          {
+            "node": "LEER - Detalle SAP del cierre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER - Detalle SAP del cierre": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR - Detalle SAP del cierre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR - Detalle SAP del cierre": {
+      "main": [
+        [
+          {
+            "node": "COMBINAR - Detalle y rango completo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "COMBINAR - Detalle y rango completo": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Resumen auditor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR - Resumen auditor": {
+      "main": [
+        [
+          {
+            "node": "CONFIRMAR - Aprobacion del auditor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "REVISAR - Requiere auditor": {
+      "main": [
+        [
+          {
+            "node": "PREPARAR - Cierres en revision (detalle)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "COMBINAR - Detalle y rango en revision",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "PREPARAR - Cierres en revision (detalle)": {
+      "main": [
+        [
+          {
+            "node": "LEER - Detalle de excepciones del cierre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER - Detalle de excepciones del cierre": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR - Detalle de excepciones del cierre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR - Detalle de excepciones del cierre": {
+      "main": [
+        [
+          {
+            "node": "COMBINAR - Detalle y rango en revision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "COMBINAR - Detalle y rango en revision": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Revision de excepciones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR - Revision de excepciones": {
+      "main": [
+        [
+          {
+            "node": "CONFIRMAR - Revision de excepciones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONFIRMAR - Revision de excepciones": {
+      "main": [
+        [
+          {
+            "node": "FIN - Revision registrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Webhook GET datos": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Parametros resultados_dir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Parametros resultados_dir": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Leer resultado_batch.json",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "FASE3 - Calcular batch_token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Leer resultado_batch.json": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Interpretar resultado_batch.json",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FASE3 - Construir error sin datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Interpretar resultado_batch.json": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Campos corregibles (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FASE3 - Construir error sin datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Campos corregibles (Python)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Construir respuesta datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Construir respuesta datos": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Responder datos JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Webhook POST observacion": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Construir observacion (base64)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Construir observacion (base64)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Guardar observacion (append)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Webhook POST pendiente": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Construir pendiente (base64)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Construir pendiente (base64)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Guardar pendiente (append)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Webhook POST corregir": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Construir correccion sin version",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Construir correccion sin version": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Escribir correccion temporal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Escribir correccion temporal": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Ejecutar aplicar_correccion.py",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Ejecutar aplicar_correccion.py": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Interpretar resultado de correccion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Interpretar resultado de correccion": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Responder correccion JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Webhook GET pagina": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Leer pagina HTML canonica",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Leer pagina HTML canonica": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Responder pagina HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Construir error sin datos": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Responder sin datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Guardar observacion (append)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Construir respuesta observacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Construir respuesta observacion": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Responder observacion OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Guardar pendiente (append)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Construir respuesta pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Construir respuesta pendiente": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Responder pendiente OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PARAMETROS - Rango (desde formulario)": {
+      "main": [
+        [
+          {
+            "node": "LIMPIAR - Cierres locales temporales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LIMPIAR - Cierres locales temporales": {
+      "main": [
+        [
+          {
+            "node": "GENERAR - Fechas del rango",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GENERAR - Fechas del rango": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Cierre del dia en Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Cierre del dia en Drive": {
+      "main": [
+        [
+          {
+            "node": "IF - Encontrado en Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Encontrado en Drive": {
+      "main": [
+        [
+          {
+            "node": "DESCARGAR - Cierre del dia",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CONVERGER - Cierres materializados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR - Cierre a disco": {
+      "main": [
+        [
+          {
+            "node": "CONVERGER - Cierres materializados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONVERGER - Cierres materializados": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Carpeta del mes (Maestro)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Webhook POST publicar-listos": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Parametros resultados_dir (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Parametros resultados_dir (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Leer resultado_batch.json (publicar)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "FASE3 - Calcular batch_token actual (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Leer resultado_batch.json (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Interpretar resultado_batch.json (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Interpretar resultado_batch.json (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Combinar batch y hash (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Calcular batch_token actual (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Combinar batch y hash (publicar)",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "FASE3 - Combinar batch y hash (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Validar batch_token (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Validar batch_token (publicar)": {
+      "main": [
+        [
+          {
+            "node": "IF - Batch token coincide (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Batch token coincide (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Filtrar cierres LISTO_PARA_PUBLICAR (autoritativo)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FASE3 - Responder BATCH_DESACTUALIZADO (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Responder BATCH_DESACTUALIZADO (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Responder publicar-listos JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Filtrar cierres LISTO_PARA_PUBLICAR (autoritativo)": {
+      "main": [
+        [
+          {
+            "node": "IF - Hay cierres listos (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Hay cierres listos (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - LOOP publicacion por cierre (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FASE3 - Reportar sin cierres listos (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Reportar sin cierres listos (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Responder publicar-listos JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - LOOP publicacion por cierre (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Combinar resultados por cierre (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FASE3 - Buscar marcador existente (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Buscar marcador existente (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Anotar marcador (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Anotar marcador (publicar)": {
+      "main": [
+        [
+          {
+            "node": "IF - Sigue pendiente tras marcador (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Sigue pendiente tras marcador (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Buscar cierre en 00_ENTRADA_CIERRES (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FASE3 - Pasar sin localizar (ya resuelto) (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Buscar cierre en 00_ENTRADA_CIERRES (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Anotar localizacion (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Pasar sin localizar (ya resuelto) (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Anotar localizacion (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Anotar localizacion (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Carpeta del mes 04_SALIDAS (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Carpeta del mes 04_SALIDAS (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Anotar carpeta 04_SALIDAS (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Anotar carpeta 04_SALIDAS (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Carpeta SAP del mes (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Carpeta SAP del mes (publicar)": {
+      "main": [
+        [
+          {
+            "node": "IF - Carpeta SAP existe (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Carpeta SAP existe (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Anotar carpeta SAP (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FASE3 - Crear carpeta SAP del mes (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Crear carpeta SAP del mes (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Anotar carpeta SAP (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Anotar carpeta SAP (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Carpeta RESULTADOS del mes (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Carpeta RESULTADOS del mes (publicar)": {
+      "main": [
+        [
+          {
+            "node": "IF - Carpeta RESULTADOS existe (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Carpeta RESULTADOS existe (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Anotar carpeta RESULTADOS (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FASE3 - Crear carpeta RESULTADOS del mes (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Crear carpeta RESULTADOS del mes (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Anotar carpeta RESULTADOS (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Anotar carpeta RESULTADOS (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Leer SAP local (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Leer SAP local (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Subir SAP a Drive (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "FASE3 - Subir SAP a Drive (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Anotar subida SAP (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "FASE3 - Anotar subida SAP (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Leer RESULTADO local (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Leer RESULTADO local (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Subir RESULTADO a Drive (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "FASE3 - Subir RESULTADO a Drive (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Anotar subida RESULTADO (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "FASE3 - Anotar subida RESULTADO (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Carpeta del mes 03_PROCESADOS (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Carpeta del mes 03_PROCESADOS (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Mover cierre a 03_PROCESADOS (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Mover cierre a 03_PROCESADOS (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Anotar movimiento (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "FASE3 - Anotar movimiento (publicar)": {
+      "main": [
+        [
+          {
+            "node": "IF - Listo para generar marcador (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Listo para generar marcador (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Generar marcador (publicar_cierre.py) (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FASE3 - Pasar sin generar marcador (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Generar marcador (publicar_cierre.py) (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Interpretar resultado marcador (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Interpretar resultado marcador (publicar)": {
+      "main": [
+        [
+          {
+            "node": "IF - Marcador generado OK (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Marcador generado OK (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Leer marcador local (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FASE3 - Anotar fallo marcador (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Leer marcador local (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Subir marcador a Drive (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "FASE3 - Subir marcador a Drive (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Anotar publicacion final (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "FASE3 - Pasar sin generar marcador (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Preparar retorno al loop (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Anotar fallo marcador (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Preparar retorno al loop (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Anotar publicacion final (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Preparar retorno al loop (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Preparar retorno al loop (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - LOOP publicacion por cierre (publicar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FASE3 - Combinar resultados por cierre (publicar)": {
+      "main": [
+        [
+          {
+            "node": "FASE3 - Responder publicar-listos JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate"
+  },
+  "id": "LkS0RHu9KEbHCR4p",
+  "versionId": "ebb043e7-a5c1-48d7-a30a-cc3e02025949",
+  "nodeGroups": [],
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  },
+  "pinData": {}
+}

@@ -111,7 +111,10 @@ def _clasificar_voucher(codigo_informado, importe_str, macros_idx):
             "estado": "MULTIPLE",
             "codigo_informado": codigo_informado,
             "importe": importe_str,
-            "candidatos": len(directos),
+            # Lista real de candidatos (mismo cálculo de siempre: `directos`
+            # ya traía estos objetos, antes se descartaban quedándose solo
+            # con len()). No cambia el criterio MULTIPLE (len(directos)>1).
+            "candidatos": [{"codigo": m["codigo"], "fecha": m["fecha"]} for m in directos],
         }
 
     # 2) AUTOCORRECCION_0_O: únicamente dígito 0 <-> letra O, importe exacto,
@@ -135,7 +138,8 @@ def _clasificar_voucher(codigo_informado, importe_str, macros_idx):
             "estado": "MULTIPLE",
             "codigo_informado": codigo_informado,
             "importe": importe_str,
-            "candidatos": len(encontrados_0o),
+            # Misma normalización que arriba: lista real, no conteo.
+            "candidatos": [{"codigo": m["codigo"], "fecha": m["fecha"]} for m in encontrados_0o],
         }
 
     # 3) POSIBLE_TYPO: mismo importe, código distinto por 1-2 caracteres
@@ -389,9 +393,18 @@ def validar_ci(cierre):
             problema_bloqueante = "CI_IMPORTE_NEGATIVO"
 
         if problema_bloqueante:
+            # Campos adicionales para excepciones[] (FASE 1): ya estaban en
+            # memoria en `ci` antes de este `continue` (ver
+            # excel_io._leer_comunicaciones_internas, que los construye sin
+            # excepción para toda fila), solo se copian aquí. No cambia
+            # ninguna de las 3 reglas de validación de arriba.
             bloqueantes.append({
                 "sfc": ci["sfc"], "referencia": ci["referencia"],
                 "importe": ci["importe"], "tipo": problema_bloqueante,
+                "cuenta_contable": ci.get("cuenta_contable"),
+                "asignacion": ci.get("asignacion"),
+                "glosa": ci.get("glosa"),
+                "fecha_ci": ci.get("fecha_ci"),
             })
             continue
 
@@ -446,6 +459,120 @@ def validar_ci(cierre):
 
 
 # ---------------------------------------------------------------------------
+# FASE 1 — excepciones[] estructuradas (Voucher / Comunicación Interna / ATC)
+# ---------------------------------------------------------------------------
+#
+# Expone, sin recalcular ni cambiar ninguna regla de negocio, el detalle que
+# vouchers/atc/ci YA calculan y que hoy se descarta al colapsar todo a un
+# conteo (excepciones_bloqueantes) y a un texto genérico (detalle_error).
+# Cada función aquí solo LEE claves ya presentes en el dict correspondiente
+# (cruzar_vouchers/validar_ci/cruzar_atc*) y las reempaqueta bajo el schema
+# excepciones[] aprobado; nunca decide bloqueo/no bloqueo (eso lo sigue
+# decidiendo exclusivamente excepciones_bloqueantes, sin cambios).
+
+_MOTIVO_LEGIBLE = {
+    "NO_ENCONTRADO": "Depósito BNB sin voucher coincidente en MACROS",
+    "MULTIPLE": "Depósito BNB con más de un voucher candidato en MACROS",
+    "POSIBLE_TYPO": "Depósito BNB con voucher candidato por posible error de tipeo",
+    "CI_CUENTA_FALTANTE": "Comunicación interna sin cuenta contable asignada",
+    "CI_ASIGNACION_FALTANTE": "Comunicación interna sin código de asignación",
+    "CI_IMPORTE_NEGATIVO": "Comunicación interna con importe negativo",
+    "ATC_FECHA_NO_ENCONTRADA": "No se encontró la fila ATC correspondiente a la fecha del cierre",
+    "ATC_DIFERENCIA": "El neto + comisión ATC no coincide con el bruto reportado",
+    "ATC_SIN_CANDIDATO": "No se encontró en MACROS un depósito bancario compatible con el neto ATC",
+    "ATC_MULTIPLE": "Se encontró más de un depósito bancario compatible con el neto ATC en MACROS",
+    # FASE 3 — gap detectado y corregido: estos dos códigos ya existían
+    # como `problemas` de _validar_partidas() (ETAPA 5, sin cambios), pero
+    # nunca se exponían en excepciones[] (solo en asiento["problemas"],
+    # sin estructura ni motivo legible), por lo que el módulo de corrección
+    # no podía identificarlos. Ver _excepciones_atc_asiento() más abajo.
+    "ATC_NETO_CUENTA_INVALIDA": "La cuenta contable del NETO ATC no es la cuenta esperada",
+    "ATC_COMISION_CUENTA_INVALIDA": "La cuenta contable de la COMISIÓN ATC no es la cuenta esperada",
+}
+
+_ESTADOS_VOUCHER_EXCEPCION = ("NO_ENCONTRADO", "MULTIPLE", "POSIBLE_TYPO")
+
+
+def _excepciones_voucher(vouchers):
+    excepciones = []
+    for v in vouchers["detalle"]:
+        if v["estado"] not in _ESTADOS_VOUCHER_EXCEPCION:
+            continue
+        # Normalizado: `candidatos` siempre es list (vacía en NO_ENCONTRADO,
+        # que no calcula ninguno) + `cantidad_candidatos` entero derivado.
+        # `_clasificar_voucher` ya devuelve la lista real en MULTIPLE y en
+        # POSIBLE_TYPO (ver arriba); esto no cambia ningún criterio de
+        # matching/bloqueo, solo la forma en que se expone.
+        candidatos = v.get("candidatos") or []
+        exc = {
+            "categoria": "VOUCHER",
+            "tipo": v["estado"],
+            "sfc": v.get("sfc"),
+            "codigo_informado": v.get("codigo_informado"),
+            "importe": v.get("importe"),
+            "fecha": v.get("fecha_deposito"),
+            "candidatos": candidatos,
+            "cantidad_candidatos": len(candidatos),
+            "motivo_legible": _MOTIVO_LEGIBLE[v["estado"]],
+        }
+        excepciones.append(exc)
+    return excepciones
+
+
+def _excepciones_ci(ci):
+    return [
+        {
+            "categoria": "COMUNICACION_INTERNA",
+            "tipo": b["tipo"],
+            "sfc": b.get("sfc"),
+            "factura": b.get("referencia"),
+            "importe": b.get("importe"),
+            "fecha": b.get("fecha_ci"),
+            "glosa": b.get("glosa"),
+            "cuenta_contable": b.get("cuenta_contable") or None,
+            "asignacion": b.get("asignacion") or None,
+            "motivo_legible": _MOTIVO_LEGIBLE[b["tipo"]],
+        }
+        for b in ci["bloqueantes"]
+    ]
+
+
+def _tipo_excepcion_atc(atc):
+    """El "tipo" de excepción ATC no viene de una sola clave: depende de
+    si falló la reconstrucción del bruto (estado_validacion) o, en modo
+    LEGADO, del cruce contra MACROS (estado_match_macros) cuando la
+    reconstrucción sí cuadró. `atc["excepcion"]` (sin cambios) sigue
+    siendo la única fuente de verdad de si hay o no excepción."""
+    if not atc.get("excepcion"):
+        return None
+    if atc["estado_validacion"] in ("ATC_FECHA_NO_ENCONTRADA", "ATC_DIFERENCIA"):
+        return atc["estado_validacion"]
+    return atc.get("estado_match_macros")
+
+
+def _excepciones_atc(atc):
+    tipo = _tipo_excepcion_atc(atc)
+    if tipo is None:
+        return []
+    return [{
+        "categoria": "ATC",
+        "tipo": tipo,
+        "bruto": atc.get("bruto"),
+        "neto": atc.get("neto"),
+        "comision": atc.get("comision"),
+        "diferencia": atc.get("diferencia"),
+        # Solo existen en modo PRECONCILIADO (hoja "ATC TIQUIPAYA"); en
+        # modo LEGADO estas claves no existen en `atc` y .get() ya
+        # devuelve None genuinamente (no hay fuente que leer, ver auditoría).
+        "neto_cuenta_contable": atc.get("neto_cuenta_contable"),
+        "neto_asignacion": atc.get("neto_asignacion"),
+        "comision_cuenta_contable": atc.get("comision_cuenta_contable"),
+        "comision_asignacion": atc.get("comision_asignacion"),
+        "motivo_legible": _MOTIVO_LEGIBLE[tipo],
+    }]
+
+
+# ---------------------------------------------------------------------------
 # Orquestación
 # ---------------------------------------------------------------------------
 
@@ -484,12 +611,19 @@ def _cruzar_sobre_cierre(cierre, macros_idx, atc_idx):
 
     resultado = "CRUCES V2 OK" if excepciones_bloqueantes == 0 else "CRUCES V2 ERROR"
 
+    excepciones = (
+        _excepciones_voucher(vouchers)
+        + _excepciones_ci(ci)
+        + _excepciones_atc(atc)
+    )
+
     return {
         "fecha_cierre": cierre["fecha_cierre"],
         "vouchers": vouchers,
         "atc": atc,
         "ci": ci,
         "excepciones_bloqueantes_total": excepciones_bloqueantes,
+        "excepciones": excepciones,
         "resultado": resultado,
     }
 
@@ -623,6 +757,7 @@ def _ejecutar_v2_sobre_cierre(cierre, macros_idx, atc_idx):
         "recaudacion_explicada": recaudacion_explicada,
         "diferencia": diferencia,
         "excepciones_bloqueantes": excepciones_bloqueantes,
+        "excepciones": cruces["excepciones"],
         "estado": estado,
         "detalle": detalle,
     }
@@ -882,6 +1017,42 @@ def _validar_partidas(partidas, total_cargo, total_haber, diferencia):
     return problemas
 
 
+# ---------------------------------------------------------------------------
+# FASE 3 — gap corregido: exponer en excepciones[] (mismo schema de FASE 1)
+# los problemas ATC de ETAPA 5 que SÍ son corregibles por el módulo de
+# corrección (neto_cuenta_contable/neto_asignacion/comision_cuenta_contable/
+# comision_asignacion). Antes de esto, "ATC_NETO_CUENTA_INVALIDA"/
+# "ATC_COMISION_CUENTA_INVALIDA" solo existían dentro de
+# asiento["problemas"] (códigos sueltos, sin estructura ni motivo legible):
+# el módulo de corrección no podía identificar la excepción para ubicarla.
+#
+# Esta función únicamente REEMPAQUETA, cuando ya ocurrió, un problema que
+# _validar_partidas() (sin cambios) ya detectó: no decide bloqueo (eso lo
+# sigue haciendo exclusivamente el estado del asiento/"problemas"), no
+# recalcula nada, no cambia ninguna cuenta ni regla. Mismo patrón que
+# _excepciones_voucher/_excepciones_ci/_excepciones_atc (ETAPA 3), aplicado
+# aquí a un hallazgo de ETAPA 5.
+# ---------------------------------------------------------------------------
+
+def _excepciones_atc_asiento(atc_neto, atc_comision, problemas):
+    tipos_presentes = [
+        t for t in ("ATC_NETO_CUENTA_INVALIDA", "ATC_COMISION_CUENTA_INVALIDA")
+        if t in problemas
+    ]
+    return [
+        {
+            "categoria": "ATC",
+            "tipo": tipo,
+            "neto_cuenta_contable": (atc_neto or {}).get("cuenta_contable"),
+            "neto_asignacion": (atc_neto or {}).get("codigo_confirmado"),
+            "comision_cuenta_contable": (atc_comision or {}).get("cuenta_contable"),
+            "comision_asignacion": (atc_comision or {}).get("asignacion"),
+            "motivo_legible": _MOTIVO_LEGIBLE[tipo],
+        }
+        for tipo in tipos_presentes
+    ]
+
+
 def construir_asiento(resultado_v2):
     """ETAPA 5: construye el asiento contable determinístico a partir del
     resultado ya calculado por ejecutar_v2() (incluida su clave "detalle").
@@ -914,6 +1085,7 @@ def construir_asiento(resultado_v2):
             "estado": "NO_ASIENTO",
             "motivo": f"Cierre no habilitado para asiento (estado={resultado_v2.get('estado')}).",
             "partidas": [],
+            "excepciones": [],
         }
 
     detalle = resultado_v2["detalle"]
@@ -933,6 +1105,7 @@ def construir_asiento(resultado_v2):
             "estado": "NO_ASIENTO",
             "motivo": "ATC no está determinado pese a estado OK.",
             "partidas": [],
+            "excepciones": [],
         }
 
     partidas = []
@@ -1052,6 +1225,13 @@ def construir_asiento(resultado_v2):
     # Los totales y el diagnóstico se conservan para investigar la causa.
     partidas_salida = partidas if not problemas else []
 
+    # FASE 3 — gap corregido: expone, sin cambiar bloqueo/estado/partidas,
+    # los problemas ATC de arriba (si los hay) como excepciones[]
+    # estructuradas (mismo schema de FASE 1) para que el módulo de
+    # corrección pueda identificarlas. Vacío en el caso normal (sin
+    # problemas ATC de cuenta), igual que antes de este cambio.
+    excepciones_atc = _excepciones_atc_asiento(atc_neto, atc_comision, problemas) if atc_aplica else []
+
     return {
         "fecha_cierre": fecha_cierre,
         "sociedad": _SOCIEDAD,
@@ -1065,6 +1245,7 @@ def construir_asiento(resultado_v2):
         "advertencias": advertencias,
         "estado": "OK" if not problemas else "ERROR",
         "problemas": problemas,
+        "excepciones": excepciones_atc,
     }
 
 

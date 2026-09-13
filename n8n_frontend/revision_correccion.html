@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>REVISION Y CORRECCION - CAJA TIQUIPAYA</title>
+<style>
+  :root {
+    --bg: #f7f6f2;
+    --panel: #ffffff;
+    --ink: #182722;
+    --muted: #54655f;
+    --muted2: #8a978f;
+    --border: #dbe3dd;
+    --exc-border: #e3ddd0;
+    --exc-bg: #fffaf3;
+    --green-bg: #e3f2e9;
+    --green-border: #2f7d5a;
+    --green-ink: #2f7d5a;
+    --amber-bg: #fbedde;
+    --amber-border: #a66423;
+    --amber-ink: #8a4e13;
+    --red-bg: #fbe4e1;
+    --red-border: #a63223;
+    --red-ink: #8a2213;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 14px;
+  }
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+  }
+  header h1 {
+    font-size: 17px;
+    margin: 0;
+    font-weight: 700;
+  }
+  header .sub {
+    font-size: 12px;
+    color: var(--muted2);
+  }
+  .header-controls {
+    margin-left: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  input[type=text], input[type=search], textarea, select {
+    font-family: inherit;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 9px;
+    color: var(--ink);
+    background: #fff;
+  }
+  textarea { resize: vertical; width: 100%; }
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--ink);
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(0.97); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary {
+    background: var(--green-ink);
+    border-color: var(--green-ink);
+    color: #fff;
+  }
+  button.warn {
+    background: var(--amber-ink);
+    border-color: var(--amber-ink);
+    color: #fff;
+  }
+  button.ghost {
+    background: transparent;
+  }
+  main {
+    padding: 16px 20px 60px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  #banner-resumen {
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+  }
+  #banner-resumen.ok { background: var(--green-bg); border-color: var(--green-border); color: var(--green-ink); }
+  #banner-resumen.warn { background: var(--amber-bg); border-color: var(--amber-border); color: var(--amber-ink); }
+  #banner-resumen .headline { font-size: 15.5px; font-weight: 700; }
+  #banner-resumen .link-modulo {
+    display: inline-block;
+    margin-top: 8px;
+    font-weight: 700;
+    text-decoration: none;
+    color: inherit;
+    border-bottom: 1px solid currentColor;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(280px, 420px) 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .panel h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted2);
+    margin: 0 0 10px;
+    font-weight: 700;
+  }
+  .cierre-card {
+    border: 1px solid var(--border);
+    border-left: 5px solid var(--amber-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+  }
+  .cierre-card.listo { border-left-color: var(--green-border); }
+  .cierre-card.neutral { border-left-color: var(--muted2); }
+  .cierre-card.error { border-left-color: var(--red-border); }
+  .cierre-card .cierre-titulo {
+    font-weight: 700;
+    font-size: 13.5px;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .cierre-card .cierre-sub {
+    font-size: 11.5px;
+    color: var(--muted2);
+    margin-bottom: 6px;
+  }
+  .tag {
+    display: inline-block;
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+  }
+  .tag.revisar { background: var(--amber-bg); color: var(--amber-ink); }
+  .tag.listo { background: var(--green-bg); color: var(--green-ink); }
+  .tag.neutral { background: var(--exc-bg); color: var(--muted); }
+  .tag.error { background: var(--red-bg); color: var(--red-ink); }
+  .exc-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: center;
+    background: var(--exc-bg);
+    border: 1px solid var(--exc-border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-top: 6px;
+    cursor: pointer;
+    font-size: 12.5px;
+  }
+  .exc-row:hover { filter: brightness(0.98); }
+  .exc-row.selected {
+    outline: 2px solid var(--amber-border);
+    outline-offset: -1px;
+  }
+  .exc-row .cat {
+    font-weight: 700;
+    color: var(--amber-ink);
+    text-transform: uppercase;
+    font-size: 10.5px;
+  }
+  .exc-row .motivo { color: var(--muted); flex: 1; margin: 0 8px; }
+  .campo-fila {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 3px 0;
+    font-size: 13px;
+    border-bottom: 1px dashed #eee;
+  }
+  .campo-fila span.k { color: var(--muted); }
+  .campo-fila span.v { font-weight: 600; text-align: right; word-break: break-word; }
+  .empty-state {
+    color: var(--muted2);
+    font-size: 13px;
+    padding: 30px 10px;
+    text-align: center;
+  }
+  .form-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .form-block label {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: var(--muted2);
+    margin-bottom: 4px;
+  }
+  .form-row { margin-bottom: 12px; }
+  .form-row input, .form-row select, .form-row textarea { width: 100%; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .msg {
+    border-radius: 6px;
+    padding: 9px 12px;
+    font-size: 12.5px;
+    margin-top: 10px;
+    border: 1px solid transparent;
+    white-space: pre-wrap;
+  }
+  .msg.ok { background: var(--green-bg); border-color: var(--green-border); color: var(--green-ink); }
+  .msg.err { background: var(--red-bg); border-color: var(--red-border); color: var(--red-ink); }
+  .msg.info { background: var(--amber-bg); border-color: var(--amber-border); color: var(--amber-ink); }
+  .readonly-box {
+    background: #f2f1ec;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 9px;
+    font-size: 13px;
+    color: var(--muted);
+    min-height: 16px;
+  }
+  .disabled-note {
+    margin-top: 18px;
+    padding: 10px 12px;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--muted2);
+  }
+  .loading { color: var(--muted2); font-size: 13px; padding: 10px 0; }
+  #demo-banner {
+    background: #eef0fb;
+    border-bottom: 2px solid #5b5fc7;
+    color: #3730a6;
+    padding: 8px 20px;
+    font-size: 12.5px;
+    font-weight: 700;
+    text-align: center;
+    letter-spacing: .01em;
+  }
+</style>
+</head>
+<body>
+
+<div id="demo-banner" style="display:none;">MODO DEMO — datos sintéticos locales, sin llamadas a n8n ni a Python. Ningún botón ejecuta nada real.</div>
+
+<header>
+  <div>
+    <h1>REVISION Y CORRECCION &mdash; CAJA TIQUIPAYA</h1>
+    <div class="sub">Corrección autorizada por el auditor + reproceso (FASE 3). El motor Python es la única autoridad contable.</div>
+  </div>
+  <div class="header-controls">
+    <input type="text" id="in-resultados-dir" placeholder="resultados_dir" size="34">
+    <input type="text" id="in-auditor" placeholder="Usuario auditor" size="16">
+    <button id="btn-recargar" class="ghost">Recargar</button>
+  </div>
+</header>
+
+<main>
+  <div id="banner-resumen" style="display:none;"></div>
+  <div id="resultado-publicacion" style="display:none;"></div>
+  <div id="loading" class="loading">Cargando datos del rango...</div>
+
+  <div class="layout" id="layout" style="display:none;">
+    <div class="panel">
+      <h2>Cierres con excepciones</h2>
+      <div id="lista-cierres"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Detalle de la excepción</h2>
+      <div id="detalle"><div class="empty-state">Selecciona una excepción de la lista para ver su detalle.</div></div>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------------------------------------------------------------------
+  // Rutas relativas al host que sirvió esta página (nunca al dominio del
+  // Codespace ni a ningún otro absoluto con esquema+dominio): siempre
+  // empiezan con "/webhook/..." — el prefijo "/webhook" es fijo en
+  // cualquier instancia n8n, sin importar el hosting.
+  // ---------------------------------------------------------------------
+  var BASE = "/webhook/tiq-revision";
+  var EP_DATOS = BASE + "/datos";
+  var EP_OBSERVACION = BASE + "/observacion";
+  var EP_PENDIENTE = BASE + "/pendiente";
+  var EP_CORREGIR = BASE + "/corregir";
+  var EP_PUBLICAR_LISTOS = BASE + "/publicar-listos";
+
+  // ---------------------------------------------------------------------
+  // Modo demo (?demo=1) — SOLO para revisar visualmente la pantalla sin
+  // depender de n8n. Sustituye la respuesta de GET /datos por datos
+  // sintéticos locales y hace que Guardar observación/Dejar pendiente/
+  // Autorizar corrección muestren un aviso en vez de llamar a los
+  // webhooks reales. El comportamiento sin ?demo=1 no cambia en nada:
+  // sigue usando exclusivamente los 4 endpoints reales de n8n.
+  // ---------------------------------------------------------------------
+  var DEMO = new URLSearchParams(window.location.search).get("demo") === "1";
+
+  function datosDemo() {
+    return {
+      resultado: "OK",
+      batch_token: "demo-batch-token-0000000000000000000000000000000000000000000000000000000000000000",
+      parametros: {
+        fecha_inicio: "2026-09-01",
+        fecha_fin: "2026-09-05",
+        cierres_dir: "(demo — sin ruta real)",
+        maestro: "(demo — sin ruta real)",
+        plantilla: "(demo — sin ruta real)",
+        salidas_dir: "(demo — sin ruta real)",
+        resultados_dir: "(demo — sin ruta real)",
+        controles_dir: "(demo — sin ruta real)",
+      },
+      total_cierres_rango: 5,
+      resumen_estados: {
+        LISTO_PARA_PUBLICAR: 1,
+        ERROR_REVISAR: 1,
+        SIN_ARCHIVO: 1,
+        YA_PROCESADO: 1,
+        ERROR_TECNICO: 1,
+      },
+      campos_corregibles: {
+        COMUNICACION_INTERNA: ["cuenta_contable", "asignacion"],
+        VOUCHER: ["codigo_informado"],
+        ATC: ["neto_cuenta_contable", "neto_asignacion", "comision_cuenta_contable", "comision_asignacion"],
+      },
+      cierres: [
+        {
+          fecha: "2026-09-01",
+          archivo: "CIERRE 01-09-2026.xlsm",
+          hash: "demo-aaaa1111",
+          estado: "LISTO_PARA_PUBLICAR",
+          diferencia: "0.00",
+          blockers: 0,
+          ruta_resultado: "(demo)",
+          excepciones: [],
+        },
+        {
+          fecha: "2026-09-02",
+          archivo: "CIERRE 02-09-2026.xlsm",
+          hash: "demo-bbbb2222",
+          estado: "ERROR_REVISAR",
+          diferencia: "0.00",
+          blockers: 3,
+          ruta_resultado: "(demo)",
+          excepciones: [
+            {
+              categoria: "COMUNICACION_INTERNA",
+              tipo: "CI_CUENTA_FALTANTE",
+              sfc: "SFC101",
+              factura: "F-1",
+              importe: "35000.00",
+              fecha: "2026-09-02",
+              glosa: "AJUSTE VARIOS PROVEEDOR",
+              cuenta_contable: null,
+              asignacion: "CI0001",
+              motivo_legible: "Comunicación interna sin cuenta contable asignada",
+              identificadores: { sfc: "SFC101", factura: "F-1" },
+            },
+            {
+              categoria: "VOUCHER",
+              tipo: "POSIBLE_TYPO",
+              sfc: "SFC102",
+              codigo_informado: "VCH1O92",
+              importe: "20805.00",
+              fecha: "2026-09-02",
+              candidatos: [{ codigo: "VCH1002", fecha: "2026-09-02" }],
+              cantidad_candidatos: 1,
+              motivo_legible: "Depósito BNB con voucher candidato por posible error de tipeo",
+              identificadores: { sfc: "SFC102", codigo_informado: "VCH1O92" },
+            },
+            {
+              categoria: "ATC",
+              tipo: "ATC_NETO_CUENTA_INVALIDA",
+              neto_cuenta_contable: "999999999",
+              neto_asignacion: "3P02891953",
+              comision_cuenta_contable: "110201008",
+              comision_asignacion: "TIQUIPAYA SEP",
+              motivo_legible: "La cuenta contable del NETO ATC no es la cuenta esperada",
+              identificadores: {},
+            },
+          ],
+        },
+        {
+          fecha: "2026-09-03",
+          archivo: "CIERRE 03-09-2026.xlsm",
+          hash: null,
+          estado: "SIN_ARCHIVO",
+          diferencia: null,
+          blockers: null,
+          ruta_resultado: null,
+          excepciones: [],
+        },
+        {
+          fecha: "2026-09-04",
+          archivo: "CIERRE 04-09-2026.xlsm",
+          hash: "demo-cccc3333",
+          estado: "YA_PROCESADO",
+          diferencia: "0.00",
+          blockers: 0,
+          ruta_resultado: "(demo)",
+          excepciones: [],
+        },
+        {
+          fecha: "2026-09-05",
+          archivo: "CIERRE 05-09-2026.xlsm",
+          hash: "demo-dddd4444",
+          estado: "ERROR_TECNICO",
+          diferencia: null,
+          blockers: null,
+          detalle_error: "Excepción no controlada al leer el archivo de cierre (ver log del motor).",
+          ruta_resultado: null,
+          excepciones: [],
+        },
+      ],
+    };
+  }
+
+  var state = {
+    datos: null,          // respuesta cruda de /datos
+    camposCorregibles: {}, // {categoria: [campo, ...]} — viene del servidor, nunca inventado aquí
+    seleccion: null,      // {cierre, excepcion, indexEnCierre}
+  };
+
+  function qs(sel, root) { return (root || document).querySelector(sel); }
+  function el(tag, attrs, children) {
+    var e = document.createElement(tag);
+    attrs = attrs || {};
+    Object.keys(attrs).forEach(function (k) {
+      if (k === "text") { e.textContent = attrs[k]; }
+      else if (k === "html") { e.innerHTML = attrs[k]; }
+      else { e.setAttribute(k, attrs[k]); }
+    });
+    (children || []).forEach(function (c) { e.appendChild(c); });
+    return e;
+  }
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function formatMoney(v) {
+    if (v === null || v === undefined || v === "") return "N/D";
+    var n = Number(v);
+    if (isNaN(n)) return String(v);
+    var fixed = n.toFixed(2);
+    var partes = fixed.split(".");
+    var conMiles = partes[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    return "Bs " + conMiles + "," + partes[1];
+  }
+  function formatFecha(iso) {
+    if (!iso) return "N/D";
+    var p = String(iso).split("-");
+    if (p.length !== 3) return String(iso);
+    return p[2] + "/" + p[1] + "/" + p[0];
+  }
+  function nowIso() {
+    var d = new Date();
+    var pad = function (n) { return String(n).padStart(2, "0"); };
+    var offsetMin = -d.getTimezoneOffset();
+    var sign = offsetMin >= 0 ? "+" : "-";
+    var offH = pad(Math.floor(Math.abs(offsetMin) / 60));
+    var offM = pad(Math.abs(offsetMin) % 60);
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+      "T" + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()) +
+      sign + offH + ":" + offM;
+  }
+
+  // ---------------------------------------------------------------------
+  // Persistencia local SOLO de conveniencia (resultados_dir / auditor):
+  // nunca es la fuente de verdad de nada contable, solo evita retipear.
+  // ---------------------------------------------------------------------
+  function cargarPreferencias() {
+    try {
+      var dir = localStorage.getItem("tiq_resultados_dir");
+      var aud = localStorage.getItem("tiq_auditor");
+      if (dir) qs("#in-resultados-dir").value = dir;
+      if (aud) qs("#in-auditor").value = aud;
+    } catch (e) { /* almacenamiento no disponible: se ignora, no es critico */ }
+  }
+  function guardarPreferencias() {
+    try {
+      localStorage.setItem("tiq_resultados_dir", qs("#in-resultados-dir").value || "");
+      localStorage.setItem("tiq_auditor", qs("#in-auditor").value || "");
+    } catch (e) { /* idem */ }
+  }
+
+  // ---------------------------------------------------------------------
+  // Carga de datos
+  // ---------------------------------------------------------------------
+  function cargarDatos() {
+    guardarPreferencias();
+    qs("#loading").style.display = "block";
+    qs("#loading").textContent = "Cargando datos del rango...";
+    qs("#layout").style.display = "none";
+    qs("#banner-resumen").style.display = "none";
+
+    if (DEMO) {
+      var demo = datosDemo();
+      state.datos = demo;
+      state.camposCorregibles = demo.campos_corregibles || {};
+      qs("#loading").style.display = "none";
+      qs("#layout").style.display = "grid";
+      renderResumen(demo);
+      renderLista(demo);
+      return;
+    }
+
+    var resultadosDir = qs("#in-resultados-dir").value.trim();
+    var url = EP_DATOS + (resultadosDir ? ("?resultados_dir=" + encodeURIComponent(resultadosDir)) : "");
+    fetch(url).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (data) {
+      if (data.resultado === "ERROR") {
+        throw new Error(data.detalle || data.codigo || "Error desconocido leyendo /datos");
+      }
+      state.datos = data;
+      state.camposCorregibles = data.campos_corregibles || {};
+      if (!qs("#in-resultados-dir").value && data.parametros && data.parametros.resultados_dir) {
+        qs("#in-resultados-dir").value = data.parametros.resultados_dir;
+      }
+      qs("#loading").style.display = "none";
+      qs("#layout").style.display = "grid";
+      renderResumen(data);
+      renderLista(data);
+    }).catch(function (err) {
+      qs("#loading").style.display = "block";
+      qs("#loading").innerHTML = '<div class="msg err">No se pudo cargar /datos: ' + escapeHtml(err.message) + "</div>";
+    });
+  }
+
+  function renderResumen(data) {
+    var cierres = data.cierres || [];
+    var revision = cierres.filter(function (c) { return c.estado === "ERROR_REVISAR"; });
+    var listos = cierres.filter(function (c) { return c.estado === "LISTO_PARA_PUBLICAR"; });
+    var banner = qs("#banner-resumen");
+    banner.style.display = "block";
+    banner.innerHTML = "";
+    banner.className = revision.length === 0 ? "ok" : "warn";
+
+    var headline = revision.length === 0
+      ? (listos.length + " de " + (data.total_cierres_rango || cierres.length) + " cierres cuadrados. Nada pendiente de revisión.")
+      : (listos.length + " de " + (data.total_cierres_rango || cierres.length) + " cuadrados · " +
+         revision.length + (revision.length === 1 ? " cierre requiere revisión" : " cierres requieren revisión"));
+    banner.appendChild(el("div", { class: "headline", text: headline }));
+
+    // El boton de publicacion masiva SOLO aparece si hay al menos un cierre
+    // LISTO_PARA_PUBLICAR. Publicar no toca los ERROR_REVISAR/SIN_ARCHIVO/
+    // YA_PROCESADO/ERROR_TECNICO: el backend ya filtra por su cuenta.
+    if (listos.length > 0) {
+      var btnPublicar = el("button", {
+        class: "primary",
+        id: "btn-publicar-listos",
+        text: "PUBLICAR " + listos.length + (listos.length === 1 ? " CIERRE LISTO" : " CIERRES LISTOS"),
+        style: "margin-top:10px;",
+      });
+      btnPublicar.addEventListener("click", function () { publicarListos(listos.length, btnPublicar); });
+      banner.appendChild(btnPublicar);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Publicacion masiva de cierres LISTO_PARA_PUBLICAR (backend ya
+  // aprobado: POST /publicar-listos). El frontend NUNCA decide que
+  // cierres son publicables ni manda rutas de SAP/RESULTADO: solo el
+  // batch_token que ya vino de /datos. El backend relee resultado_batch.json
+  // y filtra de nuevo, de forma autoritativa.
+  // ---------------------------------------------------------------------
+  function publicarListos(n, btn) {
+    var confirmado = window.confirm(
+      "Se publicarán " + n + " cierre" + (n === 1 ? "" : "s") + " ya cuadrado" + (n === 1 ? "" : "s") + ". " +
+      "Los cierres pendientes de revisión no serán modificados."
+    );
+    if (!confirmado) return;
+
+    var auditor = qs("#in-auditor").value.trim();
+    if (!auditor) {
+      mostrarMensaje("resultado-publicacion", "err", "Indica el usuario auditor (arriba, en el encabezado) antes de publicar.");
+      return;
+    }
+
+    if (DEMO) {
+      mostrarMensaje("resultado-publicacion", "ok",
+        "[MODO DEMO] Se simularía publicar " + n + " cierre(s) via POST /publicar-listos. No se llamó a n8n ni se publicó nada real.");
+      return;
+    }
+
+    var textoOriginal = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Publicando...";
+    mostrarMensaje("resultado-publicacion", "info", "Publicando...");
+
+    fetch(EP_PUBLICAR_LISTOS, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        batch_token: state.datos.batch_token,
+        usuario_auditor: auditor,
+      }),
+    }).then(function (r) { return r.json(); }).then(function (resp) {
+      if (resp.resultado === "ERROR" && resp.codigo === "BATCH_DESACTUALIZADO") {
+        btn.disabled = false;
+        btn.textContent = textoOriginal;
+        mostrarMensaje("resultado-publicacion", "err",
+          "Los resultados cambiaron desde que abriste esta pantalla. Actualiza antes de publicar.");
+        return;
+      }
+      if (resp.resultado !== "OK") {
+        btn.disabled = false;
+        btn.textContent = textoOriginal;
+        mostrarMensaje("resultado-publicacion", "err", "Error: " + (resp.detalle || resp.codigo || "desconocido"));
+        return;
+      }
+      renderResultadoPublicacion(resp);
+      cargarDatos();
+    }).catch(function (err) {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+      mostrarMensaje("resultado-publicacion", "err", "Error de red: " + err.message);
+    });
+  }
+
+  function renderResultadoPublicacion(resp) {
+    var cont = qs("#resultado-publicacion");
+    cont.style.display = "block";
+    cont.innerHTML = "";
+
+    var publicados = resp.publicados || [];
+    var omitidos = resp.omitidos || [];
+    var fallidos = resp.fallidos || [];
+
+    var resumen = el("div", { class: "msg " + (fallidos.length > 0 ? "info" : "ok") });
+    var partes = [];
+    if (publicados.length) partes.push(publicados.length + " publicado" + (publicados.length === 1 ? "" : "s"));
+    if (omitidos.length) partes.push(omitidos.length + " ya publicado" + (omitidos.length === 1 ? "" : "s") + " (omitido" + (omitidos.length === 1 ? "" : "s") + ")");
+    if (fallidos.length) partes.push(fallidos.length + " fallido" + (fallidos.length === 1 ? "" : "s"));
+    resumen.appendChild(el("div", { text: partes.length ? partes.join(" · ") : "No se publicó ningún cierre." }));
+    cont.appendChild(resumen);
+
+    function listaDetalle(titulo, items, mostrarMotivo) {
+      if (items.length === 0) return;
+      cont.appendChild(el("div", { style: "margin-top:8px;font-weight:700;font-size:12px;text-transform:uppercase;color:var(--muted2);", text: titulo }));
+      items.forEach(function (it) {
+        var linea = formatFecha(it.fecha) + " — " + (it.archivo || "");
+        if (mostrarMotivo && it.codigo) linea += " (" + it.codigo + ")";
+        cont.appendChild(el("div", { class: "cierre-sub", text: linea }));
+      });
+    }
+
+    listaDetalle("Publicados", publicados, false);
+    listaDetalle("Ya publicados (sin cambios)", omitidos, false);
+    listaDetalle("Fallidos", fallidos, true);
+  }
+
+  function renderLista(data) {
+    var cont = qs("#lista-cierres");
+    cont.innerHTML = "";
+    var cierres = (data.cierres || []).slice().sort(function (a, b) {
+      return String(a.fecha || "").localeCompare(String(b.fecha || ""));
+    });
+    if (cierres.length === 0) {
+      cont.appendChild(el("div", { class: "empty-state", text: "No hay cierres en este rango." }));
+      return;
+    }
+    cierres.forEach(function (cierre) {
+      var info = estadoInfo(cierre.estado);
+      var esRevision = cierre.estado === "ERROR_REVISAR";
+      var card = el("div", { class: "cierre-card " + info.cardClass });
+      var titulo = el("div", { class: "cierre-titulo" });
+      titulo.appendChild(el("span", { text: formatFecha(cierre.fecha) }));
+      titulo.appendChild(el("span", { class: "tag " + info.tagClass, text: info.label }));
+      card.appendChild(titulo);
+      card.appendChild(el("div", { class: "cierre-sub", text: cierre.archivo || "" }));
+
+      // Solo ERROR_REVISAR habilita excepciones/correcciones. Los otros 4
+      // estados son terminales de solo lectura: nunca se listan como
+      // excepciones clicables, aunque el motor traiga algo en ese campo.
+      var excepciones = esRevision ? (cierre.excepciones || []) : [];
+      if (!esRevision) {
+        card.appendChild(el("div", { class: "cierre-sub", text: MENSAJE_SIN_EXCEPCIONES[cierre.estado] || "Sin excepciones." }));
+      } else if (excepciones.length === 0) {
+        card.appendChild(el("div", { class: "cierre-sub", text: "Sin detalle de excepciones disponible." }));
+      } else {
+        excepciones.forEach(function (exc, idx) {
+          var row = el("div", { class: "exc-row" });
+          row.appendChild(el("span", { class: "cat", text: nombreCategoria(exc.categoria) }));
+          row.appendChild(el("span", { class: "motivo", text: exc.motivo_legible || exc.tipo || "" }));
+          row.appendChild(el("span", { text: "›" }));
+          row.addEventListener("click", function () {
+            seleccionar(cierre, exc, idx, row);
+          });
+          card.appendChild(row);
+        });
+      }
+      cont.appendChild(card);
+    });
+  }
+
+  function nombreCategoria(cat) {
+    return { COMUNICACION_INTERNA: "Comunicación interna", VOUCHER: "Voucher", ATC: "ATC" }[cat] || cat || "";
+  }
+
+  // ---------------------------------------------------------------------
+  // Los 5 estados que puede traer un cierre en cierres[].estado (motor
+  // Python). Solo ERROR_REVISAR tiene excepciones corregibles: los otros
+  // 4 son estados terminales de solo lectura para este módulo.
+  // ---------------------------------------------------------------------
+  var ESTADOS = {
+    LISTO_PARA_PUBLICAR: { label: "Listo para publicar", tagClass: "listo", cardClass: "listo" },
+    ERROR_REVISAR: { label: "Requiere revisión", tagClass: "revisar", cardClass: "revisar" },
+    SIN_ARCHIVO: { label: "Sin archivo de cierre", tagClass: "neutral", cardClass: "neutral" },
+    YA_PROCESADO: { label: "Ya procesado", tagClass: "neutral", cardClass: "neutral" },
+    ERROR_TECNICO: { label: "Error técnico", tagClass: "error", cardClass: "error" },
+  };
+  var MENSAJE_SIN_EXCEPCIONES = {
+    LISTO_PARA_PUBLICAR: "Sin excepciones.",
+    SIN_ARCHIVO: "No se encontró el archivo de cierre para esta fecha.",
+    YA_PROCESADO: "Cierre ya procesado previamente; sin acción pendiente.",
+    ERROR_TECNICO: "Error técnico durante el procesamiento del cierre.",
+  };
+  function estadoInfo(estado) {
+    return ESTADOS[estado] || { label: estado || "Desconocido", tagClass: "neutral", cardClass: "neutral" };
+  }
+
+  // ---------------------------------------------------------------------
+  // Selección + detalle
+  // ---------------------------------------------------------------------
+  function seleccionar(cierre, excepcion, idx, rowEl) {
+    document.querySelectorAll(".exc-row.selected").forEach(function (r) { r.classList.remove("selected"); });
+    if (rowEl) rowEl.classList.add("selected");
+    state.seleccion = { cierre: cierre, excepcion: excepcion, idx: idx };
+    renderDetalle();
+  }
+
+  var CAMPOS_LEGIBLES = {
+    cuenta_contable: "Cuenta contable", asignacion: "Asignación",
+    codigo_informado: "Código informado",
+    neto_cuenta_contable: "Cuenta contable (NETO ATC)", neto_asignacion: "Asignación (NETO ATC)",
+    comision_cuenta_contable: "Cuenta contable (COMISIÓN ATC)", comision_asignacion: "Asignación (COMISIÓN ATC)",
+  };
+
+  function renderDetalle() {
+    var cont = qs("#detalle");
+    cont.innerHTML = "";
+    var sel = state.seleccion;
+    if (!sel) {
+      cont.appendChild(el("div", { class: "empty-state", text: "Selecciona una excepción de la lista para ver su detalle." }));
+      return;
+    }
+    var exc = sel.excepcion;
+    var cierre = sel.cierre;
+
+    var head = el("div");
+    head.appendChild(el("div", { class: "campo-fila", html: '<span class="k">Cierre</span><span class="v">' + escapeHtml(formatFecha(cierre.fecha)) + "</span>" }));
+    head.appendChild(el("div", { class: "campo-fila", html: '<span class="k">Categoría</span><span class="v">' + escapeHtml(nombreCategoria(exc.categoria)) + "</span>" }));
+    head.appendChild(el("div", { class: "campo-fila", html: '<span class="k">Tipo</span><span class="v">' + escapeHtml(exc.tipo) + "</span>" }));
+    head.appendChild(el("div", { class: "campo-fila", html: '<span class="k">Motivo</span><span class="v">' + escapeHtml(exc.motivo_legible) + "</span>" }));
+    cont.appendChild(head);
+
+    var camposDetalle = el("div", { style: "margin-top:8px;" });
+    Object.keys(exc).forEach(function (k) {
+      if (["categoria", "tipo", "motivo_legible", "identificadores", "candidatos", "cantidad_candidatos"].indexOf(k) !== -1) return;
+      var v = exc[k];
+      if (v === null || v === undefined || v === "") return;
+      var display = (typeof v === "object") ? JSON.stringify(v) : String(v);
+      camposDetalle.appendChild(el("div", {
+        class: "campo-fila",
+        html: '<span class="k">' + escapeHtml(k) + '</span><span class="v">' + escapeHtml(display) + "</span>",
+      }));
+    });
+    cont.appendChild(camposDetalle);
+
+    // -------------------- Bloque de corrección --------------------
+    var camposCorregibles = state.camposCorregibles[exc.categoria] || [];
+    var formCorreccion = el("div", { class: "form-block" });
+    formCorreccion.appendChild(el("h2", { text: "Autorizar corrección" }));
+
+    if (camposCorregibles.length === 0) {
+      formCorreccion.appendChild(el("div", { class: "msg info", text: "Esta categoría no tiene campos corregibles habilitados." }));
+    } else {
+      var rowCampo = el("div", { class: "form-row" });
+      rowCampo.appendChild(el("label", { text: "Campo a corregir" }));
+      var selCampo = el("select", { id: "sel-campo" });
+      camposCorregibles.forEach(function (c) {
+        selCampo.appendChild(el("option", { value: c, text: CAMPOS_LEGIBLES[c] || c }));
+      });
+      rowCampo.appendChild(selCampo);
+      formCorreccion.appendChild(rowCampo);
+
+      var rowOriginal = el("div", { class: "form-row" });
+      rowOriginal.appendChild(el("label", { text: "Valor original" }));
+      var boxOriginal = el("div", { class: "readonly-box", id: "box-valor-original" });
+      rowOriginal.appendChild(boxOriginal);
+      formCorreccion.appendChild(rowOriginal);
+
+      var rowAutorizado = el("div", { class: "form-row" });
+      rowAutorizado.appendChild(el("label", { text: "Valor autorizado" }));
+      var contAutorizado = el("div", { id: "cont-valor-autorizado" });
+      rowAutorizado.appendChild(contAutorizado);
+      formCorreccion.appendChild(rowAutorizado);
+
+      function refrescarCampoSeleccionado() {
+        var campo = selCampo.value;
+        boxOriginal.textContent = (exc[campo] === null || exc[campo] === undefined || exc[campo] === "") ? "(vacío)" : String(exc[campo]);
+        contAutorizado.innerHTML = "";
+        if (campo === "codigo_informado" && (exc.candidatos || []).length > 0) {
+          var selCand = el("select", { id: "in-valor-autorizado" });
+          selCand.appendChild(el("option", { value: "", text: "-- elegir candidato --" }));
+          (exc.candidatos || []).forEach(function (c) {
+            selCand.appendChild(el("option", { value: c.codigo, text: c.codigo + (c.fecha ? " (" + formatFecha(c.fecha) + ")" : "") }));
+          });
+          contAutorizado.appendChild(selCand);
+        } else if (campo === "codigo_informado") {
+          contAutorizado.appendChild(el("div", { class: "msg info", text: "Esta excepción no trae candidatos propuestos por el motor: el código informado libre no es corregible por esta vía." }));
+        } else {
+          contAutorizado.appendChild(el("input", { type: "text", id: "in-valor-autorizado", placeholder: "Nuevo valor" }));
+        }
+      }
+      selCampo.addEventListener("change", refrescarCampoSeleccionado);
+      refrescarCampoSeleccionado();
+
+      var rowMotivo = el("div", { class: "form-row" });
+      rowMotivo.appendChild(el("label", { text: "Motivo de la corrección" }));
+      rowMotivo.appendChild(el("textarea", { id: "in-motivo-correccion", rows: "2", placeholder: "Por qué se autoriza este cambio" }));
+      formCorreccion.appendChild(rowMotivo);
+
+      var accionesCorreccion = el("div", { class: "actions" });
+      var btnCorregir = el("button", { class: "primary", text: "Autorizar corrección y reprocesar" });
+      btnCorregir.addEventListener("click", function () { autorizarCorreccion(btnCorregir); });
+      accionesCorreccion.appendChild(btnCorregir);
+      formCorreccion.appendChild(accionesCorreccion);
+      formCorreccion.appendChild(el("div", { id: "msg-correccion" }));
+    }
+    cont.appendChild(formCorreccion);
+
+    // -------------------- Bloque de observación / pendiente --------------------
+    var formObs = el("div", { class: "form-block" });
+    formObs.appendChild(el("h2", { text: "Observación y seguimiento" }));
+    var rowObs = el("div", { class: "form-row" });
+    rowObs.appendChild(el("label", { text: "Observación" }));
+    rowObs.appendChild(el("textarea", { id: "in-observacion", rows: "2", placeholder: "Nota libre para el expediente (no corrige ni reprocesa)" }));
+    formObs.appendChild(rowObs);
+    var accionesObs = el("div", { class: "actions" });
+    var btnGuardarObs = el("button", { text: "Guardar observación" });
+    btnGuardarObs.addEventListener("click", function () { guardarObservacion(btnGuardarObs); });
+    var btnPendiente = el("button", { class: "warn", text: "Dejar pendiente" });
+    btnPendiente.addEventListener("click", function () { dejarPendiente(btnPendiente); });
+    accionesObs.appendChild(btnGuardarObs);
+    accionesObs.appendChild(btnPendiente);
+    formObs.appendChild(accionesObs);
+    formObs.appendChild(el("div", { id: "msg-obs" }));
+    cont.appendChild(formObs);
+  }
+
+  function mostrarMensaje(idContenedor, tipo, texto) {
+    var c = qs("#" + idContenedor);
+    if (!c) return;
+    c.style.display = "block";
+    c.innerHTML = "";
+    c.appendChild(el("div", { class: "msg " + tipo, text: texto }));
+  }
+
+  function identificadoresDe(exc) {
+    return exc.identificadores || {};
+  }
+
+  // ---------------------------------------------------------------------
+  // Acciones — el frontend NUNCA decide si algo es válido: solo arma el
+  // payload con datos ya provistos por /datos y deja que Python decida.
+  // ---------------------------------------------------------------------
+  function guardarObservacion(btn) {
+    var sel = state.seleccion;
+    if (!sel) return;
+    var texto = qs("#in-observacion").value.trim();
+    if (!texto) { mostrarMensaje("msg-obs", "err", "Escribe una observación antes de guardar."); return; }
+    var auditor = qs("#in-auditor").value.trim();
+    if (!auditor) { mostrarMensaje("msg-obs", "err", "Indica el usuario auditor (arriba, en el encabezado)."); return; }
+
+    if (DEMO) {
+      mostrarMensaje("msg-obs", "ok", "[MODO DEMO] La observación se vería guardada aquí. No se llamó a n8n ni se escribió nada real.");
+      qs("#in-observacion").value = "";
+      return;
+    }
+
+    btn.disabled = true;
+    fetch(EP_OBSERVACION, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        parametros: state.datos.parametros,
+        hash_origen: sel.cierre.hash,
+        fecha_cierre: sel.cierre.fecha,
+        categoria: sel.excepcion.categoria,
+        tipo: sel.excepcion.tipo,
+        identificadores: identificadoresDe(sel.excepcion),
+        usuario_auditor: auditor,
+        texto: texto,
+      }),
+    }).then(function (r) { return r.json(); }).then(function (resp) {
+      btn.disabled = false;
+      if (resp.resultado === "OK") {
+        mostrarMensaje("msg-obs", "ok", "Observación guardada en " + (resp.ruta_observaciones || "OBSERVACIONES_<hash>.jsonl") + ".");
+        qs("#in-observacion").value = "";
+      } else {
+        mostrarMensaje("msg-obs", "err", "Error: " + (resp.detalle || resp.codigo || "desconocido"));
+      }
+    }).catch(function (err) {
+      btn.disabled = false;
+      mostrarMensaje("msg-obs", "err", "Error de red: " + err.message);
+    });
+  }
+
+  function dejarPendiente(btn) {
+    var sel = state.seleccion;
+    if (!sel) return;
+    var auditor = qs("#in-auditor").value.trim();
+    if (!auditor) { mostrarMensaje("msg-obs", "err", "Indica el usuario auditor (arriba, en el encabezado)."); return; }
+    var texto = qs("#in-observacion").value.trim();
+
+    if (DEMO) {
+      mostrarMensaje("msg-obs", "info", "[MODO DEMO] La revisión se vería marcada como pendiente aquí. No se llamó a n8n ni se modificó nada real.");
+      return;
+    }
+
+    btn.disabled = true;
+    fetch(EP_PENDIENTE, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        parametros: state.datos.parametros,
+        hash_origen: sel.cierre.hash,
+        fecha_cierre: sel.cierre.fecha,
+        usuario_auditor: auditor,
+        texto: texto,
+      }),
+    }).then(function (r) { return r.json(); }).then(function (resp) {
+      btn.disabled = false;
+      if (resp.resultado === "OK") {
+        mostrarMensaje("msg-obs", "info", "Revisión dejada pendiente. El cierre NO fue modificado.");
+      } else {
+        mostrarMensaje("msg-obs", "err", "Error: " + (resp.detalle || resp.codigo || "desconocido"));
+      }
+    }).catch(function (err) {
+      btn.disabled = false;
+      mostrarMensaje("msg-obs", "err", "Error de red: " + err.message);
+    });
+  }
+
+  function autorizarCorreccion(btn) {
+    var sel = state.seleccion;
+    if (!sel) return;
+    var auditor = qs("#in-auditor").value.trim();
+    if (!auditor) { mostrarMensaje("msg-correccion", "err", "Indica el usuario auditor (arriba, en el encabezado)."); return; }
+    var campo = qs("#sel-campo") ? qs("#sel-campo").value : null;
+    var inputValor = qs("#in-valor-autorizado");
+    var valorAutorizado = inputValor ? inputValor.value.trim() : "";
+    var motivo = qs("#in-motivo-correccion").value.trim();
+    if (!campo) { mostrarMensaje("msg-correccion", "err", "No hay campo corregible disponible."); return; }
+    if (!valorAutorizado) { mostrarMensaje("msg-correccion", "err", "Indica (o elige) el valor autorizado."); return; }
+    if (!motivo) { mostrarMensaje("msg-correccion", "err", "Indica el motivo de la corrección."); return; }
+
+    if (DEMO) {
+      mostrarMensaje("msg-correccion", "info",
+        "[MODO DEMO] Aquí se llamaría a /corregir con campo=\"" + campo + "\", valor autorizado=\"" + valorAutorizado +
+        "\". Python validaría y reprocesaría el cierre. No se ejecutó nada real.");
+      return;
+    }
+
+    btn.disabled = true;
+    mostrarMensaje("msg-correccion", "info", "Aplicando corrección y reprocesando...");
+
+    fetch(EP_CORREGIR, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        parametros: state.datos.parametros,
+        cierre: sel.cierre,
+        correccion: {
+          categoria: sel.excepcion.categoria,
+          tipo: sel.excepcion.tipo,
+          identificadores: identificadoresDe(sel.excepcion),
+          campo_corregido: campo,
+          valor_original: (sel.excepcion[campo] === undefined ? null : sel.excepcion[campo]),
+          valor_autorizado: valorAutorizado,
+          motivo: motivo,
+          usuario_auditor: auditor,
+          fecha_hora: nowIso(),
+        },
+      }),
+    }).then(function (r) { return r.json(); }).then(function (resp) {
+      btn.disabled = false;
+      procesarRespuestaCorreccion(resp, sel);
+    }).catch(function (err) {
+      btn.disabled = false;
+      mostrarMensaje("msg-correccion", "err", "Error de red: " + err.message);
+    });
+  }
+
+  function procesarRespuestaCorreccion(resp, sel) {
+    if (resp.resultado !== "OK") {
+      // Error técnico o de validación: se muestra completo, nunca se oculta.
+      mostrarMensaje("msg-correccion", "err",
+        "ERROR (" + (resp.codigo || "SIN_CODIGO") + "): " + (resp.detalle || "sin detalle"));
+      return;
+    }
+
+    if (resp.estado === "LISTO_PARA_PUBLICAR") {
+      mostrarMensaje("msg-correccion", "ok",
+        "Cierre cuadrado y listo para publicar. Continúa por el flujo normal de aprobación " +
+        "(fuera de este módulo de corrección) con el reproceso generado en REPROCESOS/.");
+      // Se marca localmente como resuelto: ya no se ofrece seguir corrigiendo esta excepción puntual.
+      sel.cierre.estado = "LISTO_PARA_PUBLICAR";
+      sel.cierre.excepciones = [];
+      renderLista(state.datos);
+      renderResumen(state.datos);
+      qs("#detalle").innerHTML = "";
+      qs("#detalle").appendChild(el("div", { class: "empty-state", text: "Este cierre ya quedó LISTO_PARA_PUBLICAR." }));
+    } else if (resp.estado === "YA_APLICADA") {
+      mostrarMensaje("msg-correccion", "info", "Esta corrección ya se había aplicado antes (idempotente). No se reprocesó de nuevo.");
+    } else {
+      // Sigue en revisión: puede haber cambiado el detalle de excepciones.
+      var nuevasExcepciones = (resp.resultado_json && resp.resultado_json.excepciones) || sel.cierre.excepciones;
+      sel.cierre.excepciones = nuevasExcepciones;
+      mostrarMensaje("msg-correccion", "info",
+        "El cierre sigue en revisión (" + nuevasExcepciones.length + " excepción(es) pendiente(s)). Se actualizó el detalle.");
+      renderLista(state.datos);
+      renderResumen(state.datos);
+      state.seleccion = null;
+      qs("#detalle").innerHTML = "";
+      qs("#detalle").appendChild(el("div", { class: "empty-state", text: "Selecciona una excepción de la lista actualizada." }));
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  document.addEventListener("DOMContentLoaded", function () {
+    if (DEMO) {
+      qs("#demo-banner").style.display = "block";
+      qs("#in-resultados-dir").disabled = true;
+      qs("#in-resultados-dir").placeholder = "(no aplica en modo demo)";
+      qs("#in-auditor").value = qs("#in-auditor").value || "auditor.demo";
+    } else {
+      cargarPreferencias();
+    }
+    qs("#btn-recargar").addEventListener("click", function () {
+      qs("#resultado-publicacion").style.display = "none";
+      qs("#resultado-publicacion").innerHTML = "";
+      cargarDatos();
+    });
+    cargarDatos();
+  });
+})();
+</script>
+</body>
+</html>

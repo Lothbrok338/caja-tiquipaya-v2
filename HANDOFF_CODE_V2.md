@@ -1212,3 +1212,225 @@ REVISAR forzado y el texto exacto esperado, antecedente nunca se borra,
 segundo cierre manual vuelve a cerrar, GLOBAL nunca se modifica). Suite
 completa del repo: 377/377 tests OK (322 preexistentes + 55 de CONTROL 3,
 sin regresión).
+
+## 16. FASE 3 — CORRECCIÓN AUTORIZADA POR AUDITOR (diseño aprobado, NO implementado)
+
+**Estado: diseño técnico aprobado por el usuario en sesión de orquestación
+n8n (2026-09-12). Nada de esta sección existe todavía en el repo ni en el
+workflow n8n `TIQ · PROCESAR CIERRES PENDIENTES · POC`
+(`LkS0RHu9KEbHCR4p`). Es el punto de partida para implementar en la
+próxima sesión, no una descripción de código existente.**
+
+Contexto: el módulo de FASE 2 (n8n, ya publicado) agrega, cuando hay
+cierres `ERROR_REVISAR`, una pantalla `REVISION DE EXCEPCIONES - CAJA
+TIQUIPAYA` (nodos `PREPARAR/LEER/INTERPRETAR/COMBINAR - ... en revision` +
+`CONSTRUIR - Revision de excepciones` + `CONFIRMAR - Revision de
+excepciones` + `FIN - Revision registrada`) que muestra, agrupado por
+fecha y categoría, el detalle de `excepciones[]` que ya produce el motor
+(ver FASE 1 más abajo) — hoy es de **solo lectura**, sin ninguna forma de
+corregir. FASE 3 es exclusivamente el módulo de corrección autorizada por
+el auditor sobre esas excepciones, con reproceso.
+
+### 16.1 FASE 1 (ya implementada) — insumo de FASE 3
+
+`excepciones[]` ya existe hoy en `RESULTADO_TIQ_<fecha>.json` y en
+`resultado_batch.json` (propagado `motor_tiquipaya.py` →
+`pipeline_tiquipaya.py` → `run_batch.py`), con un objeto por excepción de
+Voucher/Comunicación Interna/ATC: `categoria`, `tipo` (código técnico
+original), identificadores (`sfc`, `factura`/`referencia`,
+`codigo_informado`, etc.), valores relevantes, `motivo_legible`, y para
+Voucher `candidatos` (siempre lista, normalizada) + `cantidad_candidatos`
+(entero). `estado`, `blockers` y `detalle_error` no cambiaron — aditivo,
+sin tocar ninguna regla de negocio. Ver `tests/test_excepciones.py`.
+
+### 16.2 Reglas que gobiernan TODA la FASE 3 (no negociables sin nueva aprobación)
+
+- No implementar agentes de IA todavía (el mockup aprobado incluye un
+  panel "Asistente de análisis" explícitamente deshabilitado — queda como
+  texto inerte, sin lógica, para una fase futura).
+- No permitir correcciones automáticas sin decisión humana explícita.
+- No cambiar ninguna regla contable ni ningún criterio de bloqueo — el
+  motor (`motor_tiquipaya.py`) no se entera de que existen correcciones:
+  la corrección se aplica en memoria ANTES de llamarlo, con los mismos
+  datos que produciría un `.xlsm` correcto.
+- Nunca modificar el `.xlsm` original ni ningún SAP ya generado. SAP se
+  regenera siempre a un archivo NUEVO (`.../REPROCESOS/SAP_<fecha>_...`).
+- No tocar Control 2 (el módulo que sea) ni Control 1 ni Control 3.
+- No borrar trazabilidad previa: `RESULTADO_TIQ_<fecha>.json`/SAP
+  originales nunca se sobrescriben; el reproceso escribe siempre a rutas
+  nuevas (`REPROCESOS/`).
+- No romper idempotencia: `PROCESADO_<hash_origen>.json` sigue clavado
+  por el SHA256 del `.xlsm`, sin cambios. Un cierre ya publicado
+  (marcador existente) rechaza cualquier corrección nueva.
+- No commit/push hasta que se implemente y se pida explícitamente.
+
+### 16.3 Parte B — Python: registro de corrección + reproceso
+
+**Archivos a modificar:** ninguno de los ya congelados
+(`motor_tiquipaya.py`, `excel_io.py`, `sap_writer.py`,
+`consolidador_mensual.py`, `control_asignaciones.py`,
+`control_cxc_cxp.py` quedan sin tocar). Solo se agrega una función nueva
+en `pipeline_tiquipaya.py` (`procesar_cierre_con_correccion(...)`,
+hermana de `procesar_cierre_completo`, sin modificarla).
+
+**Archivos nuevos:**
+- `correcciones_tiquipaya.py` — valida el schema de una corrección,
+  valida `sha256_origen` contra el `.xlsm` actual, aplica la corrección
+  EN MEMORIA (nunca muta el dict leído del `.xlsm`: copia profunda,
+  localiza el registro por sus `identificadores` — fila de
+  `comunicaciones_internas` por `sfc`+`referencia`; depósito por
+  `sfc`+`asignacion` informado; entrada de `atc_idx["por_fecha"][fecha]`
+  — y sobrescribe únicamente `campo_corregido`), calcula
+  `version_correccion` (SHA256 de `{categoria,tipo,identificadores,
+  campo_corregido,valor_autorizado}` en JSON canónico).
+- `aplicar_correccion.py` — CLI mínimo, mismo patrón que
+  `publicar_cierre.py`: `--resultado` (el `RESULTADO_TIQ_<fecha>.json`
+  en `ERROR_REVISAR`) + `--correccion` (JSON del schema de abajo) →
+  valida → reprocesa → escribe reproceso + registro de trazabilidad.
+  Nunca se conecta a Drive.
+
+**Carpetas/artefactos nuevos:**
+
+```
+<controles_dir>/CORRECCIONES_AUDITOR/
+    CORRECCION_<hash_origen>_<version_correccion>.json   # inmutable, formal, dispara reproceso
+    OBSERVACIONES_<hash_origen>.jsonl                     # notas sueltas, NO corrige ni reprocesa
+    HISTORICO_CORRECCIONES.csv                            # índice append-only (patrón CONTROL 1)
+
+<resultados_dir>/REPROCESOS/
+    RESULTADO_TIQ_<fecha>_REPROCESO_<version_correccion>.json
+
+<salidas_dir>/REPROCESOS/
+    SAP_<fecha>_REPROCESO_<version_correccion>.xlsx
+```
+
+**Schema de una corrección formal** (dispara `aplicar_correccion.py`):
+
+```jsonc
+{
+  "fecha_cierre": "2026-09-02",
+  "sha256_origen": "<sha256 del .xlsm original>",
+  "categoria": "COMUNICACION_INTERNA",        // | VOUCHER | ATC
+  "tipo": "CI_CUENTA_FALTANTE",
+  "identificadores": { "sfc": "SFC220", "factura": "62161" },
+  "campo_corregido": "cuenta_contable",
+  "valor_original": null,
+  "valor_autorizado": "210201005",
+  "motivo": "...",
+  "usuario_auditor": "gabriel.torrico",
+  "fecha_hora": "2026-09-12T14:05:00-04:00",
+  "version_correccion": "<sha256 de los 5 campos de arriba>"
+}
+```
+
+**Campos corregibles por categoría** (todo lo demás queda solo
+"pendiente" — ver justificación completa en la discusión de diseño, no
+repetida aquí en detalle):
+
+| Categoría | Corregible | No corregible |
+|---|---|---|
+| Comunicación Interna | `cuenta_contable`, `asignacion`, `glosa` | `importe` |
+| Voucher | `codigo_informado` — solo eligiendo uno de los `candidatos` ya propuestos por el motor | `importe`; `codigo_informado` libre cuando `NO_ENCONTRADO` no trae candidatos |
+| ATC | `neto_cuenta_contable`, `neto_asignacion`, `comision_cuenta_contable`, `comision_asignacion` | `bruto`, `neto`, `comision`, `diferencia` |
+
+**Idempotencia:** clave compuesta `(hash_origen, version_correccion)`,
+mismo patrón que CONTROL 3 (`periodo + sha256_global`). Antes de
+reprocesar: recalcula SHA256 del `.xlsm` y lo compara con
+`sha256_origen`; si no coincide, aborta (`CORRECCION_HUERFANA`). La misma
+corrección reejecutada produce el mismo nombre de archivo (no duplica);
+un cambio de campo/valor genera un archivo distinto, nunca pisa el
+anterior. Un cierre con `PROCESADO_<hash_origen>.json` ya existente
+rechaza cualquier corrección (`CIERRE_YA_PUBLICADO_NO_CORREGIBLE`).
+
+**Riesgos pendientes de decidir explícitamente antes de implementar:**
+correcciones concurrentes sobre la misma excepción (criterio de "cuál es
+la activa" — no asumido); reproceso que termina en un estado que no es
+`LISTO_PARA_PUBLICAR` ni `ERROR_REVISAR` (reportar explícito, nunca
+reintentar solo).
+
+### 16.4 Parte A — Frontend + n8n (arquitectura aprobada 2026-09-12)
+
+**Se descartó n8n 100% nativo** (Wait/Form): confirmado empíricamente en
+esta sesión que el campo `html` de `n8n-nodes-base.wait`
+(`resume:"form"`) rechaza `<script>`/`<style>`/`<input>`
+(`validate_node_config`), y que la cantidad de opciones de un campo de
+formulario nativo debe quedar fija en tiempo de diseño. Sin JS de cliente
+y sin listas de tamaño variable, no es posible una sola vista con
+selección interactiva sin recargar.
+
+**Se descartó Power Apps**: agrega licenciamiento, superficie de
+despliegue/mantenimiento e identidad (Entra ID) nuevos para reemplazar
+algo que HTML/JS plano ya resuelve; reconsiderar solo si CAJAS GABO ya
+estandariza otras herramientas internas sobre Power Platform (no
+confirmado).
+
+**Arquitectura elegida:** página estática HTML/CSS/JS (sin framework, sin
+build step; referencia visual = mockup aprobado por el usuario,
+`cajas_gabo_fase3_mockup.html`, adjunto en esta sesión) servida por el
+propio n8n vía nodos **Webhook** (no Wait/Form — un Webhook normal no
+tiene esas restricciones), hablando con n8n exclusivamente por
+`fetch()`/JSON. Python sigue siendo el único motor contable; n8n es pura
+orquestación; el frontend es pura interfaz (no decide nada: pinta
+exactamente lo que el endpoint `/datos` ya calculó, incluida la lista de
+campos corregibles por excepción).
+
+**Condiciones de portabilidad impuestas por el usuario (pendientes de
+respetar al implementar):** el HTML debe usar rutas relativas y no
+depender del dominio de Codespaces (hoy
+`https://obscure-parakeet-....app.github.dev`) de ninguna forma —
+Codespaces es solo entorno de desarrollo; la arquitectura debe trasladarse
+sin cambios conceptuales a un hosting persistente de n8n. En la práctica:
+la página llama a sus endpoints con rutas relativas al propio host que la
+sirvió (`fetch('webhook/tiq-revision/datos')`, nunca una URL absoluta
+hardcodeada), y ningún nodo n8n debe construir URLs asumiendo el dominio
+actual del Codespace.
+
+**Autenticación multiusuario:** explícitamente diferida al rollout futuro
+— no implementar todavía. Cuando corresponda: HTTP Basic/header auth de
+n8n en los endpoints que mutan estado (`/observacion`, `/pendiente`,
+`/corregir`); los GET pueden quedar como hoy (URL no listada).
+
+**Endpoints propuestos** (todos nuevos nodos Webhook en el workflow
+existente o en uno auxiliar — no tocan la rama OK/publicación):
+
+- `GET /webhook/tiq-revision` → sirve el HTML estático (léelo de un
+  archivo del repo, p. ej. `n8n_frontend/revision_correccion.html`, y
+  responde `text/html`).
+- `GET /webhook/tiq-revision/datos?...` → reutiliza la misma lógica de
+  agrupación que ya construye `CONSTRUIR - Revision de excepciones`, pero
+  devuelve JSON (no HTML) para que el frontend lo pinte.
+- `POST /webhook/tiq-revision/observacion` → **Guardar observación**:
+  registra una nota en `OBSERVACIONES_<hash_origen>.jsonl`. NO corrige,
+  NO reprocesa, NO dispara Python más allá de escribir el archivo.
+- `POST /webhook/tiq-revision/pendiente` → cierra la revisión de ese
+  cierre como "dejar pendiente" (equivalente a `FIN - Revision
+  registrada` de hoy).
+- `POST /webhook/tiq-revision/corregir` → **Autorizar corrección y
+  reprocesar**: recibe el JSON del schema de §16.3 → `Execute Command` →
+  `aplicar_correccion.py` → devuelve el nuevo estado (`LISTO_PARA_PUBLICAR`
+  o sigue `ERROR_REVISAR`) como JSON; el frontend actualiza esa tarjeta
+  sin recargar la página. Un `LISTO_PARA_PUBLICAR` entra por el mismo
+  punto de entrada que ya existe hoy (`PREPARAR - Cierres listos
+  (detalle)`) — sin duplicar la rama de aprobación/publicación.
+
+**Guardar observación vs Autorizar corrección quedan explícitamente
+separados** (aprobado 2026-09-12): son dos acciones independientes en el
+frontend y dos endpoints Python/n8n distintos, no una sola acción con dos
+variantes.
+
+**Qué pasa con `CONFIRMAR - Revision de excepciones` (Wait/Form, ya
+publicado en FASE 2):** deja de ser donde se decide. Su contenido pasaría
+a ser un resumen + enlace "Abrir módulo de corrección" hacia la página
+nueva; como la corrección es idempotente por archivo (no por ejecución de
+n8n), la ejecución original puede terminar sin quedar esperando
+indefinidamente. Este rewire concreto (qué nodo apunta a qué) queda por
+diseñar en detalle en la próxima sesión — aquí solo se documenta la
+dirección aprobada.
+
+**Pendiente para la próxima sesión, en orden:** (1) diseño detallado de
+cada nodo Webhook + el HTML/JS real a partir del mockup aprobado: (2)
+validar cada nodo nuevo con `validate_node_config` antes de escribirlo;
+(3) implementar Parte B (Python) primero, con tests, igual que FASE 1; (4)
+implementar Parte A (n8n + frontend) sobre Parte B ya probada; (5) mostrar
+vista previa antes de publicar, igual que en fases anteriores; (6) no
+ejecutar cierres reales hasta que el usuario lo pida explícitamente.

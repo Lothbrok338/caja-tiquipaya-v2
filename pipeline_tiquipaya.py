@@ -29,6 +29,8 @@ import os
 from datetime import datetime
 from decimal import Decimal
 
+import correcciones_tiquipaya as correcciones
+import excel_io as io
 import motor_tiquipaya as motor
 import sap_writer as sap
 
@@ -133,6 +135,15 @@ def _construir_resultado_json(fecha_cierre, archivo_origen, hash_origen,
         if w not in advertencias:
             advertencias.append(w)
 
+    # FASE 3 — gap corregido: además de las excepciones de ETAPA 3/4
+    # (resultado_v2["excepciones"], sin cambios), se agregan las excepciones
+    # ATC de ETAPA 5 que motor_tiquipaya.construir_asiento() ya expone en
+    # asiento["excepciones"] (ver _excepciones_atc_asiento) — mismo schema,
+    # sin recalcular ni reinterpretar nada. No cambia "blockers" (sigue
+    # siendo exclusivamente resultado_v2["excepciones_bloqueantes"]).
+    excepciones = list(resultado_v2.get("excepciones") or [])
+    excepciones.extend(asiento.get("excepciones") or [])
+
     atc_neto = detalle.get("atc_neto")
     atc_comision = detalle.get("atc_comision")
 
@@ -149,6 +160,7 @@ def _construir_resultado_json(fecha_cierre, archivo_origen, hash_origen,
         "estado_v2": resultado_v2.get("estado"),
         "diferencia": resultado_v2.get("diferencia", "0.00"),
         "blockers": resultado_v2.get("excepciones_bloqueantes", 0) or 0,
+        "excepciones": excepciones,
         "advertencias": advertencias,
         "universo_original": resultado_v2.get("universo_original"),
         "alquileres": resultado_v2.get("alquileres"),
@@ -527,3 +539,164 @@ def construir_marcador_procesado(
         observaciones=observaciones, fecha_procesamiento=fecha_procesamiento,
     )
     return nombre_marcador_procesado(hash_origen), contenido
+
+
+# ---------------------------------------------------------------------------
+# FASE 3 — Parte B: corrección autorizada por el auditor + reproceso
+# (HANDOFF_CODE_V2.md sección 16). Hermana de procesar_cierre_completo():
+# no la modifica ni la reemplaza. Reutiliza EXACTAMENTE las mismas ETAPAS
+# 3-6 (motor._ejecutar_v2_sobre_cierre + construir_asiento + sap_writer)
+# sobre datos leídos por excel_io.py y corregidos EN MEMORIA por
+# correcciones_tiquipaya.py: motor_tiquipaya.py y excel_io.py no se
+# modifican ni se enteran de que existe una corrección. El .xlsm original
+# nunca se abre en modo escritura. El SAP y el RESULTADO_TIQ del reproceso
+# se escriben SIEMPRE a las rutas explícitas que recibe el llamador
+# (aplicar_correccion.py): es su responsabilidad pasar rutas dentro de
+# REPROCESOS/, nunca las originales — esta función no construye ni asume
+# ningún nombre de archivo.
+# ---------------------------------------------------------------------------
+
+def procesar_cierre_con_correccion(
+    ruta_cierre,
+    ruta_maestro,
+    ruta_plantilla_sap,
+    ruta_sap_salida,
+    metadata_cabecera,
+    version_codigo,
+    correccion,
+    ruta_resultado=None,
+    ya_publicado=False,
+):
+    """Reprocesa UN cierre aplicando una única corrección autorizada por el
+    auditor, en memoria, sin modificar el .xlsm original ni ninguna regla
+    de motor_tiquipaya.py.
+
+    Orden de validación (todo o nada; la primera que falle aborta sin
+    generar ningún archivo ni efecto secundario):
+      1. `correccion` cumple el schema de HANDOFF §16.3 y su
+         version_correccion es consistente
+         (correcciones_tiquipaya.validar_schema_correccion).
+      2. `ya_publicado` es False. Si es True, se rechaza con
+         CIERRE_YA_PUBLICADO_NO_CORREGIBLE: un cierre con
+         PROCESADO_<hash>.json ya existente nunca admite correcciones
+         nuevas. Quien llama decide cómo se determina `ya_publicado`
+         (típicamente: HashOrigen presente entre los marcadores ya
+         materializados — mismo mecanismo que `hashes_procesados` en
+         procesar_cierre_completo), este módulo no conoce Drive ni
+         ninguna convención de directorios.
+      3. `correccion["sha256_origen"]` coincide con el SHA256 actual de
+         `ruta_cierre` (CORRECCION_HUERFANA si no).
+      4. La corrección se aplica en memoria sobre copias de lo ya leído
+         por excel_io.py (correcciones_tiquipaya.aplicar_correccion_en_memoria):
+         localización unívoca del registro, y para VOUCHER, que
+         valor_autorizado sea uno de los candidatos que el motor ya
+         propuso.
+
+    Después de aplicar la corrección, el flujo es idéntico a
+    procesar_cierre_completo() desde ejecutar_v2 en adelante (misma
+    condición v2_ok/asiento_ok/sap_ok, mismo resultado_json), agregando
+    únicamente `version_correccion` y `correccion_aplicada` (metadata
+    mínima de trazabilidad, sin duplicar el objeto `correccion` completo).
+
+    Nunca marca PROCESADO ni toca CONTROL_PROCESAMIENTO.csv ni ningún
+    marcador: publicar un reproceso sigue el mismo contrato manual que
+    cualquier otro cierre (construir_marcador_procesado(), después de que
+    el llamador confirme que el reproceso fue publicado).
+    """
+    version_correccion = correcciones.validar_schema_correccion(correccion)
+
+    if ya_publicado:
+        raise ValueError(
+            "CIERRE_YA_PUBLICADO_NO_CORREGIBLE:este cierre ya tiene un marcador "
+            "PROCESADO_<hash>.json; un cierre ya publicado no admite correcciones nuevas"
+        )
+
+    hash_origen = correcciones.validar_sha256_origen(ruta_cierre, correccion["sha256_origen"])
+    archivo_origen = os.path.basename(str(ruta_cierre))
+
+    cierre = io.leer_cierre(ruta_cierre)
+    macros_idx = io.leer_macros_bnb(ruta_maestro)
+    atc_idx = io.leer_atc_mensual(ruta_maestro)
+
+    cierre_corregido, atc_idx_corregido = correcciones.aplicar_correccion_en_memoria(
+        cierre, macros_idx, atc_idx, correccion
+    )
+
+    # Reutiliza la misma función privada que ejecutar_v2()/ejecutar_lote_v2()
+    # usan sobre datos YA cargados: ETAPA 3 (cruces) + ETAPA 4 (universo,
+    # ALQUILERES, componentes, cuadre) se aplican tal cual, sin reabrir
+    # archivos ni reinterpretar ninguna regla — el motor nunca se entera de
+    # que `cierre_corregido`/`atc_idx_corregido` no vinieron literalmente
+    # de excel_io.leer_cierre()/leer_atc_mensual().
+    resultado_v2 = motor._ejecutar_v2_sobre_cierre(cierre_corregido, macros_idx, atc_idx_corregido)
+    asiento = motor.construir_asiento(resultado_v2)
+
+    blockers = resultado_v2.get("excepciones_bloqueantes", 0) or 0
+    diferencia = resultado_v2.get("diferencia", "0.00") or "0.00"
+
+    v2_ok = (
+        resultado_v2.get("estado") == "OK"
+        and blockers == 0
+        and Decimal(diferencia) == 0
+    )
+    asiento_ok = asiento.get("estado") == "OK"
+
+    sap_resumen = None
+    if v2_ok and asiento_ok:
+        metadata_sap = dict(metadata_cabecera or {})
+        metadata_sap.update(derivar_cabecera_fecha_cierre(resultado_v2["fecha"]))
+        sap_resumen = sap.generar_y_validar_sap(
+            asiento, ruta_plantilla_sap, ruta_sap_salida, metadata_sap
+        )
+    sap_ok = bool(sap_resumen) and sap_resumen.get("estado_sap") == "OK"
+
+    resultado_json = _construir_resultado_json(
+        fecha_cierre=resultado_v2.get("fecha"),
+        archivo_origen=archivo_origen,
+        hash_origen=hash_origen,
+        version_codigo=version_codigo,
+        resultado_v2=resultado_v2,
+        asiento=asiento,
+        sap_resumen=sap_resumen,
+        ruta_sap_salida=ruta_sap_salida if sap_ok else None,
+        warnings_extra=[],
+    )
+    resultado_json["version_correccion"] = version_correccion
+    resultado_json["correccion_aplicada"] = {
+        "categoria": correccion["categoria"],
+        "tipo": correccion["tipo"],
+        "identificadores": correccion["identificadores"],
+        "campo_corregido": correccion["campo_corregido"],
+        "valor_autorizado": correccion["valor_autorizado"],
+        "usuario_auditor": correccion["usuario_auditor"],
+        "fecha_hora": correccion["fecha_hora"],
+    }
+
+    if v2_ok and asiento_ok and sap_ok:
+        estado_final = ESTADO_VALIDADO_PENDIENTE
+        publicacion_autorizada = True
+    else:
+        publicacion_autorizada = False
+        if resultado_v2.get("estado") == "BLOQUEADO_EXCEPCION":
+            estado_final = ESTADO_BLOQUEADO
+        else:
+            estado_final = ESTADO_ERROR
+
+    if ruta_resultado:
+        _escribir_resultado_json(ruta_resultado, resultado_json)
+
+    return {
+        "estado": estado_final,
+        "hash_origen": hash_origen,
+        "version_correccion": version_correccion,
+        "archivo_origen": archivo_origen,
+        "warnings": [],
+        "resultado_v2": resultado_v2,
+        "asiento": asiento,
+        "sap": sap_resumen,
+        "resultado_json": resultado_json,
+        "ruta_resultado_json": ruta_resultado,
+        "publicacion_autorizada": publicacion_autorizada,
+        "acciones_requeridas": [],
+        "version_codigo": version_codigo,
+    }

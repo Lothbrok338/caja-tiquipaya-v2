@@ -324,6 +324,7 @@ def procesar_cierre(fecha_iso, ruta_cierre, ruta_maestro, ruta_plantilla,
             "ruta_sap": None,
             "ruta_resultado": None,
             "detalle_error": f"{type(exc).__name__}: {exc}",
+            "excepciones": [],
         }
     tiempo = time.perf_counter() - t0
 
@@ -350,6 +351,7 @@ def procesar_cierre(fecha_iso, ruta_cierre, ruta_maestro, ruta_plantilla,
         "ruta_sap": resultado_json.get("sap_archivo"),
         "ruta_resultado": ruta_resultado if resultado.get("resultado_json") is not None else None,
         "detalle_error": detalle_error,
+        "excepciones": resultado_json.get("excepciones") or [],
     }
 
 
@@ -368,6 +370,7 @@ def _entrada_sin_archivo(fecha_iso, nombre_archivo):
         "ruta_sap": None,
         "ruta_resultado": None,
         "detalle_error": None,
+        "excepciones": [],
     }
 
 
