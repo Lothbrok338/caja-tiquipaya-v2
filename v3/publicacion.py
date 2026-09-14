@@ -75,8 +75,17 @@ def _salida(item, estado_publicacion, publicado, mensaje, usuario_auditor=None, 
     # Módulo 07 (AUDITORIA) pueda leer estado_ingesta/estado_materializacion/
     # estado_motor/estado_final directamente del item final, sin que este
     # módulo los descarte (incompatibilidad real encontrada en FASE 8).
+    # HALLAZGO 2 (prueba manual FASE 9): una llamada idempotente repetida
+    # (mismo marker ya existente) produce el MISMO mensaje cada vez; sin
+    # esta guarda, cada clic de "Publicar" sobre un cierre ya publicado
+    # volvía a anexarlo, inflando el historial con copias identicas del
+    # mismo evento. El historial debe reflejar EVENTOS reales del cierre,
+    # no cuantas veces el usuario volvio a intentar una accion que el
+    # backend ya sabe que no tiene efecto — nunca se descarta un evento
+    # genuinamente nuevo, solo se evita repetir el ULTIMO si es identico.
     mensajes = list(item.get("mensajes") or [])
-    mensajes.append(mensaje)
+    if not mensajes or mensajes[-1] != mensaje:
+        mensajes.append(mensaje)
     base = dict(item)
     base.update({
         "fecha": item.get("fecha"), "estado_publicacion": estado_publicacion, "publicado": publicado,

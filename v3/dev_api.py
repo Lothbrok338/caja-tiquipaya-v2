@@ -1,0 +1,412 @@
+"""v3/dev_api.py — Backend DEV (API de lotes) de Caja Tiquipaya V3 (FASE 9).
+
+Conecta n8n_frontend/v3_control_cierres.html con los 7 módulos v3.* ya
+construidos (FASE 5-8), detrás de un contrato JSON estable por LOTE.
+NINGUNA regla de negocio nueva vive aquí: este módulo únicamente
+
+  1. encadena las funciones YA EXISTENTES (ejecutar_ingesta,
+     ejecutar_materializacion, ejecutar_motor, ejecutar_clasificacion,
+     revisar_y_corregir_cierre, publicar_lote, consolidar_auditoria_lote)
+     exactamente como ya lo hace el workflow principal de n8n (FASE 8);
+  2. persiste el estado de un lote en `base_dir_dev/lotes/LOTE_<id>.json`
+     para que llamadas HTTP separadas (procesar → estado → datos →
+     corregir → publicar) puedan referirse al mismo lote entre requests;
+  3. completa, del lado servidor, los campos TÉCNICOS de una corrección
+     (sha256_origen, version_correccion, fecha_hora) que el navegador
+     NUNCA debe calcular — reutiliza `correcciones_tiquipaya.
+     calcular_sha256_archivo()`/`calcular_version_correccion()` tal cual.
+
+n8n invoca cada acción de este módulo con el MISMO patrón Execute-Command
++ base64 que ya usan los 7 subworkflows: cada webhook bajo
+`/webhook/tiq-v3-dev/*` arma un JSON mínimo desde el body/query del
+request (sin lógica de negocio en ese Code node), lo pasa por aquí como
+CLI, y devuelve la salida tal cual.
+
+CONTRACT-011 (procesar y publicar separados): `crear_lote_pendiente()` y
+`procesar_lote()` nunca publican nada. `publicar_seleccionados()` es la
+ÚNICA función de este módulo que puede terminar en un cierre PUBLICADO,
+y solo publica fechas que ya llegaron a un estado publicable — cualquier
+fecha pedida que no lo esté se reporta en `omitidos`, nunca se publica.
+"""
+
+import json
+import os
+import sys
+import uuid
+from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import run_batch  # noqa: E402  (reutilizado tal cual: generar_rango_fechas)
+import correcciones_tiquipaya as correcciones  # noqa: E402  (reutilizado tal cual)
+from v3.materializacion import _verificar_contenido_en_base_dir  # noqa: E402
+from v3.ingesta import ejecutar_ingesta  # noqa: E402
+from v3.materializacion import ejecutar_materializacion  # noqa: E402
+from v3.motor import ejecutar_motor  # noqa: E402
+from v3.clasificacion import ejecutar_clasificacion, LISTO_PARA_PUBLICAR, ERROR_REVISAR  # noqa: E402
+from v3.revision import revisar_y_corregir_cierre  # noqa: E402
+from v3.publicacion import publicar_lote  # noqa: E402
+from v3.auditoria import consolidar_auditoria_lote  # noqa: E402
+
+
+PROCESANDO = "PROCESANDO"
+LISTO_LOTE = "LISTO_PARA_REVISION_O_PUBLICACION"
+ERROR_LOTE = "ERROR"
+
+
+class LoteNoEncontradoError(ValueError):
+    pass
+
+
+class CierreNoEnLoteError(ValueError):
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Persistencia del lote — el único estado que sobrevive entre llamadas HTTP.
+# ---------------------------------------------------------------------------
+
+def _ruta_lote(lote_id, base_dir_dev):
+    ruta = os.path.join(base_dir_dev, "lotes", f"LOTE_{lote_id}.json")
+    _verificar_contenido_en_base_dir(ruta, base_dir_dev)
+    return ruta
+
+
+def _leer_lote(lote_id, base_dir_dev):
+    ruta = _ruta_lote(lote_id, base_dir_dev)
+    if not os.path.isfile(ruta):
+        raise LoteNoEncontradoError(f"LOTE_NO_ENCONTRADO:{lote_id}")
+    with open(ruta, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _escribir_lote(lote, base_dir_dev):
+    ruta = _ruta_lote(lote["lote_id"], base_dir_dev)
+    os.makedirs(os.path.dirname(ruta), exist_ok=True)
+    lote["actualizado_en"] = datetime.now(timezone.utc).isoformat()
+    with open(ruta, "w", encoding="utf-8") as f:
+        json.dump(lote, f, ensure_ascii=False, indent=2)
+    return lote
+
+
+def _buscar_indice(lote, fecha):
+    for i, c in enumerate(lote["cierres"]):
+        if c.get("fecha") == fecha:
+            return i
+    raise CierreNoEnLoteError(f"CIERRE_NO_ENCONTRADO_EN_LOTE:{fecha}")
+
+
+# ---------------------------------------------------------------------------
+# PROCESAR — en 2 pasos, para no bloquear al front esperando 01→04 completo.
+# ---------------------------------------------------------------------------
+
+def crear_lote_pendiente(fecha_inicio, fecha_fin, usuario_auditor, base_dir_dev):
+    """Paso 1 (rápido): registra el lote en PROCESANDO y devuelve su id de
+    inmediato. n8n responde al navegador con este resultado ANTES de
+    ejecutar la cadena 01→04 (ver `procesar_lote`), que sigue corriendo
+    en segundo plano en la misma ejecución de n8n (nodo "Respond to
+    Webhook" + nodos posteriores)."""
+    lote_id = uuid.uuid4().hex[:12]
+    lote = {
+        "lote_id": lote_id, "fecha_inicio": fecha_inicio, "fecha_fin": fecha_fin,
+        "usuario_auditor": usuario_auditor, "estado_lote": PROCESANDO,
+        "creado_en": datetime.now(timezone.utc).isoformat(), "cierres": [],
+    }
+    _escribir_lote(lote, base_dir_dev)
+    return {"lote_id": lote_id, "estado_lote": PROCESANDO}
+
+
+def procesar_lote(lote_id, base_dir_dev, origen_cierres_dir, ruta_maestro_origen,
+                   ruta_plantilla_origen, markers_origen_dir=None, version_codigo=None):
+    """Paso 2 (el que puede tardar): ejecuta 01 INGESTA → 02 MATERIALIZACION
+    → 03 MOTOR → 04 CLASIFICACION para el rango ya registrado en el lote,
+    reutilizando exactamente las mismas funciones que el resto de V3 (sin
+    reimplementar nada). `candidatos_por_fecha` para REGLA G se construye
+    listando el contenido REAL de `origen_cierres_dir` (fixture DEV local,
+    nunca Drive productivo) — el mismo nombre exacto que cada fecha espera
+    decide, vía v3.ingesta, si ese cierre queda ENCONTRADO/SIN_ARCHIVO/
+    AMBIGUO; este módulo no reinterpreta esa decisión.
+
+    Nunca publica ni corrige nada: dEja el lote en `LISTO_LOTE`, listo
+    para que el frontend pida /datos, /revisar, /corregir o /publicar."""
+    lote = _leer_lote(lote_id, base_dir_dev)
+    try:
+        candidatos = sorted(os.listdir(origen_cierres_dir)) if os.path.isdir(origen_cierres_dir) else []
+        mes_rango = int(lote["fecha_inicio"].split("-")[1])
+
+        # origen_cierres_dir es una carpeta plana DEV (sin indexar por
+        # fecha): se ofrece el MISMO listado completo a cada fecha del
+        # rango — REGLA G decide con coincidencia EXACTA de nombre cuál
+        # corresponde a cuál (nunca "el primero"; ver v3.ingesta).
+        fechas_rango = run_batch.generar_rango_fechas(lote["fecha_inicio"], lote["fecha_fin"])
+        candidatos_por_fecha = {fecha: candidatos for fecha in fechas_rango}
+        ingesta = ejecutar_ingesta(lote["fecha_inicio"], lote["fecha_fin"], candidatos_por_fecha)
+
+        materializados = ejecutar_materializacion(ingesta, {
+            "base_dir_dev": base_dir_dev, "origen_cierres_dir": origen_cierres_dir,
+            "ruta_maestro_origen": ruta_maestro_origen, "ruta_plantilla_origen": ruta_plantilla_origen,
+            "markers_origen_dir": markers_origen_dir, "mes_rango": mes_rango,
+        })
+        procesados = ejecutar_motor(materializados, base_dir_dev, version_codigo)
+        clasificados = ejecutar_clasificacion(procesados)
+
+        lote["cierres"] = clasificados
+        lote["estado_lote"] = LISTO_LOTE
+    except Exception as exc:  # nunca deja el lote en un estado indefinido
+        lote["estado_lote"] = ERROR_LOTE
+        lote["mensaje_error"] = f"{type(exc).__name__}: {exc}"
+
+    return _escribir_lote(lote, base_dir_dev)
+
+
+# ---------------------------------------------------------------------------
+# ESTADO / DATOS — solo lectura del lote ya persistido.
+# ---------------------------------------------------------------------------
+
+def obtener_estado(lote_id, base_dir_dev):
+    lote = _leer_lote(lote_id, base_dir_dev)
+    cierres = lote.get("cierres", [])
+    return {
+        "lote_id": lote_id, "estado_lote": lote["estado_lote"],
+        "total_cierres": len(cierres),
+        "listos": sum(1 for c in cierres if c.get("estado_final") == LISTO_PARA_PUBLICAR),
+        "publicados": sum(1 for c in cierres if c.get("publicado")),
+        "en_revision": sum(1 for c in cierres if c.get("estado_final") == ERROR_REVISAR and c.get("resultado_reproceso") != LISTO_PARA_PUBLICAR),
+        "mensaje_error": lote.get("mensaje_error"),
+    }
+
+
+def obtener_datos(lote_id, base_dir_dev):
+    lote = _leer_lote(lote_id, base_dir_dev)
+    return {"lote_id": lote_id, "estado_lote": lote["estado_lote"], "cierres": lote.get("cierres", [])}
+
+
+# ---------------------------------------------------------------------------
+# REVISAR — detalle de un cierre ERROR_REVISAR: excepciones REALES del
+# motor V2 (resultado_json["excepciones"], nunca reinterpretadas) + los
+# campos corregibles REALES (correcciones_tiquipaya.CAMPOS_CORREGIBLES,
+# reutilizado tal cual, nunca retipeado en el frontend).
+# ---------------------------------------------------------------------------
+
+# CI: motor_tiquipaya.validar_ci() ya decide el "tipo" bloqueante con un
+# orden de prioridad fijo (cuenta_contable primero, asignacion despues —
+# ver motor_tiquipaya.py líneas 387-393: "if not cuenta_contable: ...
+# elif not asignacion: ..."). Reutilizamos ese mismo código estructurado
+# (nunca texto libre / motivo_legible) para señalar EXACTAMENTE el campo
+# que el motor reportó como problema de ESTA excepción puntual — así, si
+# una fila tuviera ambos campos vacíos a la vez, se ofrece solo el que el
+# motor efectivamente evaluó primero (el otro podría volver a aparecer
+# recién en un futuro reproceso, si sigue vacío tras corregir el primero).
+_CI_TIPO_CAMPO = {
+    "CI_CUENTA_FALTANTE": "cuenta_contable",
+    "CI_ASIGNACION_FALTANTE": "asignacion",
+}
+
+
+def _campos_aplicables(exc, campos_permitidos):
+    """Dentro de los campos PERMITIDOS por categoría (correcciones_tiquipaya.
+    CAMPOS_CORREGIBLES, sin cambios), calcula cuáles corresponden a un
+    problema REAL de ESTA excepción puntual — nunca interpreta texto libre
+    (motivo_legible ni ningún otro): usa señales estructuradas que el motor
+    ya calcula (el "tipo" de excepción para CI, ver _CI_TIPO_CAMPO; el mismo
+    criterio de "faltante" que motor_tiquipaya usa para decidir el bloqueo
+    de CI para cualquier otra categoría — los 4 campos de ATC son None
+    cuando esa columna genuinamente no está definida para esa fila).
+
+    VOUCHER es la única categoría que NO se filtra así: `codigo_informado`
+    es siempre el campo en cuestión para cualquier tipo de excepción de
+    voucher — el valor SIEMPRE está presente (es el código cuestionado),
+    lo dudoso es que sea el correcto, no que falte."""
+    categoria = exc.get("categoria")
+    if categoria == "VOUCHER":
+        return list(campos_permitidos)
+    if categoria == "COMUNICACION_INTERNA":
+        campo = _CI_TIPO_CAMPO.get(exc.get("tipo"))
+        return [campo] if campo and campo in campos_permitidos else []
+    return [campo for campo in campos_permitidos if not exc.get(campo)]
+
+
+def obtener_detalle_revision(lote_id, fecha, base_dir_dev):
+    """Siempre lee el resultado del reproceso MAS RECIENTE (item["ruta_resultado"]
+    ya apunta a REPROCESOS/... tras una corrección aplicada — ver
+    v3.revision) — nunca datos de una revisión anterior: el llamador debe
+    volver a pedir este endpoint después de cada /corregir para obtener el
+    estado POST-REPROCESO real, nunca reutilizar una respuesta vieja."""
+    lote = _leer_lote(lote_id, base_dir_dev)
+    item = lote["cierres"][_buscar_indice(lote, fecha)]
+
+    campos_por_categoria = {cat: sorted(campos) for cat, campos in correcciones.CAMPOS_CORREGIBLES.items()}
+    excepciones = []
+    cuadre = {}
+    ruta_resultado = item.get("ruta_resultado")
+    if ruta_resultado and os.path.isfile(ruta_resultado):
+        with open(ruta_resultado, "r", encoding="utf-8") as f:
+            resultado_json = json.load(f)
+        # Cada excepción se enriquece con `campos_corregibles_aplicables`
+        # (subconjunto de los campos PERMITIDOS por categoría que realmente
+        # corresponden al problema de ESA excepción puntual — ver
+        # _campos_aplicables). El frontend NUNCA decide esto por su cuenta.
+        excepciones = [
+            dict(exc, campos_corregibles_aplicables=_campos_aplicables(exc, campos_por_categoria.get(exc.get("categoria"), [])))
+            for exc in resultado_json.get("excepciones", [])
+        ]
+        # Cuadre REAL ya calculado por V2 (pipeline_tiquipaya._construir_resultado_json),
+        # reexpuesto tal cual para el caso "sigue ERROR_REVISAR pero ya no
+        # hay excepciones corregibles" — nunca se inventa ni se recalcula
+        # ningun importe aqui.
+        cuadre = {
+            "universo_original": resultado_json.get("universo_original"),
+            "alquileres": resultado_json.get("alquileres"),
+            "universo_ajustado": resultado_json.get("universo_ajustado"),
+            "total_vouchers": resultado_json.get("total_vouchers"),
+            "cantidad_vouchers": resultado_json.get("cantidad_vouchers"),
+            "total_ci": resultado_json.get("total_ci"),
+            "cantidad_ci": resultado_json.get("cantidad_ci"),
+            "atc_bruto": resultado_json.get("atc_bruto"),
+            "atc_neto": resultado_json.get("atc_neto"),
+            "atc_comision": resultado_json.get("atc_comision"),
+        }
+
+    return {
+        "fecha": fecha, "estado_final": item.get("estado_final"),
+        "requiere_revision": item.get("requiere_revision"), "mensaje": item.get("mensaje"),
+        "diferencia": item.get("diferencia"), "bloqueadores": item.get("bloqueadores"),
+        "resultado_reproceso": item.get("resultado_reproceso"),
+        "correccion_aplicada": item.get("correccion_aplicada"),
+        "excepciones": excepciones,
+        "cuadre": cuadre,
+        # CAMPOS_CORREGIBLES por categoría (referencia general, límites V2
+        # sin cambios). Para el formulario, usar SIEMPRE
+        # excepciones[i].campos_corregibles_aplicables — el subconjunto
+        # real para esa excepción puntual.
+        "campos_corregibles": campos_por_categoria,
+    }
+
+
+# ---------------------------------------------------------------------------
+# CORREGIR — el humano decide QUÉ corregir; este módulo completa los
+# campos técnicos y delega en v3.revision (que a su vez delega en
+# correcciones_tiquipaya.py/pipeline_tiquipaya.py de V2, sin cambios).
+# ---------------------------------------------------------------------------
+
+def aplicar_correccion(lote_id, fecha, correccion_parcial, base_dir_dev):
+    """`correccion_parcial`: lo que el auditor humano decide/observa desde
+    el frontend — categoria, tipo, identificadores, campo_corregido,
+    valor_original (el valor que el auditor ve en la excepción antes de
+    corregir), valor_autorizado, motivo (justificación en texto libre) y
+    usuario_auditor. NUNCA incluye sha256_origen, fecha_cierre, fecha_hora
+    ni version_correccion — esos son responsabilidad EXCLUSIVA del
+    servidor (ver abajo), para que el navegador jamás tenga que
+    implementar (ni pueda falsear) el algoritmo de hashing/versionado.
+    Si falta cualquier campo obligatorio (incluido valor_original/motivo),
+    correcciones_tiquipaya.validar_schema_correccion() la rechaza tal cual
+    lo haría para V2 — este módulo no relaja ni completa esos campos."""
+    lote = _leer_lote(lote_id, base_dir_dev)
+    idx = _buscar_indice(lote, fecha)
+    item = lote["cierres"][idx]
+
+    ruta_cierre = item.get("ruta_cierre_local")
+    if not ruta_cierre or not os.path.isfile(ruta_cierre):
+        raise ValueError("CORRECCION_SIN_CIERRE_LOCAL:no hay ruta_cierre_local materializada para esta fecha")
+
+    correccion = dict(correccion_parcial)
+    correccion.setdefault("fecha_cierre", fecha)
+    correccion.setdefault("fecha_hora", datetime.now(timezone.utc).isoformat())
+    correccion["sha256_origen"] = correcciones.calcular_sha256_archivo(ruta_cierre)  # SIEMPRE servidor, nunca el navegador
+    correccion["version_correccion"] = correcciones.calcular_version_correccion(correccion)  # idem
+
+    item_con_correccion = dict(item, correccion=correccion)
+    resultado = revisar_y_corregir_cierre(item_con_correccion, base_dir_dev, controles_dir_dev=lote.get("controles_dir_dev"))
+    lote["cierres"][idx] = resultado
+    _escribir_lote(lote, base_dir_dev)
+    return resultado
+
+
+# ---------------------------------------------------------------------------
+# PUBLICAR — solo fechas ya publicables; cualquier otra se omite (nunca
+# se publica sin que el Módulo 04/05 ya lo haya habilitado).
+# ---------------------------------------------------------------------------
+
+def publicar_seleccionados(lote_id, fechas, base_dir_dev, usuario_auditor):
+    lote = _leer_lote(lote_id, base_dir_dev)
+    fechas = set(fechas)
+    elegibles, omitidos, indices = [], [], {}
+
+    for i, c in enumerate(lote["cierres"]):
+        if c.get("fecha") not in fechas:
+            continue
+        estado = c.get("resultado_reproceso") or c.get("estado_final")
+        if estado == LISTO_PARA_PUBLICAR:
+            elegibles.append(c)
+            indices[c["fecha"]] = i
+        else:
+            omitidos.append({"fecha": c.get("fecha"), "motivo": f"Estado '{estado}' no habilita publicación (CONTRACT-011)."})
+
+    publicados = publicar_lote(elegibles, base_dir_dev, usuario_auditor) if elegibles else []
+    for p in publicados:
+        lote["cierres"][indices[p["fecha"]]] = p
+
+    auditoria = consolidar_auditoria_lote(lote["cierres"], base_dir_dev, usuario_auditor)
+    _escribir_lote(lote, base_dir_dev)
+    return {"publicados": publicados, "omitidos": omitidos, "ruta_auditoria_lote": auditoria["ruta_lote"]}
+
+
+# ---------------------------------------------------------------------------
+# CLI — mismo patrón Python-es-la-única-autoridad de los demás módulos.
+# ---------------------------------------------------------------------------
+
+def main(argv=None):
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Backend DEV (API de lotes) de V3 — FASE 9.")
+    parser.add_argument("--accion", required=True, choices=[
+        "crear_lote_pendiente", "procesar_lote", "estado", "datos", "revisar", "corregir", "publicar",
+    ])
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--output", required=True)
+    args = parser.parse_args(argv)
+
+    with open(args.input, "r", encoding="utf-8") as f:
+        datos = json.load(f)
+
+    try:
+        if args.accion == "crear_lote_pendiente":
+            r = crear_lote_pendiente(datos["fecha_inicio"], datos["fecha_fin"], datos.get("usuario_auditor"), datos["base_dir_dev"])
+            salida = {"resultado": "OK", **r}
+        elif args.accion == "procesar_lote":
+            r = procesar_lote(
+                datos["lote_id"], datos["base_dir_dev"], datos["origen_cierres_dir"],
+                datos["ruta_maestro_origen"], datos["ruta_plantilla_origen"],
+                datos.get("markers_origen_dir"), datos.get("version_codigo"),
+            )
+            salida = {"resultado": "OK", "lote_id": r["lote_id"], "estado_lote": r["estado_lote"], "total_cierres": len(r["cierres"])}
+        elif args.accion == "estado":
+            salida = {"resultado": "OK", **obtener_estado(datos["lote_id"], datos["base_dir_dev"])}
+        elif args.accion == "datos":
+            salida = {"resultado": "OK", **obtener_datos(datos["lote_id"], datos["base_dir_dev"])}
+        elif args.accion == "revisar":
+            salida = {"resultado": "OK", **obtener_detalle_revision(datos["lote_id"], datos["fecha"], datos["base_dir_dev"])}
+        elif args.accion == "corregir":
+            salida = {"resultado": "OK", "cierre": aplicar_correccion(datos["lote_id"], datos["fecha"], datos["correccion"], datos["base_dir_dev"])}
+        elif args.accion == "publicar":
+            salida = {"resultado": "OK", **publicar_seleccionados(datos["lote_id"], datos["fechas"], datos["base_dir_dev"], datos.get("usuario_auditor"))}
+    except Exception as exc:
+        salida = {"resultado": "ERROR", "codigo": type(exc).__name__, "mensaje": str(exc)}
+
+    # Serializacion defensiva: si `salida` contuviera algo no serializable
+    # (bug de programacion en cualquier accion de arriba), NUNCA se deja un
+    # archivo de salida truncado a medio escribir — se escribe primero a un
+    # buffer en memoria y solo se vuelca al archivo si el JSON completo es
+    # valido; si no, se reemplaza por un ERROR limpio y ESE si es serializable.
+    try:
+        texto = json.dumps(salida, ensure_ascii=False, indent=2)
+    except TypeError as exc:
+        texto = json.dumps({"resultado": "ERROR", "codigo": "SALIDA_NO_SERIALIZABLE", "mensaje": str(exc)}, ensure_ascii=False, indent=2)
+
+    with open(args.output, "w", encoding="utf-8") as f:
+        f.write(texto)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

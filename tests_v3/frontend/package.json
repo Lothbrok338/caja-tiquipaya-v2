@@ -1,0 +1,11 @@
+{
+  "name": "tiq-v3-frontend-tests",
+  "private": true,
+  "description": "Pruebas de integracion frontend/backend (FASE 9) para n8n_frontend/v3_control_cierres.html via jsdom. No forman parte de la suite pytest; ejecutar con: npm install && npm test",
+  "scripts": {
+    "test": "node test_frontend.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}

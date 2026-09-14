@@ -1,0 +1,1191 @@
+{
+  "id": "aLs1f3GMqswbaENA",
+  "name": "TIQ V3 · BACKEND DEV (webhooks)",
+  "active": false,
+  "isArchived": false,
+  "versionId": "0d5387ba-ccef-4115-9799-ee0a86f7563e",
+  "activeVersionId": null,
+  "triggerCount": 6,
+  "createdAt": "2026-09-14T04:52:50.018Z",
+  "updatedAt": "2026-09-14T04:59:55.725Z",
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "tags": [],
+  "parentFolderId": null,
+  "description": "FASE 9 — backend DEV bajo /webhook/tiq-v3-dev/{estado,procesar,datos,revisar,corregir,publicar} que conecta v3_control_cierres.html con los modulos v3.* via v3/dev_api.py. Inactivo, sin credenciales, sin Drive/SAP/marcadores productivos.",
+  "connections": {
+    "WEBHOOK procesar": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload crear_lote_pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload crear_lote_pendiente": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input crear_lote_pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input crear_lote_pendiente": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR crear_lote_pendiente (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR crear_lote_pendiente (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado crear_lote_pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado crear_lote_pendiente": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado crear_lote_pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado crear_lote_pendiente": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER procesar (lote_id)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CONSTRUIR payload procesar_lote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload procesar_lote": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input procesar_lote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input procesar_lote": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR procesar_lote (Python, background)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK estado": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload estado": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input estado": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR estado (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR estado (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado estado": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado estado": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK datos": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload datos": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input datos": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR datos (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR datos (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado datos": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado datos": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK revisar": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload revisar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload revisar": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input revisar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input revisar": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR revisar (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR revisar (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado revisar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado revisar": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado revisar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado revisar": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER revisar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK corregir": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload corregir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload corregir": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input corregir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input corregir": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR corregir (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR corregir (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado corregir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado corregir": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado corregir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado corregir": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER corregir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK publicar": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload publicar": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input publicar": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR publicar (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR publicar (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado publicar": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado publicar": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodes": [
+    {
+      "id": "add70a00-0c96-40b7-a54a-4bafa8119bdb",
+      "name": "Sticky Note Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ],
+      "parameters": {
+        "content": "## TIQ V3 · BACKEND DEV (webhooks) — FASE 9\nConecta n8n_frontend/v3_control_cierres.html con los 7 modulos v3.* ya construidos (FASE 5-8), via v3/dev_api.py (Python, unica autoridad: orquesta ingesta->materializacion->motor->clasificacion->[revision]->[publicacion]->auditoria reutilizando las MISMAS funciones, sin reimplementar ninguna regla). Cada webhook bajo /webhook/tiq-v3-dev/* arma un JSON minimo del body/query (CERO logica de negocio en ese Code node), lo pasa a v3.dev_api por el MISMO patron Execute-Command+base64 ya usado en los 7 subworkflows, y responde con el resultado tal cual.\n\nSEGURIDAD DEV (ver tambien pie de v3_control_cierres.html): base_dir_dev/origen_cierres_dir/ruta_maestro_origen/ruta_plantilla_origen son CONSTANTES fijas del lado servidor -- el navegador NUNCA elige una ruta de archivo ni un comando; solo envia fecha_inicio/fecha_fin/usuario_auditor/lote_id/fecha/correccion/fechas, siempre validados por v3.dev_api (Python) antes de tocar cualquier archivo. AUTENTICACION: pendiente -- OBLIGATORIA antes de exponer esto fuera de un entorno DEV controlado (ver auditoria_v2/V2_RISKS.csv RISK-001). Todos los webhooks quedan bajo tiq-v3-dev, nunca reutilizan namespace de V2.",
+        "color": 4
+      }
+    },
+    {
+      "id": "6d622284-fabc-498f-a2b4-6f40eafd538b",
+      "name": "WEBHOOK procesar",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tiq-v3-dev/procesar",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "a4a75979-76e4-4d19-8348-632f4ca07f4e"
+    },
+    {
+      "id": "28a9d882-0360-469a-8900-57375ca04aa3",
+      "name": "CONSTRUIR payload crear_lote_pendiente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (crear_lote_pendiente) -- Python es la unica autoridad.\n// Este nodo NUNCA decide nada de negocio: solo empaqueta lo que ya vino\n// del request HTTP (body/query), mas rutas DEV FIJAS del lado servidor\n// (el navegador nunca elige un path de archivo -- ver Sticky Note de\n// seguridad de este workflow).\nconst payload = { fecha_inicio: t.body.fecha_inicio, fecha_fin: t.body.fecha_fin, usuario_auditor: t.body.usuario_auditor || null, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_manual_dev/dev_workdir' };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_crear_lote_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_crear_lote_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+      }
+    },
+    {
+      "id": "ce3b4b21-6b99-473d-906d-fa41ebddeae5",
+      "name": "ESCRIBIR input crear_lote_pendiente",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\""
+      }
+    },
+    {
+      "id": "2a3ac9ac-6e30-4337-ab8c-659eac3fa460",
+      "name": "EJECUTAR crear_lote_pendiente (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion crear_lote_pendiente --input \"{{ $('CONSTRUIR payload crear_lote_pendiente').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR payload crear_lote_pendiente').item.json.ruta_output_tmp }}\" ; true"
+      }
+    },
+    {
+      "id": "8852d8ef-a7dd-4017-9b7b-b61754528c67",
+      "name": "LEER resultado crear_lote_pendiente",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('CONSTRUIR payload crear_lote_pendiente').item.json.ruta_output_tmp }}"
+      }
+    },
+    {
+      "id": "483d065e-fdb3-4ad7-afd6-81af14d521d6",
+      "name": "INTERPRETAR resultado crear_lote_pendiente",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "operation": "fromJson"
+      }
+    },
+    {
+      "id": "ad87b929-0c79-46df-87e6-ced5a613ad0f",
+      "name": "RESPONDER procesar (lote_id)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.data }}"
+      }
+    },
+    {
+      "id": "1d842d3a-bf39-4f7b-8f36-3a8dc22237bc",
+      "name": "CONSTRUIR payload procesar_lote",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        200
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (procesar_lote) -- Python es la unica autoridad.\n// Este nodo NUNCA decide nada de negocio: solo empaqueta lo que ya vino\n// del request HTTP (body/query), mas rutas DEV FIJAS del lado servidor\n// (el navegador nunca elige un path de archivo -- ver Sticky Note de\n// seguridad de este workflow).\nconst payload = { lote_id: $('INTERPRETAR resultado crear_lote_pendiente').item.json.data.lote_id, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_manual_dev/dev_workdir', origen_cierres_dir: '/home/codespace/.n8n-files/tiq_v3_manual_dev/origen_drive', ruta_maestro_origen: '/home/codespace/.n8n-files/tiq_v3_manual_dev/MAESTRO_SEPTIEMBRE.xlsm', ruta_plantilla_origen: '/home/codespace/.n8n-files/tiq_v3_manual_dev/Plantilla_SAP_maestra.xlsx' };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+      }
+    },
+    {
+      "id": "d20310ba-e537-493f-9052-9340bdca2a21",
+      "name": "ESCRIBIR input procesar_lote",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        200
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\""
+      }
+    },
+    {
+      "id": "d4750d8c-f52e-430d-9197-66669767f588",
+      "name": "EJECUTAR procesar_lote (Python, background)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        200
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion procesar_lote --input \"{{ $('CONSTRUIR payload procesar_lote').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR payload procesar_lote').item.json.ruta_output_tmp }}\" ; true"
+      }
+    },
+    {
+      "id": "6a2c04af-5586-43ed-a8ea-ae63ae4fb266",
+      "name": "Sticky Note procesar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        380
+      ],
+      "parameters": {
+        "content": "## POST /webhook/tiq-v3-dev/procesar\nBody: {fecha_inicio, fecha_fin, usuario_auditor}. NO BLOQUEA: responde de inmediato con {lote_id, estado_lote:'PROCESANDO'} (nodo 'Respond to Webhook') y SIGUE ejecutando 01 INGESTA->02 MATERIALIZACION->03 MOTOR->04 CLASIFICACION en la misma ejecucion de n8n, en segundo plano. El frontend debe hacer polling de GET /estado?lote_id=... hasta ver estado_lote distinto de PROCESANDO.",
+        "color": 6
+      }
+    },
+    {
+      "id": "3c9999f2-4619-4cc7-94b3-e6a989f336e4",
+      "name": "WEBHOOK estado",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        600
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "tiq-v3-dev/estado",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "8df060fc-2084-4e2a-baf5-336e25faca74"
+    },
+    {
+      "id": "ad611a87-3951-4deb-b607-897c2943df15",
+      "name": "CONSTRUIR payload estado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        600
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (estado) -- Python es la unica autoridad.\n// Este nodo NUNCA decide nada de negocio: solo empaqueta lo que ya vino\n// del request HTTP (body/query), mas rutas DEV FIJAS del lado servidor\n// (el navegador nunca elige un path de archivo -- ver Sticky Note de\n// seguridad de este workflow).\nconst payload = { lote_id: t.query.lote_id, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_manual_dev/dev_workdir' };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_estado_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_estado_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+      }
+    },
+    {
+      "id": "4c3fbd26-5789-466c-af4b-6e5b00694045",
+      "name": "ESCRIBIR input estado",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        440,
+        600
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\""
+      }
+    },
+    {
+      "id": "5ce5c03a-dd1b-404f-8fdc-4de022a1d3de",
+      "name": "EJECUTAR estado (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        660,
+        600
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion estado --input \"{{ $('CONSTRUIR payload estado').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR payload estado').item.json.ruta_output_tmp }}\" ; true"
+      }
+    },
+    {
+      "id": "5242d8a8-abae-4bec-90b9-629ae5c5f117",
+      "name": "LEER resultado estado",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        600
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('CONSTRUIR payload estado').item.json.ruta_output_tmp }}"
+      }
+    },
+    {
+      "id": "fdc36dd7-769a-4d2d-9258-9c6ea1d2526c",
+      "name": "INTERPRETAR resultado estado",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        600
+      ],
+      "parameters": {
+        "operation": "fromJson"
+      }
+    },
+    {
+      "id": "31cba30c-6a49-45f5-8f98-d206d8258d3b",
+      "name": "RESPONDER estado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1320,
+        600
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.data }}"
+      }
+    },
+    {
+      "id": "c4b37614-d2e5-42bb-ad78-db35921b420e",
+      "name": "Sticky Note estado",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        780
+      ],
+      "parameters": {
+        "content": "## GET /webhook/tiq-v3-dev/estado?lote_id=...\nDevuelve estado_lote/progreso del lote (solo lectura del archivo LOTE_<id>.json ya persistido por v3.dev_api). El frontend hace polling aqui tras /procesar.",
+        "color": 6
+      }
+    },
+    {
+      "id": "45bf300d-a31f-48c6-a137-7a1b9024c109",
+      "name": "WEBHOOK datos",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1000
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "tiq-v3-dev/datos",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "4a97ebcd-321f-41bc-8835-a4fab4e40d1d"
+    },
+    {
+      "id": "448d601a-5d00-40c6-9170-ec12822f4f6b",
+      "name": "CONSTRUIR payload datos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        1000
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (datos) -- Python es la unica autoridad.\n// Este nodo NUNCA decide nada de negocio: solo empaqueta lo que ya vino\n// del request HTTP (body/query), mas rutas DEV FIJAS del lado servidor\n// (el navegador nunca elige un path de archivo -- ver Sticky Note de\n// seguridad de este workflow).\nconst payload = { lote_id: t.query.lote_id, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_manual_dev/dev_workdir' };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_datos_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_datos_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+      }
+    },
+    {
+      "id": "1ac06832-bb11-4267-bf54-d8a16da25729",
+      "name": "ESCRIBIR input datos",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        440,
+        1000
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\""
+      }
+    },
+    {
+      "id": "7c94c160-5cdb-464a-a122-188f81fdb005",
+      "name": "EJECUTAR datos (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        660,
+        1000
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion datos --input \"{{ $('CONSTRUIR payload datos').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR payload datos').item.json.ruta_output_tmp }}\" ; true"
+      }
+    },
+    {
+      "id": "3099aa46-0089-4de6-b81d-6753079d19af",
+      "name": "LEER resultado datos",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        1000
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('CONSTRUIR payload datos').item.json.ruta_output_tmp }}"
+      }
+    },
+    {
+      "id": "8c4f77ae-c5c6-45a7-a7de-82a4ea5e375f",
+      "name": "INTERPRETAR resultado datos",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        1000
+      ],
+      "parameters": {
+        "operation": "fromJson"
+      }
+    },
+    {
+      "id": "0778049f-3dd1-45a9-b13d-6fdf86c7ebb5",
+      "name": "RESPONDER datos",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1320,
+        1000
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.data }}"
+      }
+    },
+    {
+      "id": "93c2a689-60b3-417b-ab68-9d03d80df02e",
+      "name": "Sticky Note datos",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1180
+      ],
+      "parameters": {
+        "content": "## GET /webhook/tiq-v3-dev/datos?lote_id=...\nDevuelve la lista completa de cierres del lote (misma forma que produce el Modulo 04/05/06 -- estado_final/diferencia/bloqueadores/ruta_sap/etc.) para pintar la tabla.",
+        "color": 6
+      }
+    },
+    {
+      "id": "adda7e70-2173-4506-98d6-fd9e4c5fdc38",
+      "name": "WEBHOOK revisar",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1400
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tiq-v3-dev/revisar",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "fe38b5e0-a90a-4995-a8c0-c2b0171de3de"
+    },
+    {
+      "id": "50459f0b-9d52-43c4-a949-f03fc29068b1",
+      "name": "CONSTRUIR payload revisar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        1400
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (revisar) -- Python es la unica autoridad.\n// Este nodo NUNCA decide nada de negocio: solo empaqueta lo que ya vino\n// del request HTTP (body/query), mas rutas DEV FIJAS del lado servidor\n// (el navegador nunca elige un path de archivo -- ver Sticky Note de\n// seguridad de este workflow).\nconst payload = { lote_id: t.body.lote_id, fecha: t.body.fecha, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_manual_dev/dev_workdir' };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_revisar_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_revisar_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+      }
+    },
+    {
+      "id": "449704e7-75cf-4991-bb64-55e1924fa386",
+      "name": "ESCRIBIR input revisar",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        440,
+        1400
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\""
+      }
+    },
+    {
+      "id": "e7881213-4825-4e89-9ec2-6ef5952c93cb",
+      "name": "EJECUTAR revisar (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        660,
+        1400
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion revisar --input \"{{ $('CONSTRUIR payload revisar').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR payload revisar').item.json.ruta_output_tmp }}\" ; true"
+      }
+    },
+    {
+      "id": "d25f1108-125c-431f-bfa4-43d83256ecea",
+      "name": "LEER resultado revisar",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        1400
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('CONSTRUIR payload revisar').item.json.ruta_output_tmp }}"
+      }
+    },
+    {
+      "id": "289ec2b4-5902-4718-b829-f29447494e0f",
+      "name": "INTERPRETAR resultado revisar",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        1400
+      ],
+      "parameters": {
+        "operation": "fromJson"
+      }
+    },
+    {
+      "id": "26c5f43d-45c3-451c-b183-fef0bfacd322",
+      "name": "RESPONDER revisar",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1320,
+        1400
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.data }}"
+      }
+    },
+    {
+      "id": "de20cb17-457f-4c60-93fc-99410b43d9ce",
+      "name": "Sticky Note revisar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1580
+      ],
+      "parameters": {
+        "content": "## POST /webhook/tiq-v3-dev/revisar\nBody: {lote_id, fecha}. Devuelve el detalle REAL del cierre ERROR_REVISAR: excepciones tal como las calculo el motor de V2 (resultado_json['excepciones']) y los campos corregibles reales (correcciones_tiquipaya.CAMPOS_CORREGIBLES, reutilizado, nunca retipeado en el frontend).",
+        "color": 2
+      }
+    },
+    {
+      "id": "4b3af119-61fb-469c-8e3d-62e22334a091",
+      "name": "WEBHOOK corregir",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1800
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tiq-v3-dev/corregir",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "2c12d6c8-dc3a-4dbc-8cf0-39af204e820a"
+    },
+    {
+      "id": "bed54449-e715-4f85-9122-03a02f1096e3",
+      "name": "CONSTRUIR payload corregir",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        1800
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (corregir) -- Python es la unica autoridad.\n// Este nodo NUNCA decide nada de negocio: solo empaqueta lo que ya vino\n// del request HTTP (body/query), mas rutas DEV FIJAS del lado servidor\n// (el navegador nunca elige un path de archivo -- ver Sticky Note de\n// seguridad de este workflow).\nconst payload = { lote_id: t.body.lote_id, fecha: t.body.fecha, correccion: t.body.correccion, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_manual_dev/dev_workdir' };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_corregir_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_corregir_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+      }
+    },
+    {
+      "id": "bb4a3a99-57b9-4520-92ae-9bd35ca44dce",
+      "name": "ESCRIBIR input corregir",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        440,
+        1800
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\""
+      }
+    },
+    {
+      "id": "d2b5e459-2521-487d-86c4-fe07cbebbb6f",
+      "name": "EJECUTAR corregir (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        660,
+        1800
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion corregir --input \"{{ $('CONSTRUIR payload corregir').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR payload corregir').item.json.ruta_output_tmp }}\" ; true"
+      }
+    },
+    {
+      "id": "debb2f7a-eebd-4585-9cd0-5819f6cbdc9e",
+      "name": "LEER resultado corregir",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        1800
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('CONSTRUIR payload corregir').item.json.ruta_output_tmp }}"
+      }
+    },
+    {
+      "id": "dd4405a6-0295-437d-8eca-1fed1990a343",
+      "name": "INTERPRETAR resultado corregir",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        1800
+      ],
+      "parameters": {
+        "operation": "fromJson"
+      }
+    },
+    {
+      "id": "87304dfd-a753-48b8-a814-229389c88acb",
+      "name": "RESPONDER corregir",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1320,
+        1800
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.data }}"
+      }
+    },
+    {
+      "id": "ecefb461-0118-4813-af9e-3ac56d22a053",
+      "name": "Sticky Note corregir",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1980
+      ],
+      "parameters": {
+        "content": "## POST /webhook/tiq-v3-dev/corregir\nBody: {lote_id, fecha, correccion:{categoria,tipo,identificadores,campo_corregido,valor_autorizado,usuario_auditor}}. IMPORTANTE: el navegador NUNCA envia sha256_origen ni version_correccion -- v3.dev_api los calcula SIEMPRE del lado servidor (correcciones_tiquipaya.py, sin cambios). Importes NUNCA corregibles (rechazado por V2, no por este nodo).",
+        "color": 2
+      }
+    },
+    {
+      "id": "f15cf709-86d0-48aa-8028-88cf1c4dec76",
+      "name": "WEBHOOK publicar",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        2200
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tiq-v3-dev/publicar",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "0dea43d2-c9f1-4c52-8516-6add2c8b1776"
+    },
+    {
+      "id": "a8035925-2948-4d99-b8f8-ff1e6e128455",
+      "name": "CONSTRUIR payload publicar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        2200
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (publicar) -- Python es la unica autoridad.\n// Este nodo NUNCA decide nada de negocio: solo empaqueta lo que ya vino\n// del request HTTP (body/query), mas rutas DEV FIJAS del lado servidor\n// (el navegador nunca elige un path de archivo -- ver Sticky Note de\n// seguridad de este workflow).\nconst payload = { lote_id: t.body.lote_id, fechas: t.body.fechas, usuario_auditor: t.body.usuario_auditor || null, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_manual_dev/dev_workdir' };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_publicar_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_publicar_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+      }
+    },
+    {
+      "id": "6b13b12d-ef88-4a10-84d5-69982fdb12c0",
+      "name": "ESCRIBIR input publicar",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        440,
+        2200
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\""
+      }
+    },
+    {
+      "id": "0d0ef427-91ec-46c0-9a75-271641c03af2",
+      "name": "EJECUTAR publicar (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        660,
+        2200
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion publicar --input \"{{ $('CONSTRUIR payload publicar').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR payload publicar').item.json.ruta_output_tmp }}\" ; true"
+      }
+    },
+    {
+      "id": "cfec35c5-20a6-4c79-8831-a843a6343843",
+      "name": "LEER resultado publicar",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        2200
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('CONSTRUIR payload publicar').item.json.ruta_output_tmp }}"
+      }
+    },
+    {
+      "id": "356175cf-43da-4095-a954-8829ffeae991",
+      "name": "INTERPRETAR resultado publicar",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        2200
+      ],
+      "parameters": {
+        "operation": "fromJson"
+      }
+    },
+    {
+      "id": "e7a29a79-4d2b-4f6d-a4ca-79ec986efa93",
+      "name": "RESPONDER publicar",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1320,
+        2200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.data }}"
+      }
+    },
+    {
+      "id": "8da64a32-44e3-4900-a37f-d35b08a65ed7",
+      "name": "Sticky Note publicar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        2380
+      ],
+      "parameters": {
+        "content": "## POST /webhook/tiq-v3-dev/publicar\nBody: {lote_id, fechas:[...], usuario_auditor}. Publica SOLO las fechas que ya estan en estado publicable (CONTRACT-011); cualquier fecha pedida que no lo este se devuelve en 'omitidos', nunca se publica. Idempotente por SHA256 (CONTRACT-008/009): republicar devuelve YA_PUBLICADO sin duplicar nada. Publica SOLO en base_dir_dev/publicacion/ (DEV) -- cero SAP/Drive/marcadores productivos.",
+        "color": 7
+      }
+    }
+  ],
+  "nodeGroups": [],
+  "activeVersion": null,
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  }
+}

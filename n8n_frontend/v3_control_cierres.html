@@ -6,26 +6,35 @@
 <title>CAJA TIQUIPAYA V3 · CONTROL DE CIERRES (DEV)</title>
 <style>
   :root {
-    --bg: #0a0e14;
-    --bg-alt: #0f141c;
-    --panel: #121822;
-    --panel-2: #161d29;
-    --border: #232c3a;
-    --border-soft: #1a212e;
-    --ink: #e6edf5;
-    --muted: #8a97a8;
-    --muted2: #5c6779;
-    --accent: #35e0c9;
-    --accent-ink: #06342e;
-    --accent-dim: #1b6f63;
-    --blue: #5aa7ff;
-    --amber: #ffb648;
-    --amber-ink: #3a2a08;
-    --red: #ff6161;
-    --red-ink: #3a0f0f;
-    --green: #3ddc84;
-    --green-ink: #0c3322;
-    --gray: #7c8798;
+    /* fondos claros institucionales: crema / marfil / blanco cálido */
+    --bg: #F7F4EE;
+    --bg-alt: #F1ECE5;
+    --panel: #FFFDF9;
+    --panel-2: #F8F4EF;
+    --border: #D8D1C9;
+    --border-soft: #E8E1DA;
+    /* texto principal: grafito oscuro sobre fondo claro */
+    --ink: #2D2D2D;
+    --muted: #6F6A67;
+    --muted2: #8A8480;
+    --gray: #9C968F;
+    /* GUINDO institucional: identidad primaria (header, botón principal, seleccionados, acentos) */
+    --guindo: #9B1739;
+    --guindo-dark: #6E1029;
+    --guindo-soft: #F3E2E7;
+    /* dorado: acento secundario FINO — líneas/separadores/bordes, nunca relleno dominante */
+    --gold: #C89B2C;
+    --gold-soft: #E8D8A6;
+    /* azul: acento terciario MENOR, ya no dominante */
+    --blue: #6E88A0;
+    /* semánticos: MISMA función que antes (verde=listo/publicado/éxito, ámbar=revisión/advertencia,
+       rojo=error/bloqueo), solo reoscurecidos para mantener buen contraste sobre fondo claro */
+    --amber: #9C6B0A;
+    --amber-ink: #FFFFFF;
+    --red: #B3261E;
+    --red-ink: #FFFFFF;
+    --green: #1E7D4C;
+    --green-ink: #FFFFFF;
     --mono: "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
     --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
@@ -34,20 +43,20 @@
     margin: 0;
     font-family: var(--sans);
     background:
-      radial-gradient(1200px 600px at 85% -10%, rgba(53,224,201,0.06), transparent 60%),
-      radial-gradient(900px 500px at -10% 10%, rgba(90,167,255,0.05), transparent 55%),
+      radial-gradient(1200px 600px at 85% -10%, rgba(155,23,57,0.035), transparent 60%),
+      radial-gradient(900px 500px at -10% 10%, rgba(200,155,44,0.045), transparent 55%),
       var(--bg);
     color: var(--ink);
     font-size: 14px;
     min-height: 100vh;
   }
-  a { color: var(--accent); }
+  a { color: var(--guindo); }
 
   /* ---------------- demo banner ---------------- */
   #demo-banner {
-    background: linear-gradient(90deg, #142a26, #0f141c);
-    border-bottom: 1px solid var(--accent-dim);
-    color: var(--accent);
+    background: linear-gradient(90deg, var(--guindo-soft), var(--bg-alt));
+    border-bottom: 1px solid var(--guindo);
+    color: var(--guindo-dark);
     padding: 8px 20px;
     font-size: 12px;
     font-weight: 700;
@@ -55,9 +64,9 @@
     letter-spacing: .03em;
   }
   #real-banner {
-    background: #241416;
-    border-bottom: 1px solid #5a2626;
-    color: #ff9d9d;
+    background: #FBEAEA;
+    border-bottom: 1px solid #E3B0AC;
+    color: #8C1D18;
     padding: 8px 20px;
     font-size: 12px;
     font-weight: 700;
@@ -72,11 +81,19 @@
     gap: 16px;
     padding: 18px 26px;
     border-bottom: 1px solid var(--border);
-    background: rgba(18,24,34,0.6);
+    background: rgba(255,253,249,0.9);
     backdrop-filter: blur(6px);
+    box-shadow: 0 1px 3px rgba(45,35,30,0.05);
     position: sticky;
     top: 0;
     z-index: 5;
+  }
+  /* línea institucional fina guindo + dorado bajo el header */
+  header::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: -1px; height: 3px;
+    background: linear-gradient(90deg, var(--guindo) 0%, var(--gold) 55%, var(--border) 100%);
   }
   header .brand {
     display: flex;
@@ -89,14 +106,14 @@
     font-weight: 700;
     letter-spacing: .01em;
   }
-  header h1 .v3 { color: var(--accent); }
+  header h1 .v3 { color: var(--guindo); }
   .badge-dev {
     font-family: var(--mono);
     font-size: 10.5px;
     font-weight: 700;
     color: var(--amber);
-    background: rgba(255,182,72,0.1);
-    border: 1px solid rgba(255,182,72,0.35);
+    background: rgba(156,107,10,0.10);
+    border: 1px solid rgba(156,107,10,0.3);
     padding: 3px 8px;
     border-radius: 20px;
     letter-spacing: .06em;
@@ -130,6 +147,7 @@
     border-radius: 10px;
     padding: 16px 18px;
     margin-bottom: 18px;
+    box-shadow: 0 1px 2px rgba(45,35,30,0.04);
   }
   .field { display: flex; flex-direction: column; gap: 6px; }
   .field label {
@@ -149,7 +167,7 @@
     font-size: 13px;
     min-width: 150px;
   }
-  input[type=date]:focus, input[type=text]:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  input[type=date]:focus, input[type=text]:focus { outline: 1px solid var(--guindo); border-color: var(--guindo); }
   button {
     font-family: var(--sans);
     font-weight: 700;
@@ -162,17 +180,18 @@
     cursor: pointer;
     transition: filter .12s ease, transform .05s ease;
   }
-  button:hover { filter: brightness(1.15); }
+  button:hover { filter: brightness(1.05); }
   button:active { transform: translateY(1px); }
   button:disabled { opacity: .45; cursor: not-allowed; }
   button.primary {
-    background: linear-gradient(180deg, #3ef0d6, var(--accent));
-    border-color: var(--accent);
-    color: #04211d;
+    background: var(--guindo);
+    border-color: var(--guindo);
+    color: #fff;
     font-size: 13.5px;
     padding: 10px 22px;
     letter-spacing: .02em;
   }
+  button.primary:hover { filter: none; background: var(--guindo-dark); border-color: var(--guindo-dark); }
   button.ghost { background: transparent; }
   button.small { padding: 5px 10px; font-size: 11.5px; border-radius: 6px; }
   button.link {
@@ -201,6 +220,7 @@
     padding: 14px 16px;
     position: relative;
     overflow: hidden;
+    box-shadow: 0 1px 2px rgba(45,35,30,0.04);
   }
   .tile::before {
     content: "";
@@ -223,7 +243,7 @@
   }
   .tile.encontrados { --tile-color: var(--blue); }
   .tile.faltantes { --tile-color: var(--gray); }
-  .tile.procesando { --tile-color: var(--accent); }
+  .tile.procesando { --tile-color: var(--guindo); }
   .tile.listos { --tile-color: var(--green); }
   .tile.revision { --tile-color: var(--amber); }
   .tile.errores { --tile-color: var(--red); }
@@ -236,6 +256,7 @@
     padding: 12px 16px;
     margin-bottom: 18px;
     display: none;
+    box-shadow: 0 1px 2px rgba(45,35,30,0.04);
   }
   .progress-wrap.show { display: block; }
   .progress-head {
@@ -257,7 +278,7 @@
     height: 100%;
     width: 0%;
     border-radius: 5px;
-    background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+    background: linear-gradient(90deg, var(--guindo-dark), var(--guindo));
     transition: width .25s ease;
   }
 
@@ -275,16 +296,18 @@
     border: 1px solid var(--border);
     border-radius: 10px;
     overflow: hidden;
+    box-shadow: 0 1px 2px rgba(45,35,30,0.04);
   }
   .panel h2 {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: .06em;
-    color: var(--muted2);
+    color: var(--guindo-dark);
     margin: 0;
     font-weight: 700;
     padding: 13px 16px;
-    border-bottom: 1px solid var(--border);
+    /* separador dorado fino (acento institucional, no relleno) */
+    border-bottom: 1px solid var(--gold-soft);
     background: var(--panel-2);
   }
 
@@ -296,7 +319,8 @@
     letter-spacing: .05em;
     color: var(--muted2);
     padding: 10px 12px;
-    border-bottom: 1px solid var(--border);
+    background: var(--panel-2);
+    border-bottom: 2px solid var(--gold);
     white-space: nowrap;
   }
   tbody td {
@@ -306,8 +330,9 @@
     white-space: nowrap;
   }
   tbody tr { cursor: pointer; }
-  tbody tr:hover td { background: rgba(53,224,201,0.04); }
-  tbody tr.selected td { background: rgba(53,224,201,0.09); }
+  tbody tr:hover td { background: rgba(155,23,57,0.05); }
+  tbody tr.selected td { background: rgba(155,23,57,0.09); }
+  tbody tr.selected td:first-child { box-shadow: inset 3px 0 0 var(--guindo); }
   .table-scroll { overflow-x: auto; }
   .mono { font-family: var(--mono); }
   .diff-ok { color: var(--green); }
@@ -323,11 +348,11 @@
     letter-spacing: .03em;
     font-family: var(--mono);
   }
-  .tag.listo { background: rgba(61,220,132,0.12); color: var(--green); border: 1px solid rgba(61,220,132,0.35); }
-  .tag.revisar { background: rgba(255,182,72,0.12); color: var(--amber); border: 1px solid rgba(255,182,72,0.35); }
-  .tag.error { background: rgba(255,97,97,0.12); color: var(--red); border: 1px solid rgba(255,97,97,0.35); }
-  .tag.neutral { background: rgba(124,135,152,0.12); color: var(--gray); border: 1px solid rgba(124,135,152,0.35); }
-  .tag.procesando { background: rgba(90,167,255,0.12); color: var(--blue); border: 1px solid rgba(90,167,255,0.35); }
+  .tag.listo { background: rgba(30,125,76,0.10); color: var(--green); border: 1px solid rgba(30,125,76,0.3); }
+  .tag.revisar { background: rgba(156,107,10,0.10); color: var(--amber); border: 1px solid rgba(156,107,10,0.3); }
+  .tag.error { background: rgba(179,38,30,0.10); color: var(--red); border: 1px solid rgba(179,38,30,0.3); }
+  .tag.neutral { background: rgba(156,150,143,0.14); color: var(--gray); border: 1px solid rgba(156,150,143,0.35); }
+  .tag.procesando { background: rgba(110,136,160,0.14); color: var(--blue); border: 1px solid rgba(110,136,160,0.35); }
 
   .row-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 
@@ -345,10 +370,11 @@
     font-size: 10.5px;
     text-transform: uppercase;
     letter-spacing: .06em;
-    color: var(--accent);
+    color: var(--guindo);
     margin: 0 0 8px;
     font-weight: 700;
-    border-bottom: 1px dashed var(--border);
+    /* separador dorado fino (acento institucional, no relleno) */
+    border-bottom: 1px dashed var(--gold-soft);
     padding-bottom: 6px;
   }
   .kv { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 12.5px; }
@@ -378,6 +404,32 @@
     padding: 6px 0;
   }
 
+  /* ---------------- correccion form (real backend) ---------------- */
+  .form-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .form-field label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted2); font-weight: 700; }
+  select, textarea {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    border-radius: 6px;
+    padding: 7px 9px;
+    font-family: var(--sans);
+    font-size: 12.5px;
+    width: 100%;
+  }
+  textarea { min-height: 52px; resize: vertical; font-family: var(--sans); }
+  select:focus, textarea:focus { outline: 1px solid var(--guindo); border-color: var(--guindo); }
+  .form-hint { font-size: 10.5px; color: var(--muted2); margin-top: -2px; }
+  .form-error { color: var(--red); font-size: 11.5px; margin-top: 6px; }
+  .form-ok { color: var(--green); font-size: 11.5px; margin-top: 6px; }
+  button.publicar { background: var(--green); border-color: var(--green); color: #fff; }
+  button.publicar:hover { filter: none; background: #17603A; border-color: #17603A; }
+  .badge-publicado {
+    display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px;
+    background: rgba(30,125,76,0.12); color: var(--green); border: 1px solid rgba(30,125,76,0.35);
+    font-family: var(--mono); margin-left: 6px; text-transform: uppercase; letter-spacing: .03em;
+  }
+
   footer.dev-footer {
     max-width: 1400px;
     margin: 30px auto 0;
@@ -393,7 +445,7 @@
 <body>
 
 <div id="demo-banner">MODO DEMO — datos 100% simulados en el navegador. Ningún botón llama a n8n, Drive ni Python. Nada se modifica.</div>
-<div id="real-banner" style="display:none;">MODO REAL (sin backend) — los endpoints /webhook/tiq-v3-dev/* todavía no existen como webhooks activos en n8n. Cualquier llamada real fallará; usa <code>?demo=1</code> para probar la interfaz.</div>
+<div id="real-banner" style="display:none;">MODO REAL — llama a /webhook/tiq-v3-dev/* (workflow "TIQ V3 · BACKEND DEV (webhooks)", DEV, sin credenciales de Drive, sin SAP/marcadores productivos). El workflow debe estar accesible en n8n para que estas llamadas respondan; usa <code>?demo=1</code> para probar la interfaz sin backend.</div>
 
 <header>
   <div class="brand">
@@ -415,6 +467,10 @@
     <div class="field">
       <label>Fecha hasta</label>
       <input type="date" id="in-fecha-hasta">
+    </div>
+    <div class="field">
+      <label>Usuario auditor</label>
+      <input type="text" id="in-usuario-auditor" placeholder="auditor.dev" value="auditor.dev">
     </div>
     <div class="field grow"></div>
     <button class="primary" id="btn-procesar">PROCESAR CIERRES</button>
@@ -473,8 +529,8 @@
 </main>
 
 <footer class="dev-footer">
-  NAMESPACE FUTURO (sin activar todavia): /webhook/tiq-v3-dev/{estado,procesar,datos,revisar,corregir,publicar} — ver constantes ENDPOINTS en el codigo fuente.<br>
-  AUTENTICACION: pendiente, obligatoria antes de produccion en los endpoints que mutan estado (/procesar,/revisar,/corregir,/publicar). GET /estado y /datos podrian quedar sin auth, igual que el criterio ya usado en V2.<br>
+  BACKEND DEV (FASE 9): /webhook/tiq-v3-dev/{estado,procesar,datos,revisar,corregir,publicar} — workflow "TIQ V3 · BACKEND DEV (webhooks)", inactivo por defecto; cada endpoint invoca v3/dev_api.py (Python, unica autoridad) via el mismo patron Execute-Command+base64 de los 7 subworkflows. Ver constantes ENDPOINTS en el codigo fuente.<br>
+  AUTENTICACION: pendiente, OBLIGATORIA antes de produccion en los endpoints que mutan estado (/procesar,/revisar,/corregir,/publicar). GET /estado y /datos podrian quedar sin auth, igual que el criterio ya usado en V2.<br>
   Este archivo es una COPIA nueva e independiente; n8n_frontend/revision_correccion.html (V2) no fue modificado.
 </footer>
 
@@ -516,7 +572,35 @@
     PROCESANDO:           { label: "Procesando", tag: "procesando" },
   };
 
-  var state = { cierres: [], seleccion: null };
+  var state = { cierres: [], seleccion: null, loteId: null };
+
+  // -----------------------------------------------------------------------
+  // Cliente HTTP minimo hacia /webhook/tiq-v3-dev/*. NUNCA contiene una
+  // sola regla de negocio: solo hace fetch() y valida la forma minima de
+  // la respuesta ({resultado:"OK"/"ERROR", ...}). Toda decision real
+  // (que es corregible, si un cierre es publicable, como se calcula un
+  // hash) vive exclusivamente en v3/dev_api.py (Python).
+  // -----------------------------------------------------------------------
+  function apiRequest(method, url, body) {
+    var opts = { method: method, headers: { "Accept": "application/json" } };
+    if (body !== undefined) {
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(body);
+    }
+    return fetch(url, opts).then(function (r) {
+      return r.json().catch(function () { throw new Error("Respuesta no-JSON del backend (HTTP " + r.status + ")"); }).then(function (data) {
+        if (!r.ok) throw new Error((data && (data.mensaje || data.message)) || ("HTTP " + r.status));
+        if (data && data.resultado === "ERROR") throw new Error(data.mensaje || "Error del backend V3 DEV");
+        return data;
+      });
+    });
+  }
+  function apiGet(url) { return apiRequest("GET", url); }
+  function apiPost(url, body) { return apiRequest("POST", url, body || {}); }
+
+  function mostrarErrorBackend(mensaje) {
+    alert("[Backend V3 DEV] Error:\n\n" + mensaje);
+  }
 
   function qs(sel, root) { return (root || document).querySelector(sel); }
   function el(tag, attrs, children) {
@@ -613,30 +697,59 @@
     qs("#ind-errores").textContent = c.errores;
   }
 
+  // HALLAZGO 2 (prueba manual): `publicado` en la respuesta del backend
+  // solo indica "se publicó AHORA MISMO, en esta llamada" -- una llamada
+  // idempotente (YA_PUBLICADO, marker ya existente de una publicación
+  // previa, en este lote o en cualquier otro) siempre trae publicado:false
+  // aunque el cierre SÍ esté publicado de verdad. `estado_publicacion`
+  // ("PUBLICADO" o "YA_PUBLICADO") es el campo que refleja el estado REAL
+  // — se usa ese, no `publicado`, para decidir si el botón debe seguir
+  // ofreciéndose (evita que el usuario reintente publicar algo que el
+  // backend ya reconoce como publicado, y con eso evita también seguir
+  // inflando el historial con el mismo mensaje idempotente).
+  function estaPublicado(cierre) {
+    var raw = cierre._raw || {};
+    return raw.estado_publicacion === "PUBLICADO" || raw.estado_publicacion === "YA_PUBLICADO" || !!raw.publicado;
+  }
+
+  function esPublicable(cierre) {
+    var raw = cierre._raw || {};
+    var estadoEfectivo = raw.resultado_reproceso || raw.estado_final;
+    return estadoEfectivo === "LISTO_PARA_PUBLICAR" && !estaPublicado(cierre);
+  }
+
   function accionesFuturas(cierre) {
-    // "ACCIONES FUTURAS": ver detalle siempre disponible; el resto queda
-    // visible pero deshabilitado/informativo hasta que exista backend real
-    // (FASE 4). Ninguna ejecuta nada en modo demo ni sin backend.
     var wrap = el("div", { class: "row-actions" });
     var btnVer = el("button", { class: "small ghost", text: "Ver" });
     btnVer.addEventListener("click", function (ev) { ev.stopPropagation(); seleccionar(cierre); });
     wrap.appendChild(btnVer);
 
-    var futuras = [
-      { text: "Revisar", show: cierre.estado === "ERROR_REVISAR" },
-      { text: "Corregir", show: cierre.estado === "ERROR_REVISAR" },
-      { text: "Publicar", show: cierre.estado === "LISTO_PARA_PUBLICAR" },
-      { text: "Exportar", show: true },
-    ];
-    futuras.forEach(function (f) {
-      if (!f.show) return;
-      var b = el("button", { class: "small ghost", text: f.text });
-      b.addEventListener("click", function (ev) {
-        ev.stopPropagation();
-        mostrarMensajeAccion(f.text, cierre);
+    if (DEMO) {
+      // "ACCIONES FUTURAS" en modo demo: informativas, nunca llaman a nada real.
+      var futuras = [
+        { text: "Revisar", show: cierre.estado === "ERROR_REVISAR" },
+        { text: "Corregir", show: cierre.estado === "ERROR_REVISAR" },
+        { text: "Publicar", show: cierre.estado === "LISTO_PARA_PUBLICAR" },
+        { text: "Exportar", show: true },
+      ];
+      futuras.forEach(function (f) {
+        if (!f.show) return;
+        var b = el("button", { class: "small ghost", text: f.text });
+        b.addEventListener("click", function (ev) { ev.stopPropagation(); mostrarMensajeAccion(f.text, cierre); });
+        wrap.appendChild(b);
       });
-      wrap.appendChild(b);
-    });
+      return wrap;
+    }
+
+    // Modo real: "Publicar" solo aparece para cierres realmente publicables
+    // (CONTRACT-011, decidido por el backend -- este boton NUNCA se habilita
+    // por una condicion inventada en el frontend). Revisar/Corregir viven
+    // dentro del panel de detalle (Ver), no como botones sueltos de fila.
+    if (esPublicable(cierre)) {
+      var btnPub = el("button", { class: "small publicar", text: "Publicar" });
+      btnPub.addEventListener("click", function (ev) { ev.stopPropagation(); publicarCierre(cierre); });
+      wrap.appendChild(btnPub);
+    }
     return wrap;
   }
 
@@ -668,7 +781,9 @@
       if (state.seleccion && state.seleccion.fecha === c.fecha) tr.classList.add("selected");
       tr.appendChild(el("td", { class: "mono", text: fmtFecha(c.fecha) }));
       tr.appendChild(el("td", { text: c.archivo || "—" }));
-      tr.appendChild(el("td", {}, [el("span", { class: "tag " + info.tag, text: info.label })]));
+      var celdaEstado = el("td", {}, [el("span", { class: "tag " + info.tag, text: info.label })]);
+      if (estaPublicado(c)) celdaEstado.appendChild(el("span", { class: "badge-publicado", text: "Publicado" }));
+      tr.appendChild(celdaEstado);
       var diffCell = el("td", { class: "mono " + (c.diferencia === "0.00" ? "diff-ok" : (c.diferencia ? "diff-bad" : "")) , text: c.diferencia === null || c.diferencia === undefined ? "N/D" : fmtMoney(c.diferencia) });
       tr.appendChild(diffCell);
       tr.appendChild(el("td", { class: "mono", text: c.blockers === null || c.blockers === undefined ? "—" : String(c.blockers) }));
@@ -684,6 +799,28 @@
     state.seleccion = cierre;
     renderTabla(state.cierres);
     renderDetalle();
+
+    // Modo real: si el cierre requiere revision (y el reproceso, si lo
+    // hubo, NO quedo LISTO_PARA_PUBLICAR) y todavia no se cargo su detalle
+    // real POST-REPROCESO (excepciones/campos_corregibles/cuadre), se pide
+    // a /revisar (nunca se inventa nada en el navegador) y se vuelve a
+    // pintar. Si ya quedo LISTO_PARA_PUBLICAR no hace falta pedirlo.
+    if (!DEMO && cierre._raw && cierre._raw.requiere_revision && cierre._raw.resultado_reproceso !== "LISTO_PARA_PUBLICAR" && !cierre._detalleRevisionCargado) {
+      var cont = qs("#detalle-body");
+      var aviso = el("div", { class: "placeholder-note", text: "Cargando detalle de revisión..." });
+      cont.appendChild(aviso);
+      apiPost(ENDPOINTS.revisar, { lote_id: state.loteId, fecha: cierre.fecha }).then(function (resp) {
+        cierre._detalleRevisionCargado = true;
+        cierre._revision = resp;
+        cierre.detalle = cierre.detalle || {};
+        cierre.detalle.excepciones = resp.excepciones || [];
+        cierre.detalle.observaciones = resp.mensaje || cierre.detalle.observaciones;
+        if (state.seleccion === cierre) renderDetalle();
+      }).catch(function (err) {
+        cierre._detalleRevisionCargado = true; // no reintentar en bucle
+        if (state.seleccion === cierre) mostrarErrorBackend(err.message || String(err));
+      });
+    }
   }
 
   function renderDetalle() {
@@ -745,29 +882,359 @@
     (d.historial || []).forEach(function (h) { secHist.appendChild(el("div", { class: "hist-item", text: "• " + h })); });
     if (!(d.historial || []).length) secHist.appendChild(el("div", { class: "placeholder-note", text: "Sin eventos registrados." }));
     cont.appendChild(secHist);
+
+    if (DEMO) return; // el resto (correccion/publicacion reales) no aplica en modo demo
+
+    var raw = c._raw || {};
+    var reprocesoListo = raw.resultado_reproceso === "LISTO_PARA_PUBLICAR";
+
+    // ---- banner de resultado de correccion (CASOS A/B/C) — solo si a ESTE
+    // cierre ya se le aplico una correccion en este lote. Usa exclusivamente
+    // el estado ya recalculado por el backend tras el reproceso (nunca datos
+    // de la revision anterior a la correccion).
+    if (raw.correccion_aplicada) {
+      var secResultadoCorr = el("div", { class: "detalle-section" });
+      secResultadoCorr.appendChild(el("h3", { text: "Resultado de la corrección" }));
+      secResultadoCorr.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: "" }), el("span", { class: "v form-ok", text: "✓ CORRECCIÓN APLICADA" })]));
+      if (reprocesoListo) {
+        secResultadoCorr.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: "" }), el("span", { class: "v form-ok", text: "✓ REPROCESO EXITOSO — LISTO PARA PUBLICAR" })]));
+        secResultadoCorr.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: "Diferencia" }), el("span", { class: "v", text: raw.diferencia != null ? fmtMoney(raw.diferencia) : "N/D" })]));
+        secResultadoCorr.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: "Bloqueadores" }), el("span", { class: "v", text: raw.bloqueadores === null || raw.bloqueadores === undefined ? "—" : String(raw.bloqueadores) })]));
+      } else {
+        secResultadoCorr.appendChild(el("div", { class: "placeholder-note", text: "El cierre sigue requiriendo revisión tras el reproceso." }));
+      }
+      cont.appendChild(secResultadoCorr);
+    }
+
+    // ---- publicacion (real) ----
+    var secPub = el("div", { class: "detalle-section" });
+    secPub.appendChild(el("h3", { text: "Publicación" }));
+    if (estaPublicado(c)) {
+      var esIdempotente = raw.estado_publicacion === "YA_PUBLICADO";
+      secPub.appendChild(el("div", { class: "kv" }, [
+        el("span", { class: "k", text: "Estado" }),
+        el("span", { class: "v", text: (esIdempotente ? "✓ YA PUBLICADO" : "✓ PUBLICADO") }),
+      ]));
+      secPub.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: "SHA256" }), el("span", { class: "v mono", text: raw.sha256 || "—" })]));
+      secPub.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: "Marcador" }), el("span", { class: "v", text: (raw.ruta_marker || "").split("/").pop() || "—" })]));
+      if (esIdempotente) {
+        secPub.appendChild(el("div", { class: "placeholder-note", text: "Ya existía un marcador para este SHA256 (de esta u otra corrida DEV): no se duplicó SAP, resultado, cierre procesado ni marcador." }));
+      }
+    } else if (esPublicable(c)) {
+      var btnPublicarDetalle = el("button", { class: "primary publicar", text: "PUBLICAR ESTE CIERRE (DEV)" });
+      btnPublicarDetalle.addEventListener("click", function () { publicarCierre(c); });
+      secPub.appendChild(btnPublicarDetalle);
+      secPub.appendChild(el("div", { class: "placeholder-note", text: "Publica únicamente en DEV (base_dir_dev/publicacion/); idempotente por SHA256." }));
+    } else {
+      secPub.appendChild(el("div", { class: "placeholder-note", text: "Este cierre no está habilitado para publicación todavía." }));
+    }
+    cont.appendChild(secPub);
+
+    // ---- correccion (real, solo si ERROR_REVISAR y aun no quedo listo) ----
+    if (raw.requiere_revision && !reprocesoListo) {
+      cont.appendChild(renderFormularioCorreccion(c));
+    }
+  }
+
+  function renderFormularioCorreccion(cierre) {
+    var sec = el("div", { class: "detalle-section" });
+    sec.appendChild(el("h3", { text: "Corrección" }));
+
+    var rev = cierre._revision;
+    if (!rev) {
+      sec.appendChild(el("div", { class: "placeholder-note", text: "Cargando opciones de corrección..." }));
+      return sec;
+    }
+    var excepciones = rev.excepciones || [];
+    if (!excepciones.length) {
+      // CASO C: el cierre sigue ERROR_REVISAR (diferencia/bloqueadores > 0)
+      // pero el motor ya NO identifica ninguna excepción estructurada
+      // corregible — se explica la situación con el cuadre REAL ya
+      // calculado por V2 (pipeline_tiquipaya._construir_resultado_json),
+      // nunca un importe recalculado ni inventado aquí. Se oculta el
+      // formulario por completo: no hay nada corregible que ofrecer.
+      sec.appendChild(el("h4", { text: "DIFERENCIA / BLOQUEO SIN CORRECCIÓN AUTORIZADA", style: "margin:0 0 8px;font-size:12px;color:var(--amber);" }));
+      sec.appendChild(el("div", { class: "placeholder-note", text: "El cierre continúa en ERROR_REVISAR, pero el motor ya no identifica excepciones susceptibles de corrección autorizada." }));
+      sec.appendChild(el("div", { class: "placeholder-note", text: "Los importes no pueden modificarse desde Caja Tiquipaya." }));
+      var cuadre = rev.cuadre || {};
+      var filasCuadre = [
+        ["Universo original", cuadre.universo_original],
+        ["Alquileres excluidos", cuadre.alquileres],
+        ["Universo ajustado", cuadre.universo_ajustado],
+        ["Vouchers (total / cantidad)", (cuadre.total_vouchers != null ? fmtMoney(cuadre.total_vouchers) : "N/D") + " / " + (cuadre.cantidad_vouchers != null ? cuadre.cantidad_vouchers : "N/D")],
+        ["CI (total / cantidad)", (cuadre.total_ci != null ? fmtMoney(cuadre.total_ci) : "N/D") + " / " + (cuadre.cantidad_ci != null ? cuadre.cantidad_ci : "N/D")],
+        ["ATC bruto", cuadre.atc_bruto],
+        ["ATC neto", cuadre.atc_neto],
+        ["ATC comisión", cuadre.atc_comision],
+        ["Diferencia", rev.diferencia],
+        ["Bloqueadores restantes", rev.bloqueadores],
+      ];
+      filasCuadre.forEach(function (kv) {
+        var v = kv[1];
+        var texto = (v === null || v === undefined) ? "N/D" : (typeof v === "string" && /^-?\d+\.\d{2}$/.test(v) ? fmtMoney(v) : String(v));
+        sec.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: kv[0] }), el("span", { class: "v", text: texto })]));
+      });
+      return sec;
+    }
+    var selExcepcion = el("select", { id: "sel-excepcion" });
+    excepciones.forEach(function (e, idx) {
+      selExcepcion.appendChild(el("option", { value: String(idx), text: nombreCategoria(e.categoria) + " — " + (e.motivo_legible || e.tipo) }));
+    });
+
+    var selCampo = el("select", { id: "sel-campo" });
+    var inpValorOriginal = el("input", { type: "text", id: "in-valor-original", placeholder: "(según excepción)" });
+    var inpValorAutorizado = el("input", { type: "text", id: "in-valor-autorizado", placeholder: "Nuevo valor" });
+    var txtMotivo = el("textarea", { id: "in-motivo", placeholder: "Motivo de la corrección (obligatorio)" });
+    var msgArea = el("div", {});
+
+    // AJUSTE UX: el backend (/revisar, v3/dev_api._campos_aplicables) ya
+    // calcula en Python, por excepción puntual, cuáles campos corresponden
+    // al problema REAL de esa excepción — el frontend NUNCA interpreta
+    // texto libre ni filtra por categoría entera: solo renderiza la lista
+    // que llega en exc.campos_corregibles_aplicables.
+    function poblarCampos() {
+      var exc = excepciones[Number(selExcepcion.value)] || excepciones[0];
+      var campos = exc.campos_corregibles_aplicables || [];
+      selCampo.innerHTML = "";
+      campos.forEach(function (campo) { selCampo.appendChild(el("option", { value: campo, text: campo })); });
+      inpValorOriginal.value = (exc[selCampo.value] != null ? exc[selCampo.value] : "") || "";
+    }
+    selExcepcion.addEventListener("change", poblarCampos);
+    selCampo.addEventListener("change", function () {
+      var exc = excepciones[Number(selExcepcion.value)] || excepciones[0];
+      inpValorOriginal.value = (exc[selCampo.value] != null ? exc[selCampo.value] : "") || "";
+    });
+    poblarCampos();
+
+    sec.appendChild(el("div", { class: "form-field" }, [el("label", { text: "Excepción a corregir" }), selExcepcion]));
+    sec.appendChild(el("div", { class: "form-field" }, [
+      el("label", { text: "Campo a corregir" }), selCampo,
+      el("div", { class: "form-hint", text: "PROHIBIDO: nunca se ofrece corregir el importe (V2/V3 lo rechazan siempre)." }),
+    ]));
+    sec.appendChild(el("div", { class: "form-field" }, [el("label", { text: "Valor original (referencia)" }), inpValorOriginal]));
+    sec.appendChild(el("div", { class: "form-field" }, [el("label", { text: "Valor autorizado (nuevo)" }), inpValorAutorizado]));
+    sec.appendChild(el("div", { class: "form-field" }, [el("label", { text: "Motivo" }), txtMotivo]));
+
+    var btnEnviar = el("button", { class: "primary", text: "ENVIAR CORRECCIÓN" });
+    btnEnviar.addEventListener("click", function () {
+      var exc = excepciones[Number(selExcepcion.value)] || excepciones[0];
+      var usuarioAuditor = qs("#in-usuario-auditor").value || "auditor.dev";
+      if (!inpValorAutorizado.value || !txtMotivo.value) {
+        msgArea.innerHTML = "";
+        msgArea.appendChild(el("div", { class: "form-error", text: "Valor autorizado y motivo son obligatorios." }));
+        return;
+      }
+      btnEnviar.disabled = true;
+      msgArea.innerHTML = "";
+      apiPost(ENDPOINTS.corregir, {
+        lote_id: state.loteId, fecha: cierre.fecha,
+        correccion: {
+          categoria: exc.categoria, tipo: exc.tipo, identificadores: identificadoresDeExcepcion(exc),
+          campo_corregido: selCampo.value, valor_original: inpValorOriginal.value || null,
+          valor_autorizado: inpValorAutorizado.value, motivo: txtMotivo.value, usuario_auditor: usuarioAuditor,
+        },
+      }).then(function (resp) {
+        var actualizado = actualizarCierreEnEstado(resp.cierre);
+        msgArea.appendChild(el("div", {
+          class: resp.cierre.correccion_aplicada ? "form-ok" : "form-error",
+          text: resp.cierre.mensaje || (resp.cierre.correccion_aplicada ? "Corrección aplicada." : "Corrección rechazada."),
+        }));
+        renderIndicadores(state.cierres);
+        renderTabla(state.cierres);
+        // Si la corrección fue RECHAZADA, el panel NO se vuelve a pintar
+        // todavia: el formulario permanece tal cual para que el auditor vea
+        // el motivo y pueda corregir sus datos sin perder lo ya escrito. Si
+        // fue APLICADA, se espera un instante (para que el mensaje de
+        // confirmación sea visible) antes de repintar el panel con el nuevo
+        // estado (p. ej. el boton Publicar si quedo LISTO_PARA_PUBLICAR).
+        if (resp.cierre.correccion_aplicada && (state.seleccion === actualizado || (state.seleccion && state.seleccion.fecha === cierre.fecha))) {
+          // seleccionar() (no renderDetalle() directo) para que, si el
+          // cierre sigue ERROR_REVISAR, se pida un /revisar FRESCO y el
+          // panel muestre las excepciones POST-REPROCESO reales — nunca
+          // las de la revisión anterior (actualizarCierreEnEstado ya
+          // descartó el detalle viejo de `actualizado`).
+          setTimeout(function () { seleccionar(actualizado); }, 1200);
+        }
+      }).catch(function (err) {
+        msgArea.appendChild(el("div", { class: "form-error", text: err.message || String(err) }));
+      }).finally(function () {
+        btnEnviar.disabled = false;
+      });
+    });
+    sec.appendChild(btnEnviar);
+    sec.appendChild(msgArea);
+    return sec;
+  }
+
+  function nombreCategoria(cat) {
+    var nombres = { COMUNICACION_INTERNA: "Comunicación interna (CI)", VOUCHER: "Voucher", ATC: "ATC" };
+    return nombres[cat] || cat;
+  }
+
+  // HALLAZGO 1 (prueba manual): los identificadores que localizan el
+  // registro a corregir (correcciones_tiquipaya.py: _localizar_ci/
+  // _localizar_voucher) NUNCA los escribe el auditor -- viajan ocultos,
+  // tomados directamente de la excepción real que ya devolvió /revisar
+  // (motor_tiquipaya._excepciones_ci/_excepciones_voucher exponen sfc/
+  // factura/codigo_informado como campos DIRECTOS de la excepción, no
+  // anidados bajo "identificadores"; ese anidado solo existe del lado del
+  // payload de /corregir, nunca en la excepción en sí). La forma exacta
+  // por categoría es la misma que exige el backend, sin inventar ni
+  // relajar nada -- si faltaran datos reales, esto seguiría enviando
+  // undefined y el backend seguiría rechazando la corrección igual que
+  // antes (correcciones_tiquipaya.validar_schema_correccion/_localizar_*
+  // no se tocan).
+  function identificadoresDeExcepcion(exc) {
+    if (exc.categoria === "COMUNICACION_INTERNA") return { sfc: exc.sfc, factura: exc.factura };
+    if (exc.categoria === "VOUCHER") return { sfc: exc.sfc, codigo_informado: exc.codigo_informado };
+    return {}; // ATC se localiza por fecha_cierre, no por identificadores (ver _localizar_atc)
+  }
+
+  // Reemplaza, en state.cierres, el cierre cuya fecha coincide con el
+  // devuelto por el backend (mismo mapeo que al cargar /datos), y devuelve
+  // la fila actualizada para que el panel de detalle pueda re-pintarse.
+  // HALLAZGO (prueba manual): tras una corrección + reproceso, el detalle
+  // de revisión (excepciones) puede haber cambiado por completo (una
+  // excepción resuelta, una excepción distinta, o ninguna). Por eso esta
+  // función NUNCA conserva `_detalleRevisionCargado`/`_revision` del
+  // cierre anterior — cada actualización (publicar o corregir) parte de
+  // cero, forzando a `seleccionar()` a pedir un `/revisar` fresco la
+  // próxima vez que haga falta, en vez de reutilizar datos obsoletos.
+  function actualizarCierreEnEstado(cierreBackend) {
+    var fila = mapCierreBackendATabla(cierreBackend);
+    for (var i = 0; i < state.cierres.length; i++) {
+      if (state.cierres[i].fecha === fila.fecha) {
+        state.cierres[i] = fila;
+        return fila;
+      }
+    }
+    state.cierres.push(fila);
+    return fila;
+  }
+
+  function publicarCierre(cierre) {
+    if (!esPublicable(cierre)) return;
+    var usuarioAuditor = qs("#in-usuario-auditor").value || "auditor.dev";
+    apiPost(ENDPOINTS.publicar, { lote_id: state.loteId, fechas: [cierre.fecha], usuario_auditor: usuarioAuditor }).then(function (resp) {
+      if (resp.omitidos && resp.omitidos.length) {
+        mostrarErrorBackend(resp.omitidos.map(function (o) { return o.fecha + ": " + o.motivo; }).join("\n"));
+      }
+      (resp.publicados || []).forEach(function (p) {
+        var actualizado = actualizarCierreEnEstado(p);
+        if (state.seleccion && state.seleccion.fecha === p.fecha) state.seleccion = actualizado;
+      });
+      renderIndicadores(state.cierres);
+      renderTabla(state.cierres);
+      renderDetalle();
+    }).catch(function (err) { mostrarErrorBackend(err.message || String(err)); });
+  }
+
+  // Convierte el item que devuelve v3.dev_api (fecha/archivo_esperado/
+  // estado_final/resultado_reproceso/diferencia/bloqueadores/ruta_sap/
+  // estado_publicacion/publicado/sha256/mensajes/...) a la misma FORMA que
+  // ya usan renderTabla()/renderDetalle() (fecha/archivo/estado/diferencia/
+  // blockers/sap/revision/hash/detalle{...}). El objeto original se
+  // conserva integro en `_raw` para las acciones reales (publicar/corregir).
+  function mapCierreBackendATabla(item) {
+    var estadoEfectivo = item.resultado_reproceso || item.estado_final || "ERROR_TECNICO";
+    return {
+      fecha: item.fecha,
+      archivo: item.archivo_esperado,
+      estado: estadoEfectivo,
+      diferencia: item.diferencia,
+      blockers: item.bloqueadores,
+      sap: item.ruta_sap ? item.ruta_sap.split("/").pop() : "—",
+      revision: item.requiere_revision ? (item.resultado_reproceso === "LISTO_PARA_PUBLICAR" ? "Corregido" : "Pendiente") : "N/A",
+      hash: item.sha256 || null,
+      detalle: {
+        universo: null, recaudado: null,
+        observaciones: item.mensaje || "",
+        excepciones: [], // se completan bajo demanda via /revisar (ver seleccionar())
+        historial: item.mensajes || [],
+      },
+      _raw: item,
+    };
+  }
+
+  // Sondea GET /estado hasta que el lote deje de estar PROCESANDO (o falle),
+  // actualizando la barra de progreso con cada respuesta REAL del backend
+  // (nunca con un avance simulado fuera de ?demo=1).
+  function pollEstadoHastaListo(loteId) {
+    var bar = qs("#progress-bar"), pct = qs("#progress-pct"), label = qs("#progress-label");
+    var intentos = 0;
+    return new Promise(function (resolve, reject) {
+      (function tick() {
+        intentos++;
+        apiGet(ENDPOINTS.estado + "?lote_id=" + encodeURIComponent(loteId)).then(function (resp) {
+          var avance = Math.min(92, intentos * 15);
+          bar.style.width = avance + "%";
+          pct.textContent = avance + "%";
+          if (resp.estado_lote === "PROCESANDO") {
+            if (intentos > 60) { reject(new Error("Tiempo de espera agotado consultando " + ENDPOINTS.estado)); return; }
+            setTimeout(tick, 500);
+            return;
+          }
+          if (resp.estado_lote === "ERROR") {
+            reject(new Error(resp.mensaje_error || "El backend reportó un error al procesar el lote."));
+            return;
+          }
+          label.textContent = "Cargando resultados...";
+          resolve(resp);
+        }).catch(reject);
+      })();
+    });
+  }
+
+  function procesarCierresReal() {
+    var btn = qs("#btn-procesar");
+    var wrap = qs("#progress-wrap"), bar = qs("#progress-bar"), pct = qs("#progress-pct"), label = qs("#progress-label");
+    var usuarioAuditor = qs("#in-usuario-auditor").value || "auditor.dev";
+    btn.disabled = true;
+    wrap.classList.add("show");
+    bar.style.width = "0%"; pct.textContent = "0%";
+    label.textContent = "Enviando solicitud a " + ENDPOINTS.procesar + "...";
+    state.cierres = []; state.seleccion = null; state.loteId = null;
+    renderTabla([]); renderDetalle();
+
+    apiPost(ENDPOINTS.procesar, {
+      fecha_inicio: qs("#in-fecha-desde").value,
+      fecha_fin: qs("#in-fecha-hasta").value,
+      usuario_auditor: usuarioAuditor,
+    }).then(function (resp) {
+      state.loteId = resp.lote_id;
+      label.textContent = "Procesando lote " + resp.lote_id + "...";
+      return pollEstadoHastaListo(resp.lote_id);
+    }).then(function () {
+      return apiGet(ENDPOINTS.datos + "?lote_id=" + encodeURIComponent(state.loteId));
+    }).then(function (resp) {
+      state.cierres = (resp.cierres || []).map(mapCierreBackendATabla);
+      renderIndicadores(state.cierres);
+      renderTabla(state.cierres);
+      bar.style.width = "100%"; pct.textContent = "100%"; label.textContent = "Completado";
+      setTimeout(function () { wrap.classList.remove("show"); }, 400);
+    }).catch(function (err) {
+      label.textContent = "Error";
+      mostrarErrorBackend(err.message || String(err));
+    }).finally(function () {
+      btn.disabled = false;
+    });
   }
 
   // -----------------------------------------------------------------------
   // PROCESAR CIERRES — en modo demo, simula un progreso local y luego pinta
-  // datos sinteticos. Fuera de modo demo, NO llama a ningun endpoint real
-  // todavia (FASE 3 no conecta backend): solo informa que el backend no
-  // esta disponible, para no fallar en silencio ni intentar una llamada a
-  // un webhook que no existe.
+  // datos sinteticos (comportamiento sin cambios). Fuera de modo demo, llama
+  // al backend real (FASE 9): POST /procesar -> polling GET /estado -> GET
+  // /datos, todo con la barra de progreso reflejando el estado REAL del
+  // backend, nunca un avance simulado.
   // -----------------------------------------------------------------------
   function procesarCierres() {
     var btn = qs("#btn-procesar");
-    btn.disabled = true;
 
     if (!DEMO) {
-      alert(
-        "Backend V3 todavia no conectado.\n\n" +
-        "El endpoint " + ENDPOINTS.procesar + " no existe como webhook activo en n8n " +
-        "(workflow TIQ · CAJA TIQUIPAYA · V3 DEV permanece active=false, FASE 2). " +
-        "Agrega ?demo=1 a la URL para probar la interfaz con datos simulados."
-      );
-      btn.disabled = false;
+      procesarCierresReal();
       return;
     }
+    btn.disabled = true;
 
     var wrap = qs("#progress-wrap");
     var bar = qs("#progress-bar");

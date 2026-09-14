@@ -105,6 +105,39 @@ def test_idempotencia_no_duplica_al_republicar(tmp_path):
     assert os.path.getmtime(r2["ruta_sap_publicado"]) == mtime_sap_antes
 
 
+# HALLAZGO 2 (prueba manual FASE 9): 1a publicacion -> PUBLICADO, 2a y 3a
+# republicacion (encadenando cada resultado como el item de la siguiente,
+# igual que hace v3.dev_api al persistir el lote) -> YA_PUBLICADO SIEMPRE,
+# SAP/resultado/procesado/marker existen UNA sola vez, y el historial
+# (mensajes) NO crece con copias identicas del mismo evento idempotente.
+def test_republicaciones_sucesivas_no_inflan_el_historial(tmp_path):
+    item = _cierre_procesado(tmp_path)
+    base_dir_dev = str(tmp_path / "dev")
+
+    r1 = publicar_cierre_dev(item, base_dir_dev)
+    assert r1["estado_publicacion"] == PUBLICADO
+
+    r2 = publicar_cierre_dev(r1, base_dir_dev)  # encadenado: mismo item que persistiria el lote
+    assert r2["estado_publicacion"] == YA_PUBLICADO
+
+    r3 = publicar_cierre_dev(r2, base_dir_dev)
+    assert r3["estado_publicacion"] == YA_PUBLICADO
+
+    # Un solo SAP/resultado/procesado/marker en disco (nunca duplicados).
+    dirs = ("publicacion/sap", "publicacion/resultados", "publicacion/procesados", "publicacion/markers")
+    for sub in dirs:
+        archivos = os.listdir(os.path.join(base_dir_dev, sub))
+        assert len(archivos) == 1, f"{sub} deberia tener exactamente 1 archivo, tiene {archivos}"
+
+    # El mensaje idempotente aparece UNA sola vez en el historial acumulado,
+    # aunque se haya republicado 2 veces mas (r2 y r3) tras la publicacion real.
+    mensaje_idempotente = "Marcador ya existente en publicacion/markers/: no se republica (idempotencia SHA256)."
+    ocurrencias = r3["mensajes"].count(mensaje_idempotente)
+    assert ocurrencias == 1, f"el mensaje idempotente aparecio {ocurrencias} veces en el historial: {r3['mensajes']}"
+    # Y el mensaje de la publicacion real (evento distinto) sigue presente una vez.
+    assert r3["mensajes"].count("Cierre publicado en DEV: SAP + resultado + procesado + marcador.") == 1
+
+
 # 4) Estados no habilitados (CONTRACT-011) nunca se publican.
 @pytest.mark.parametrize("estado", [ERROR_REVISAR, SIN_ARCHIVO, ERROR_TECNICO, "AMBIGUO", "BLOQUEADO_EXCEPCION"])
 def test_estados_no_habilitados_no_se_publican(tmp_path, estado):
