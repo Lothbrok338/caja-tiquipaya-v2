@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAJA TIQUIPAYA V3 · CONTROL DE CIERRES (DEV)</title>
+<style>
+  :root {
+    --bg: #0a0e14;
+    --bg-alt: #0f141c;
+    --panel: #121822;
+    --panel-2: #161d29;
+    --border: #232c3a;
+    --border-soft: #1a212e;
+    --ink: #e6edf5;
+    --muted: #8a97a8;
+    --muted2: #5c6779;
+    --accent: #35e0c9;
+    --accent-ink: #06342e;
+    --accent-dim: #1b6f63;
+    --blue: #5aa7ff;
+    --amber: #ffb648;
+    --amber-ink: #3a2a08;
+    --red: #ff6161;
+    --red-ink: #3a0f0f;
+    --green: #3ddc84;
+    --green-ink: #0c3322;
+    --gray: #7c8798;
+    --mono: "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(53,224,201,0.06), transparent 60%),
+      radial-gradient(900px 500px at -10% 10%, rgba(90,167,255,0.05), transparent 55%),
+      var(--bg);
+    color: var(--ink);
+    font-size: 14px;
+    min-height: 100vh;
+  }
+  a { color: var(--accent); }
+
+  /* ---------------- demo banner ---------------- */
+  #demo-banner {
+    background: linear-gradient(90deg, #142a26, #0f141c);
+    border-bottom: 1px solid var(--accent-dim);
+    color: var(--accent);
+    padding: 8px 20px;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+    letter-spacing: .03em;
+  }
+  #real-banner {
+    background: #241416;
+    border-bottom: 1px solid #5a2626;
+    color: #ff9d9d;
+    padding: 8px 20px;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+    letter-spacing: .02em;
+  }
+
+  /* ---------------- header ---------------- */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 26px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(18,24,34,0.6);
+    backdrop-filter: blur(6px);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  header .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  header h1 {
+    font-size: 18px;
+    margin: 0;
+    font-weight: 700;
+    letter-spacing: .01em;
+  }
+  header h1 .v3 { color: var(--accent); }
+  .badge-dev {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--amber);
+    background: rgba(255,182,72,0.1);
+    border: 1px solid rgba(255,182,72,0.35);
+    padding: 3px 8px;
+    border-radius: 20px;
+    letter-spacing: .06em;
+  }
+  header .sub {
+    font-size: 11.5px;
+    color: var(--muted2);
+    font-family: var(--mono);
+  }
+  header .spacer { flex: 1; }
+  .clock {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  main {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 22px 26px 60px;
+  }
+
+  /* ---------------- range + action ---------------- */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 14px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+  }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted2);
+    font-weight: 700;
+  }
+  input[type=date], input[type=text] {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 13px;
+    min-width: 150px;
+  }
+  input[type=date]:focus, input[type=text]:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  button {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 13px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--ink);
+    padding: 9px 16px;
+    cursor: pointer;
+    transition: filter .12s ease, transform .05s ease;
+  }
+  button:hover { filter: brightness(1.15); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary {
+    background: linear-gradient(180deg, #3ef0d6, var(--accent));
+    border-color: var(--accent);
+    color: #04211d;
+    font-size: 13.5px;
+    padding: 10px 22px;
+    letter-spacing: .02em;
+  }
+  button.ghost { background: transparent; }
+  button.small { padding: 5px 10px; font-size: 11.5px; border-radius: 6px; }
+  button.link {
+    background: transparent;
+    border: none;
+    color: var(--blue);
+    padding: 2px 4px;
+    font-size: 11.5px;
+    text-decoration: underline;
+  }
+  .toolbar .grow { flex: 1; }
+
+  /* ---------------- indicators ---------------- */
+  .indicators {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  @media (max-width: 1100px) { .indicators { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 620px) { .indicators { grid-template-columns: repeat(2, 1fr); } }
+  .tile {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .tile::before {
+    content: "";
+    position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--tile-color, var(--muted2));
+  }
+  .tile .label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted2);
+    font-weight: 700;
+  }
+  .tile .value {
+    font-family: var(--mono);
+    font-size: 26px;
+    font-weight: 700;
+    margin-top: 4px;
+    color: var(--ink);
+  }
+  .tile.encontrados { --tile-color: var(--blue); }
+  .tile.faltantes { --tile-color: var(--gray); }
+  .tile.procesando { --tile-color: var(--accent); }
+  .tile.listos { --tile-color: var(--green); }
+  .tile.revision { --tile-color: var(--amber); }
+  .tile.errores { --tile-color: var(--red); }
+
+  /* ---------------- progress ---------------- */
+  .progress-wrap {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 18px;
+    display: none;
+  }
+  .progress-wrap.show { display: block; }
+  .progress-head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11.5px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    font-family: var(--mono);
+  }
+  .progress-track {
+    height: 8px;
+    border-radius: 5px;
+    background: var(--bg-alt);
+    overflow: hidden;
+    border: 1px solid var(--border-soft);
+  }
+  .progress-bar {
+    height: 100%;
+    width: 0%;
+    border-radius: 5px;
+    background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+    transition: width .25s ease;
+  }
+
+  /* ---------------- layout: table + detail ---------------- */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 18px;
+    align-items: start;
+  }
+  @media (max-width: 1050px) { .layout { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .panel h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted2);
+    margin: 0;
+    font-weight: 700;
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-2);
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th {
+    text-align: left;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--muted2);
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover td { background: rgba(53,224,201,0.04); }
+  tbody tr.selected td { background: rgba(53,224,201,0.09); }
+  .table-scroll { overflow-x: auto; }
+  .mono { font-family: var(--mono); }
+  .diff-ok { color: var(--green); }
+  .diff-bad { color: var(--red); }
+
+  .tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    font-family: var(--mono);
+  }
+  .tag.listo { background: rgba(61,220,132,0.12); color: var(--green); border: 1px solid rgba(61,220,132,0.35); }
+  .tag.revisar { background: rgba(255,182,72,0.12); color: var(--amber); border: 1px solid rgba(255,182,72,0.35); }
+  .tag.error { background: rgba(255,97,97,0.12); color: var(--red); border: 1px solid rgba(255,97,97,0.35); }
+  .tag.neutral { background: rgba(124,135,152,0.12); color: var(--gray); border: 1px solid rgba(124,135,152,0.35); }
+  .tag.procesando { background: rgba(90,167,255,0.12); color: var(--blue); border: 1px solid rgba(90,167,255,0.35); }
+
+  .row-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+
+  .empty-state {
+    color: var(--muted2);
+    font-size: 12.5px;
+    padding: 40px 16px;
+    text-align: center;
+  }
+
+  /* ---------------- detail panel ---------------- */
+  #detalle-body { padding: 14px 16px; }
+  .detalle-section { margin-bottom: 16px; }
+  .detalle-section h3 {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--accent);
+    margin: 0 0 8px;
+    font-weight: 700;
+    border-bottom: 1px dashed var(--border);
+    padding-bottom: 6px;
+  }
+  .kv { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 12.5px; }
+  .kv .k { color: var(--muted); }
+  .kv .v { font-family: var(--mono); text-align: right; word-break: break-word; }
+  .exc-item {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--amber);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    background: var(--bg-alt);
+  }
+  .exc-item .cat { font-weight: 700; color: var(--amber); font-size: 10.5px; text-transform: uppercase; }
+  .hist-item {
+    font-size: 11.5px;
+    color: var(--muted);
+    padding: 4px 0;
+    border-bottom: 1px dashed var(--border-soft);
+    font-family: var(--mono);
+  }
+  .placeholder-note {
+    font-size: 11px;
+    color: var(--muted2);
+    font-style: italic;
+    padding: 6px 0;
+  }
+
+  footer.dev-footer {
+    max-width: 1400px;
+    margin: 30px auto 0;
+    padding: 14px 26px 0;
+    border-top: 1px solid var(--border-soft);
+    color: var(--muted2);
+    font-size: 10.5px;
+    font-family: var(--mono);
+    line-height: 1.7;
+  }
+</style>
+</head>
+<body>
+
+<div id="demo-banner">MODO DEMO — datos 100% simulados en el navegador. Ningún botón llama a n8n, Drive ni Python. Nada se modifica.</div>
+<div id="real-banner" style="display:none;">MODO REAL (sin backend) — los endpoints /webhook/tiq-v3-dev/* todavía no existen como webhooks activos en n8n. Cualquier llamada real fallará; usa <code>?demo=1</code> para probar la interfaz.</div>
+
+<header>
+  <div class="brand">
+    <h1>CAJA TIQUIPAYA <span class="v3">V3</span></h1>
+    <span class="badge-dev">ESTADO: DEV</span>
+  </div>
+  <div class="sub">Control de Cierres · interfaz de desarrollo, separada del frontend V2</div>
+  <div class="spacer"></div>
+  <div class="clock" id="clock"></div>
+</header>
+
+<main>
+
+  <div class="toolbar">
+    <div class="field">
+      <label>Fecha desde</label>
+      <input type="date" id="in-fecha-desde">
+    </div>
+    <div class="field">
+      <label>Fecha hasta</label>
+      <input type="date" id="in-fecha-hasta">
+    </div>
+    <div class="field grow"></div>
+    <button class="primary" id="btn-procesar">PROCESAR CIERRES</button>
+    <button class="ghost" id="btn-recargar">Recargar</button>
+  </div>
+
+  <div class="indicators">
+    <div class="tile encontrados"><div class="label">Encontrados</div><div class="value" id="ind-encontrados">0</div></div>
+    <div class="tile faltantes"><div class="label">Faltantes</div><div class="value" id="ind-faltantes">0</div></div>
+    <div class="tile procesando"><div class="label">Procesando</div><div class="value" id="ind-procesando">0</div></div>
+    <div class="tile listos"><div class="label">Listos</div><div class="value" id="ind-listos">0</div></div>
+    <div class="tile revision"><div class="label">Revisión</div><div class="value" id="ind-revision">0</div></div>
+    <div class="tile errores"><div class="label">Errores</div><div class="value" id="ind-errores">0</div></div>
+  </div>
+
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-head">
+      <span id="progress-label">Procesando cierres...</span>
+      <span id="progress-pct">0%</span>
+    </div>
+    <div class="progress-track"><div class="progress-bar" id="progress-bar"></div></div>
+  </div>
+
+  <div class="layout">
+    <div class="panel">
+      <h2>Cierres del rango</h2>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Archivo</th>
+              <th>Estado</th>
+              <th>Diferencia</th>
+              <th>Bloqueadores</th>
+              <th>SAP</th>
+              <th>Revisión</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody id="tabla-body">
+            <tr><td colspan="8" class="empty-state">Pulsa "Procesar cierres" para cargar el rango (modo demo).</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Detalle del cierre</h2>
+      <div id="detalle-body">
+        <div class="empty-state">Selecciona una fila de la tabla para ver su detalle.</div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<footer class="dev-footer">
+  NAMESPACE FUTURO (sin activar todavia): /webhook/tiq-v3-dev/{estado,procesar,datos,revisar,corregir,publicar} — ver constantes ENDPOINTS en el codigo fuente.<br>
+  AUTENTICACION: pendiente, obligatoria antes de produccion en los endpoints que mutan estado (/procesar,/revisar,/corregir,/publicar). GET /estado y /datos podrian quedar sin auth, igual que el criterio ya usado en V2.<br>
+  Este archivo es una COPIA nueva e independiente; n8n_frontend/revision_correccion.html (V2) no fue modificado.
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  // -----------------------------------------------------------------------
+  // Namespace futuro de endpoints V3. NINGUNO de estos webhooks existe hoy
+  // como activo en n8n (ver FASE 2: los 7 subworkflows y el workflow
+  // principal E114Ntgz3kM8E4T5 estan active=false, sin webhooks publicados).
+  // Se documentan aqui unicamente como CONTRATO futuro para cuando FASE 4
+  // conecte el backend real. En modo demo NINGUNA de estas rutas se llama.
+  // Rutas relativas al host que sirva esta pagina, nunca un dominio absoluto
+  // (mismo principio ya validado en n8n_frontend/revision_correccion.html).
+  // -----------------------------------------------------------------------
+  var NAMESPACE = "/webhook/tiq-v3-dev";
+  var ENDPOINTS = {
+    estado:    NAMESPACE + "/estado",     // GET  — salud/estado del backend V3
+    procesar:  NAMESPACE + "/procesar",   // POST — dispara el batch (rango de fechas)
+    datos:     NAMESPACE + "/datos",      // GET  — resultado_batch.json equivalente V3
+    revisar:   NAMESPACE + "/revisar",    // POST — abre/actualiza revision de un cierre
+    corregir:  NAMESPACE + "/corregir",   // POST — autoriza correccion + reproceso
+    publicar:  NAMESPACE + "/publicar",   // POST — publica 1..N cierres listos
+  };
+  // SEGURIDAD (pendiente, NO implementada aqui): antes de exponer estos
+  // endpoints fuera de un entorno de desarrollo controlado, /procesar,
+  // /revisar, /corregir y /publicar DEBEN llevar autenticacion (HTTP Basic
+  // o header token). Ver auditoria_v2/V2_RISKS.csv RISK-001.
+
+  var DEMO = new URLSearchParams(window.location.search).get("demo") === "1";
+
+  var ESTADOS = {
+    LISTO_PARA_PUBLICAR: { label: "Listo", tag: "listo" },
+    ERROR_REVISAR:        { label: "Revisión", tag: "revisar" },
+    ERROR_TECNICO:        { label: "Error técnico", tag: "error" },
+    SIN_ARCHIVO:          { label: "Faltante", tag: "neutral" },
+    YA_PROCESADO:         { label: "Ya procesado", tag: "neutral" },
+    PROCESANDO:           { label: "Procesando", tag: "procesando" },
+  };
+
+  var state = { cierres: [], seleccion: null };
+
+  function qs(sel, root) { return (root || document).querySelector(sel); }
+  function el(tag, attrs, children) {
+    var e = document.createElement(tag);
+    attrs = attrs || {};
+    Object.keys(attrs).forEach(function (k) {
+      if (k === "text") e.textContent = attrs[k];
+      else if (k === "html") e.innerHTML = attrs[k];
+      else e.setAttribute(k, attrs[k]);
+    });
+    (children || []).forEach(function (c) { e.appendChild(c); });
+    return e;
+  }
+  function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function fmtFecha(iso) {
+    if (!iso) return "N/D";
+    var p = String(iso).split("-");
+    return p.length === 3 ? p[2] + "/" + p[1] + "/" + p[0] : iso;
+  }
+  function fmtMoney(v) {
+    if (v === null || v === undefined || v === "") return "N/D";
+    var n = Number(v);
+    if (isNaN(n)) return String(v);
+    var fixed = n.toFixed(2);
+    var partes = fixed.split(".");
+    return "Bs " + partes[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + partes[1];
+  }
+
+  function tickClock() {
+    var d = new Date();
+    var pad = function (n) { return String(n).padStart(2, "0"); };
+    qs("#clock").textContent = pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+  }
+  setInterval(tickClock, 1000);
+  tickClock();
+
+  function hoyIso(offsetDias) {
+    var d = new Date();
+    d.setDate(d.getDate() + (offsetDias || 0));
+    return d.toISOString().slice(0, 10);
+  }
+
+  function initFechas() {
+    qs("#in-fecha-desde").value = hoyIso(-4);
+    qs("#in-fecha-hasta").value = hoyIso(0);
+  }
+
+  // -----------------------------------------------------------------------
+  // Datos simulados (modo demo). Misma FORMA que resultado_batch.json de V2
+  // (fecha/archivo/estado/diferencia/blockers/excepciones) para que, cuando
+  // FASE 4 conecte /datos real, el mapeo de la tabla no tenga que rediseñarse.
+  // -----------------------------------------------------------------------
+  function generarCierresDemo() {
+    return [
+      { fecha: hoyIso(-4), archivo: "CIERRE " + fmtFecha(hoyIso(-4)) + ".xlsm", estado: "YA_PROCESADO", diferencia: "0.00", blockers: 0, sap: "SAP_" + fmtFecha(hoyIso(-4)).replace(/\//g, "-") + ".xlsx", revision: "N/A", hash: "demo-1111aaaa",
+        detalle: { universo: "185420.00", recaudado: "185420.00", observaciones: "", excepciones: [], historial: ["Procesado (demo)", "Publicado (demo)"] } },
+      { fecha: hoyIso(-3), archivo: "CIERRE " + fmtFecha(hoyIso(-3)) + ".xlsm", estado: "LISTO_PARA_PUBLICAR", diferencia: "0.00", blockers: 0, sap: "SAP_" + fmtFecha(hoyIso(-3)).replace(/\//g, "-") + ".xlsx", revision: "N/A", hash: "demo-2222bbbb",
+        detalle: { universo: "212903.40", recaudado: "212903.40", observaciones: "", excepciones: [], historial: ["Procesado (demo)", "Pendiente de aprobación (demo)"] } },
+      { fecha: hoyIso(-2), archivo: "CIERRE " + fmtFecha(hoyIso(-2)) + ".xlsm", estado: "ERROR_REVISAR", diferencia: "0.00", blockers: 2, sap: "—", revision: "Pendiente", hash: "demo-3333cccc",
+        detalle: { universo: "97650.00", recaudado: "97650.00",
+          observaciones: "Auditor: pendiente de revisar 2 excepciones (demo).",
+          excepciones: [
+            { categoria: "COMUNICACION_INTERNA", tipo: "CI_CUENTA_FALTANTE", motivo_legible: "Comunicación interna sin cuenta contable asignada (demo)" },
+            { categoria: "VOUCHER", tipo: "POSIBLE_TYPO", motivo_legible: "Depósito BNB con voucher candidato por posible error de tipeo (demo)" },
+          ],
+          historial: ["Procesado (demo)", "Marcado ERROR_REVISAR (demo)"] } },
+      { fecha: hoyIso(-1), archivo: "CIERRE " + fmtFecha(hoyIso(-1)) + ".xlsm", estado: "SIN_ARCHIVO", diferencia: null, blockers: null, sap: "—", revision: "N/A", hash: null,
+        detalle: { universo: null, recaudado: null, observaciones: "No se encontró el archivo de cierre para esta fecha (demo).", excepciones: [], historial: ["Búsqueda en 00_ENTRADA_CIERRES sin coincidencias (demo)"] } },
+      { fecha: hoyIso(0), archivo: "CIERRE " + fmtFecha(hoyIso(0)) + ".xlsm", estado: "ERROR_TECNICO", diferencia: null, blockers: null, sap: "—", revision: "N/A", hash: null,
+        detalle: { universo: null, recaudado: null, observaciones: "Excepción no controlada al leer el archivo de cierre (demo).", excepciones: [], historial: ["Error técnico durante lectura (demo)"] } },
+    ];
+  }
+
+  function contarIndicadores(cierres) {
+    var c = { encontrados: 0, faltantes: 0, procesando: 0, listos: 0, revision: 0, errores: 0 };
+    cierres.forEach(function (x) {
+      if (x.estado === "SIN_ARCHIVO") c.faltantes++;
+      else c.encontrados++;
+      if (x.estado === "PROCESANDO") c.procesando++;
+      if (x.estado === "LISTO_PARA_PUBLICAR" || x.estado === "YA_PROCESADO") c.listos++;
+      if (x.estado === "ERROR_REVISAR") c.revision++;
+      if (x.estado === "ERROR_TECNICO") c.errores++;
+    });
+    return c;
+  }
+
+  function renderIndicadores(cierres) {
+    var c = contarIndicadores(cierres);
+    qs("#ind-encontrados").textContent = c.encontrados;
+    qs("#ind-faltantes").textContent = c.faltantes;
+    qs("#ind-procesando").textContent = c.procesando;
+    qs("#ind-listos").textContent = c.listos;
+    qs("#ind-revision").textContent = c.revision;
+    qs("#ind-errores").textContent = c.errores;
+  }
+
+  function accionesFuturas(cierre) {
+    // "ACCIONES FUTURAS": ver detalle siempre disponible; el resto queda
+    // visible pero deshabilitado/informativo hasta que exista backend real
+    // (FASE 4). Ninguna ejecuta nada en modo demo ni sin backend.
+    var wrap = el("div", { class: "row-actions" });
+    var btnVer = el("button", { class: "small ghost", text: "Ver" });
+    btnVer.addEventListener("click", function (ev) { ev.stopPropagation(); seleccionar(cierre); });
+    wrap.appendChild(btnVer);
+
+    var futuras = [
+      { text: "Revisar", show: cierre.estado === "ERROR_REVISAR" },
+      { text: "Corregir", show: cierre.estado === "ERROR_REVISAR" },
+      { text: "Publicar", show: cierre.estado === "LISTO_PARA_PUBLICAR" },
+      { text: "Exportar", show: true },
+    ];
+    futuras.forEach(function (f) {
+      if (!f.show) return;
+      var b = el("button", { class: "small ghost", text: f.text });
+      b.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        mostrarMensajeAccion(f.text, cierre);
+      });
+      wrap.appendChild(b);
+    });
+    return wrap;
+  }
+
+  function mostrarMensajeAccion(accion, cierre) {
+    var textos = {
+      Revisar: "abriría el módulo 05 · REVISION CORRECCION (endpoint futuro " + ENDPOINTS.revisar + ")",
+      Corregir: "enviaría una corrección autorizada al endpoint futuro " + ENDPOINTS.corregir,
+      Publicar: "invocaría el endpoint futuro " + ENDPOINTS.publicar,
+      Exportar: "generaría una exportación local del detalle mostrado",
+    };
+    alert(
+      "[DEV — sin backend conectado]\n\n" +
+      "\"" + accion + "\" sobre " + (cierre.archivo || cierre.fecha) + " " +
+      (textos[accion] || "no está conectado todavía") + ".\n\n" +
+      "No se llamó a n8n, Drive ni Python. Nada se modificó."
+    );
+  }
+
+  function renderTabla(cierres) {
+    var body = qs("#tabla-body");
+    body.innerHTML = "";
+    if (!cierres.length) {
+      body.appendChild(el("tr", {}, [el("td", { colspan: "8", class: "empty-state", text: "Sin cierres en este rango." })]));
+      return;
+    }
+    cierres.forEach(function (c) {
+      var info = ESTADOS[c.estado] || { label: c.estado || "—", tag: "neutral" };
+      var tr = el("tr", { "data-hash": c.hash || c.fecha });
+      if (state.seleccion && state.seleccion.fecha === c.fecha) tr.classList.add("selected");
+      tr.appendChild(el("td", { class: "mono", text: fmtFecha(c.fecha) }));
+      tr.appendChild(el("td", { text: c.archivo || "—" }));
+      tr.appendChild(el("td", {}, [el("span", { class: "tag " + info.tag, text: info.label })]));
+      var diffCell = el("td", { class: "mono " + (c.diferencia === "0.00" ? "diff-ok" : (c.diferencia ? "diff-bad" : "")) , text: c.diferencia === null || c.diferencia === undefined ? "N/D" : fmtMoney(c.diferencia) });
+      tr.appendChild(diffCell);
+      tr.appendChild(el("td", { class: "mono", text: c.blockers === null || c.blockers === undefined ? "—" : String(c.blockers) }));
+      tr.appendChild(el("td", { class: "mono", text: c.sap || "—" }));
+      tr.appendChild(el("td", { text: c.revision || "—" }));
+      tr.appendChild(el("td", {}, [accionesFuturas(c)]));
+      tr.addEventListener("click", function () { seleccionar(c); });
+      body.appendChild(tr);
+    });
+  }
+
+  function seleccionar(cierre) {
+    state.seleccion = cierre;
+    renderTabla(state.cierres);
+    renderDetalle();
+  }
+
+  function renderDetalle() {
+    var cont = qs("#detalle-body");
+    cont.innerHTML = "";
+    var c = state.seleccion;
+    if (!c) {
+      cont.appendChild(el("div", { class: "empty-state", text: "Selecciona una fila de la tabla para ver su detalle." }));
+      return;
+    }
+    var d = c.detalle || {};
+
+    // ---- resumen ----
+    var secResumen = el("div", { class: "detalle-section" });
+    secResumen.appendChild(el("h3", { text: "Resumen" }));
+    [["Fecha", fmtFecha(c.fecha)], ["Archivo", c.archivo || "—"], ["Estado", (ESTADOS[c.estado] || {}).label || c.estado || "—"], ["Hash origen", c.hash || "N/D (demo)"]]
+      .forEach(function (kv) { secResumen.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: kv[0] }), el("span", { class: "v", text: kv[1] })])); });
+    cont.appendChild(secResumen);
+
+    // ---- cuadre ----
+    var secCuadre = el("div", { class: "detalle-section" });
+    secCuadre.appendChild(el("h3", { text: "Cuadre" }));
+    [["Universo", d.universo != null ? fmtMoney(d.universo) : "N/D"], ["Recaudación explicada", d.recaudado != null ? fmtMoney(d.recaudado) : "N/D"], ["Diferencia", c.diferencia != null ? fmtMoney(c.diferencia) : "N/D"]]
+      .forEach(function (kv) { secCuadre.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: kv[0] }), el("span", { class: "v", text: kv[1] })])); });
+    cont.appendChild(secCuadre);
+
+    // ---- observaciones ----
+    var secObs = el("div", { class: "detalle-section" });
+    secObs.appendChild(el("h3", { text: "Observaciones" }));
+    secObs.appendChild(el("div", { class: "placeholder-note", text: d.observaciones || "Sin observaciones registradas." }));
+    cont.appendChild(secObs);
+
+    // ---- excepciones ----
+    var secExc = el("div", { class: "detalle-section" });
+    secExc.appendChild(el("h3", { text: "Excepciones" }));
+    var excs = d.excepciones || [];
+    if (!excs.length) {
+      secExc.appendChild(el("div", { class: "placeholder-note", text: "Sin excepciones para este cierre." }));
+    } else {
+      excs.forEach(function (e) {
+        var item = el("div", { class: "exc-item" });
+        item.appendChild(el("div", { class: "cat", text: e.categoria }));
+        item.appendChild(el("div", { text: e.motivo_legible || e.tipo }));
+        secExc.appendChild(item);
+      });
+    }
+    cont.appendChild(secExc);
+
+    // ---- resultado SAP ----
+    var secSap = el("div", { class: "detalle-section" });
+    secSap.appendChild(el("h3", { text: "Resultado SAP" }));
+    secSap.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: "Archivo" }), el("span", { class: "v", text: c.sap || "—" })]));
+    secSap.appendChild(el("div", { class: "placeholder-note", text: "Área preparada para vista previa/descarga cuando exista backend real (FASE 4)." }));
+    cont.appendChild(secSap);
+
+    // ---- historial ----
+    var secHist = el("div", { class: "detalle-section" });
+    secHist.appendChild(el("h3", { text: "Historial" }));
+    (d.historial || []).forEach(function (h) { secHist.appendChild(el("div", { class: "hist-item", text: "• " + h })); });
+    if (!(d.historial || []).length) secHist.appendChild(el("div", { class: "placeholder-note", text: "Sin eventos registrados." }));
+    cont.appendChild(secHist);
+  }
+
+  // -----------------------------------------------------------------------
+  // PROCESAR CIERRES — en modo demo, simula un progreso local y luego pinta
+  // datos sinteticos. Fuera de modo demo, NO llama a ningun endpoint real
+  // todavia (FASE 3 no conecta backend): solo informa que el backend no
+  // esta disponible, para no fallar en silencio ni intentar una llamada a
+  // un webhook que no existe.
+  // -----------------------------------------------------------------------
+  function procesarCierres() {
+    var btn = qs("#btn-procesar");
+    btn.disabled = true;
+
+    if (!DEMO) {
+      alert(
+        "Backend V3 todavia no conectado.\n\n" +
+        "El endpoint " + ENDPOINTS.procesar + " no existe como webhook activo en n8n " +
+        "(workflow TIQ · CAJA TIQUIPAYA · V3 DEV permanece active=false, FASE 2). " +
+        "Agrega ?demo=1 a la URL para probar la interfaz con datos simulados."
+      );
+      btn.disabled = false;
+      return;
+    }
+
+    var wrap = qs("#progress-wrap");
+    var bar = qs("#progress-bar");
+    var pct = qs("#progress-pct");
+    var label = qs("#progress-label");
+    wrap.classList.add("show");
+    bar.style.width = "0%";
+    pct.textContent = "0%";
+    label.textContent = "Procesando cierres (demo)...";
+    renderTabla([]);
+    qs("#detalle-body").innerHTML = "";
+    state.seleccion = null;
+    renderDetalle();
+
+    var progreso = 0;
+    var timer = setInterval(function () {
+      progreso += 14 + Math.round(Math.random() * 10);
+      if (progreso >= 100) {
+        progreso = 100;
+        clearInterval(timer);
+        label.textContent = "Completado (demo)";
+        setTimeout(function () {
+          state.cierres = generarCierresDemo();
+          renderIndicadores(state.cierres);
+          renderTabla(state.cierres);
+          btn.disabled = false;
+          wrap.classList.remove("show");
+        }, 350);
+      }
+      bar.style.width = progreso + "%";
+      pct.textContent = progreso + "%";
+    }, 220);
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    initFechas();
+    if (DEMO) {
+      qs("#real-banner").style.display = "none";
+      qs("#demo-banner").style.display = "block";
+    } else {
+      qs("#demo-banner").style.display = "none";
+      qs("#real-banner").style.display = "block";
+    }
+    renderIndicadores([]);
+    qs("#btn-procesar").addEventListener("click", procesarCierres);
+    qs("#btn-recargar").addEventListener("click", function () {
+      state.cierres = [];
+      state.seleccion = null;
+      renderIndicadores([]);
+      renderTabla([]);
+      renderDetalle();
+      qs("#tabla-body").innerHTML = '<tr><td colspan="8" class="empty-state">Pulsa "Procesar cierres" para cargar el rango (modo demo).</td></tr>';
+    });
+  });
+})();
+</script>
+</body>
+</html>

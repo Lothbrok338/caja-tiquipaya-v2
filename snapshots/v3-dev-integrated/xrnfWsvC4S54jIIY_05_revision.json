@@ -1,0 +1,34 @@
+{
+  "id": "xrnfWsvC4S54jIIY",
+  "name": "TIQ V3 · 05 REVISION CORRECCION · DEV",
+  "active": false,
+  "isArchived": false,
+  "versionId": "14a4c43a-7a72-4cf8-bd33-37298ac37fb5",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "createdAt": "2026-09-13T20:11:54.828Z",
+  "updatedAt": "2026-09-14T04:02:02.752Z",
+  "settings": { "executionOrder": "v1", "availableInMCP": true },
+  "tags": [],
+  "parentFolderId": null,
+  "description": "Subworkflow DEV — modulo de Revision/Correccion autorizada. Sin webhooks publicados, sin reprocesos reales.",
+  "connections": {
+    "ENTRADA (Execute Workflow Trigger)": { "main": [[{ "node": "CONSTRUIR - Payload revision", "type": "main", "index": 0 }]] },
+    "CONSTRUIR - Payload revision": { "main": [[{ "node": "ESCRIBIR - Input temporal (revision)", "type": "main", "index": 0 }]] },
+    "ESCRIBIR - Input temporal (revision)": { "main": [[{ "node": "EJECUTAR - Revision (Python)", "type": "main", "index": 0 }]] },
+    "EJECUTAR - Revision (Python)": { "main": [[{ "node": "LEER - Resultado revision", "type": "main", "index": 0 }]] },
+    "LEER - Resultado revision": { "main": [[{ "node": "INTERPRETAR - Resultado revision", "type": "main", "index": 0 }]] }
+  },
+  "nodes": [
+    { "id": "dca7aea7-67c8-4ebd-9525-bd8007758033", "name": "ENTRADA (Execute Workflow Trigger)", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1.2, "position": [0, 0], "parameters": { "inputSource": "workflowInputs", "workflowInputs": { "values": [ { "name": "cierres_con_correccion", "type": "array" }, { "name": "base_dir_dev", "type": "string" }, { "name": "version_codigo", "type": "string" }, { "name": "controles_dir_dev", "type": "string" } ] } } },
+    { "id": "caaa3638-5601-4dcc-bd08-f3efbd9ce2b1", "name": "Sticky Note 93584e2f", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [160, 0], "parameters": { "content": "## TIQ V3 · 05 REVISION CORRECCION · DEV — FASE 5: IMPLEMENTADO (ADAPTADOR)\n**Proposito:** Para cierres ERROR_REVISAR, aplicar UNA correccion YA AUTORIZADA por el auditor humano y reprocesar. Nunca elige la correccion; solo valida, aplica tecnicamente y reprocesa.\n\n**Real:** CONSTRUIR payload -> ESCRIBIR input temporal (base64) -> EJECUTAR v3.revision (Python) -> LEER/INTERPRETAR resultado. v3/revision.py es un ADAPTADOR: invoca correcciones_tiquipaya.validar_schema_correccion()/validar_sha256_origen(), pipeline_tiquipaya.procesar_cierre_con_correccion() y aplicar_correccion._rutas_reproceso() TAL CUAL, y reclasifica el reproceso con el MISMO v3.clasificacion del Modulo 04.\n\n**Campos corregibles (sin cambios de V2):** CI={cuenta_contable,asignacion}; VOUCHER={codigo_informado, solo entre candidatos}; ATC={neto_cuenta_contable,neto_asignacion,comision_cuenta_contable,comision_asignacion}. IMPORTES NUNCA.\n\n**Trazabilidad:** reproceso siempre bajo REPROCESOS/ (nunca sobrescribe); correccion registrada aparte via aplicar_correccion._registrar_trazabilidad() (opcional, controles_dir_dev).\n\n**No publica nada.** Contratos V2 verificados con comparacion real: CONTRACT-006,007,012,013,014.\n\nVerificado: tests_v3/test_revision.py (16/16).", "color": 2 } },
+    { "id": "7592a219-5fe7-476b-8178-b033d722e9dd", "name": "CONSTRUIR - Payload revision", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [224, 0], "parameters": { "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.revision.ejecutar_revision() (Python, unica autoridad:\n// invoca correcciones_tiquipaya.py + pipeline_tiquipaya.procesar_cierre_con_correccion()\n// de V2 sin cambios). Este nodo NUNCA decide que corregir: la correccion ya\n// viene decidida por el auditor humano dentro de cada item.\nconst payload = {\n  cierres_con_correccion: t.cierres_con_correccion || [],\n  base_dir_dev: t.base_dir_dev,\n  version_codigo: t.version_codigo || null,\n  controles_dir_dev: t.controles_dir_dev || null,\n};\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_revision_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_revision_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];" } },
+    { "id": "4522c106-ff29-4573-b260-53a7c1820d91", "name": "ESCRIBIR - Input temporal (revision)", "type": "n8n-nodes-base.executeCommand", "typeVersion": 1, "position": [448, 0], "parameters": { "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\"" } },
+    { "id": "a7ced22a-9e84-40fe-892c-4dfc94529240", "name": "EJECUTAR - Revision (Python)", "type": "n8n-nodes-base.executeCommand", "typeVersion": 1, "position": [672, 0], "parameters": { "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.revision --input \"{{ $('CONSTRUIR - Payload revision').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR - Payload revision').item.json.ruta_output_tmp }}\" ; true" } },
+    { "id": "f756fe2a-abbe-4c5d-bbb2-d61b7caec978", "name": "LEER - Resultado revision", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [896, 0], "parameters": { "operation": "read", "fileSelector": "={{ $('CONSTRUIR - Payload revision').item.json.ruta_output_tmp }}" } },
+    { "id": "b39f7337-731d-49e4-b9d3-92450392ca26", "name": "INTERPRETAR - Resultado revision", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [1120, 0], "parameters": { "operation": "fromJson" } }
+  ],
+  "nodeGroups": [],
+  "activeVersion": null,
+  "meta": { "aiBuilderAssisted": true, "builderVariant": "mcp" }
+}

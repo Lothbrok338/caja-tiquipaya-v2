@@ -1,0 +1,34 @@
+{
+  "id": "NQFcE3VD3PsVUNjW",
+  "name": "TIQ V3 · 04 CLASIFICACION · DEV",
+  "active": false,
+  "isArchived": false,
+  "versionId": "ed5128ae-f8fd-43cd-8ceb-c18d9402d02b",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "createdAt": "2026-09-13T20:11:45.284Z",
+  "updatedAt": "2026-09-14T04:01:50.783Z",
+  "settings": { "executionOrder": "v1", "availableInMCP": true },
+  "tags": [],
+  "parentFolderId": null,
+  "description": "Subworkflow DEV — modulo de Clasificacion del estado del cierre. Sin logica real.",
+  "connections": {
+    "ENTRADA (Execute Workflow Trigger)": { "main": [[{ "node": "CONSTRUIR - Payload clasificacion", "type": "main", "index": 0 }]] },
+    "CONSTRUIR - Payload clasificacion": { "main": [[{ "node": "ESCRIBIR - Input temporal (clasificacion)", "type": "main", "index": 0 }]] },
+    "ESCRIBIR - Input temporal (clasificacion)": { "main": [[{ "node": "EJECUTAR - Clasificacion (Python)", "type": "main", "index": 0 }]] },
+    "EJECUTAR - Clasificacion (Python)": { "main": [[{ "node": "LEER - Resultado clasificacion", "type": "main", "index": 0 }]] },
+    "LEER - Resultado clasificacion": { "main": [[{ "node": "INTERPRETAR - Resultado clasificacion", "type": "main", "index": 0 }]] }
+  },
+  "nodes": [
+    { "id": "d9227319-ba73-4767-89e3-2c0308d51d1c", "name": "ENTRADA (Execute Workflow Trigger)", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1.2, "position": [0, 0], "parameters": { "inputSource": "workflowInputs", "workflowInputs": { "values": [ { "name": "cierres", "type": "array" } ] } } },
+    { "id": "fdb2b7da-d173-46f2-94fa-133b21b88260", "name": "Sticky Note 9a09c306", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [160, 0], "parameters": { "content": "## TIQ V3 · 04 CLASIFICACION · DEV — FASE 5: IMPLEMENTADO (FUNCION PURA)\n**Proposito:** Decidir, para cada cierre ya procesado por 01+02+03, a cual de los 5 estados finales REALES de V2 pertenece. NO calcula contabilidad, NO publica, NO corrige.\n\n**Real:** CONSTRUIR payload -> ESCRIBIR input temporal (base64) -> EJECUTAR v3.clasificacion (Python, funcion pura, sin I/O) -> LEER/INTERPRETAR resultado. Cero logica de clasificacion en JS.\n\n**5 estados EXACTOS de V2 (run_batch._ESTADO_MAP + _entrada_sin_archivo + ERROR_TECNICO), no inventados:** LISTO_PARA_PUBLICAR, ERROR_REVISAR, SIN_ARCHIVO, YA_PROCESADO, ERROR_TECNICO.\n\n**Contratos V2 verificados con comparacion V2-vs-V3 real:** CONTRACT-011 (procesar y publicar separados: clasificar 'listo' nunca publica). Ver parity_v3/PARITY_SCENARIOS.csv.\n\nVerificado: tests_v3/test_clasificacion.py (17/17).", "color": 3 } },
+    { "id": "4159878f-54c3-4fdd-a3ad-970afba29e36", "name": "CONSTRUIR - Payload clasificacion", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [224, 0], "parameters": { "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.clasificacion.ejecutar_clasificacion() (Python, funcion\n// PURA: no decide nada este nodo, solo empaqueta lo que ya vino combinado\n// de los Modulos 01+02+03).\nconst payload = { cierres: t.cierres || [] };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_clasificacion_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_clasificacion_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];" } },
+    { "id": "9bcfc651-043a-4e33-98eb-0d4ad63d1c0e", "name": "ESCRIBIR - Input temporal (clasificacion)", "type": "n8n-nodes-base.executeCommand", "typeVersion": 1, "position": [448, 0], "parameters": { "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\"" } },
+    { "id": "face53a7-66b0-4e07-a27f-ba6a50df980d", "name": "EJECUTAR - Clasificacion (Python)", "type": "n8n-nodes-base.executeCommand", "typeVersion": 1, "position": [672, 0], "parameters": { "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.clasificacion --input \"{{ $('CONSTRUIR - Payload clasificacion').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR - Payload clasificacion').item.json.ruta_output_tmp }}\" ; true" } },
+    { "id": "bc1ddb23-384e-4fee-9afb-607b5d3750ba", "name": "LEER - Resultado clasificacion", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [896, 0], "parameters": { "operation": "read", "fileSelector": "={{ $('CONSTRUIR - Payload clasificacion').item.json.ruta_output_tmp }}" } },
+    { "id": "006f4879-12a9-4729-a0ea-5651965b38ce", "name": "INTERPRETAR - Resultado clasificacion", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [1120, 0], "parameters": { "operation": "fromJson" } }
+  ],
+  "nodeGroups": [],
+  "activeVersion": null,
+  "meta": { "aiBuilderAssisted": true, "builderVariant": "mcp" }
+}

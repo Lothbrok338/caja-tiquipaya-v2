@@ -1,0 +1,34 @@
+{
+  "id": "j88aiRsPF7g9kxhD",
+  "name": "TIQ V3 · 02 MATERIALIZACION · DEV",
+  "active": false,
+  "isArchived": false,
+  "versionId": "0a5880dd-4bc6-4a44-b53a-c4241536ed8b",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "createdAt": "2026-09-13T20:11:30.026Z",
+  "updatedAt": "2026-09-14T04:01:41.565Z",
+  "settings": { "executionOrder": "v1", "availableInMCP": true },
+  "tags": [],
+  "parentFolderId": null,
+  "description": "Subworkflow DEV — modulo de Materializacion/Preparacion (maestro, plantilla, marcadores). Sin logica real, sin Drive productivo.",
+  "connections": {
+    "ENTRADA (Execute Workflow Trigger)": { "main": [[{ "node": "CONSTRUIR - Payload materializacion", "type": "main", "index": 0 }]] },
+    "CONSTRUIR - Payload materializacion": { "main": [[{ "node": "ESCRIBIR - Input temporal (materializacion)", "type": "main", "index": 0 }]] },
+    "ESCRIBIR - Input temporal (materializacion)": { "main": [[{ "node": "EJECUTAR - Materializacion (Python)", "type": "main", "index": 0 }]] },
+    "EJECUTAR - Materializacion (Python)": { "main": [[{ "node": "LEER - Resultado materializacion", "type": "main", "index": 0 }]] },
+    "LEER - Resultado materializacion": { "main": [[{ "node": "INTERPRETAR - Resultado materializacion", "type": "main", "index": 0 }]] }
+  },
+  "nodes": [
+    { "id": "5546a44c-fedb-4b9e-86fd-ba305c6f7d6e", "name": "ENTRADA (Execute Workflow Trigger)", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1.2, "position": [0, 0], "parameters": { "inputSource": "workflowInputs", "workflowInputs": { "values": [ { "name": "cierres_ingesta", "type": "array" }, { "name": "base_dir_dev", "type": "string" }, { "name": "origen_cierres_dir", "type": "string" }, { "name": "ruta_maestro_origen", "type": "string" }, { "name": "ruta_plantilla_origen", "type": "string" }, { "name": "markers_origen_dir", "type": "string" }, { "name": "mes_rango", "type": "number" } ] } } },
+    { "id": "ab076408-ceb6-421f-8366-41fc68284551", "name": "Sticky Note b90de883", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [160, 0], "parameters": { "content": "## TIQ V3 · 02 MATERIALIZACION · DEV — FASE 5: IMPLEMENTADO\n**Proposito:** Preparar directorio DEV, materializar (copiar, solo lectura del origen) cierres ENCONTRADO, maestro, plantilla SAP y marcadores existentes para el futuro Modulo 03.\n\n**Real:** CONSTRUIR payload -> ESCRIBIR input temporal (base64) -> EJECUTAR v3.materializacion (Python, unica autoridad) -> LEER/INTERPRETAR resultado. CERO logica de negocio en JS (a diferencia de 01 INGESTA, ver v3/TECHNICAL_DEBT.md DEBT-001).\n\n**DEV:** origen_cierres_dir/ruta_maestro_origen/ruta_plantilla_origen/markers_origen_dir son fixtures locales explicitos — sin conexion real a Drive todavia.\n\n**Reutiliza de V2 (sin modificarlo):** run_batch.validar_maestro(), run_batch.cargar_marcadores_procesados().\n\n**Contratos V2 respetados:** CONTRACT-005 (original inmutable — solo copyfile, nunca escritura/mover/renombrar/borrar el origen); BR-022 (migracion de marcadores).\n\nVerificado: tests_v3/test_materializacion.py (16/16).", "color": 6 } },
+    { "id": "b0279753-c697-47d4-925b-a8a7ea785ae3", "name": "CONSTRUIR - Payload materializacion", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [224, 0], "parameters": { "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.materializacion.ejecutar_materializacion() (Python, unica\n// autoridad de esta logica). Este nodo NUNCA decide nada de negocio: solo\n// empaqueta lo que ya vino del trigger.\nconst payload = {\n  cierres_ingesta: t.cierres_ingesta || [],\n  params: {\n    base_dir_dev: t.base_dir_dev,\n    origen_cierres_dir: t.origen_cierres_dir,\n    ruta_maestro_origen: t.ruta_maestro_origen,\n    ruta_plantilla_origen: t.ruta_plantilla_origen,\n    markers_origen_dir: t.markers_origen_dir || null,\n    mes_rango: t.mes_rango,\n  },\n};\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_materializacion_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_materializacion_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];" } },
+    { "id": "2c9ea58c-a854-480f-a26b-ef517c346cc8", "name": "ESCRIBIR - Input temporal (materializacion)", "type": "n8n-nodes-base.executeCommand", "typeVersion": 1, "position": [448, 0], "parameters": { "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\"" } },
+    { "id": "2bb4ae87-da62-4f0e-b394-e976c7b2019f", "name": "EJECUTAR - Materializacion (Python)", "type": "n8n-nodes-base.executeCommand", "typeVersion": 1, "position": [672, 0], "parameters": { "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.materializacion --input \"{{ $('CONSTRUIR - Payload materializacion').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR - Payload materializacion').item.json.ruta_output_tmp }}\" ; true" } },
+    { "id": "fe131896-95f9-4c16-82c8-67a2197b5b93", "name": "LEER - Resultado materializacion", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [896, 0], "parameters": { "operation": "read", "fileSelector": "={{ $('CONSTRUIR - Payload materializacion').item.json.ruta_output_tmp }}" } },
+    { "id": "d11371c7-c034-4375-9ac5-55b745b72a0b", "name": "INTERPRETAR - Resultado materializacion", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [1120, 0], "parameters": { "operation": "fromJson" } }
+  ],
+  "nodeGroups": [],
+  "activeVersion": null,
+  "meta": { "aiBuilderAssisted": true, "builderVariant": "mcp" }
+}

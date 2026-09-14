@@ -1,0 +1,34 @@
+{
+  "id": "Q81cDev3QSx5Zowc",
+  "name": "TIQ V3 · 07 AUDITORIA · DEV",
+  "active": false,
+  "isArchived": false,
+  "versionId": "dca0894e-b6bc-4240-8290-27886a8b3fc7",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "createdAt": "2026-09-13T20:12:10.788Z",
+  "updatedAt": "2026-09-14T04:02:13.976Z",
+  "settings": { "executionOrder": "v1", "availableInMCP": true },
+  "tags": [],
+  "parentFolderId": null,
+  "description": "Subworkflow DEV — modulo de Auditoria mensual (CONTROL 1/3, consolidador). Solo lectura conceptual, sin abrir GLOBAL real.",
+  "connections": {
+    "ENTRADA (Execute Workflow Trigger)": { "main": [[{ "node": "CONSTRUIR - Payload auditoria", "type": "main", "index": 0 }]] },
+    "CONSTRUIR - Payload auditoria": { "main": [[{ "node": "ESCRIBIR - Input temporal (auditoria)", "type": "main", "index": 0 }]] },
+    "ESCRIBIR - Input temporal (auditoria)": { "main": [[{ "node": "EJECUTAR - Auditoria (Python)", "type": "main", "index": 0 }]] },
+    "EJECUTAR - Auditoria (Python)": { "main": [[{ "node": "LEER - Resultado auditoria", "type": "main", "index": 0 }]] },
+    "LEER - Resultado auditoria": { "main": [[{ "node": "INTERPRETAR - Resultado auditoria", "type": "main", "index": 0 }]] }
+  },
+  "nodes": [
+    { "id": "64564aaf-4b60-4865-87a3-be5e1a637f9e", "name": "ENTRADA (Execute Workflow Trigger)", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1.2, "position": [0, 0], "parameters": { "inputSource": "workflowInputs", "workflowInputs": { "values": [ { "name": "cierres", "type": "array" }, { "name": "base_dir_dev", "type": "string" }, { "name": "usuario_auditor", "type": "string" }, { "name": "control1_resultado", "type": "object" }, { "name": "control3_resultado", "type": "object" } ] } } },
+    { "id": "c1ab38e9-0046-45c3-a6a4-49e8aabc0d6f", "name": "Sticky Note a4590d3d", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [160, 0], "parameters": { "content": "## TIQ V3 · 07 AUDITORIA · DEV — FASE 5: IMPLEMENTADO (ADAPTADOR) — ULTIMO MODULO\n**Principio:** AUDITORIA NO DECIDE. Solo observa, consolida y deja evidencia. Nunca cambia diferencia/bloqueadores/clasificacion/correcciones/SAP/estado de publicacion.\n\n**Real:** CONSTRUIR payload -> ESCRIBIR input temporal (base64) -> EJECUTAR v3.auditoria (Python) -> LEER/INTERPRETAR resultado. v3/auditoria.py consolida la metadata YA calculada por los Modulos 01-06 (fecha, sha256, estados, correcciones, publicacion, rutas DEV, usuario, mensajes) en base_dir_dev/auditoria/AUDITORIA_<fecha>_<sha256>.json + un consolidado AUDITORIA_LOTE_<timestamp>.json.\n\n**CONTROL 1 / CONTROL 3:** delegados delgados (ejecutar_control1_correccion/evaluar_control3_idempotencia) que llaman EXACTAMENTE a control_asignaciones.aplicar_correcciones_global() y control_cxc_cxp._estado_idempotencia() de V2 — CERO reimplementacion, CERO segunda version paralela. Sus resultados (si el llamador ya los obtuvo) se registran tal cual en el consolidado del lote.\n\n**No modifica SAP/resultado/original. No publica nada.** Sin Drive/marcadores productivos — todo bajo base_dir_dev/auditoria/.\n\nContratos V2 verificados con comparacion real: CONTRACT-015, 017 (y refuerza CONTRACT-011/016).\n\nVerificado: tests_v3/test_auditoria.py (20/20). parity_v3: 18/18 PASS, 0 skipped — ultimo modulo funcional de V3.", "color": 5 } },
+    { "id": "a4cec894-0070-494c-b67a-9db1e3fa74e9", "name": "CONSTRUIR - Payload auditoria", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [224, 0], "parameters": { "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.auditoria.consolidar_auditoria_lote() (Python, unica\n// autoridad: delega CONTROL 1/3 EXACTAMENTE en control_asignaciones.py/\n// control_cxc_cxp.py de V2). Este nodo NUNCA decide nada: solo entrega la\n// metadata que los Modulos 01-06 YA calcularon.\nconst payload = {\n  cierres: t.cierres || [],\n  base_dir_dev: t.base_dir_dev,\n  usuario_auditor: t.usuario_auditor || null,\n  control1_resultado: t.control1_resultado || null,\n  control3_resultado: t.control3_resultado || null,\n};\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_auditoria_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_auditoria_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];" } },
+    { "id": "8e229ecf-f2be-4488-a060-6175ec628bef", "name": "ESCRIBIR - Input temporal (auditoria)", "type": "n8n-nodes-base.executeCommand", "typeVersion": 1, "position": [448, 0], "parameters": { "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\"" } },
+    { "id": "47d3d43c-874f-4053-9a00-7e4eb8f004f6", "name": "EJECUTAR - Auditoria (Python)", "type": "n8n-nodes-base.executeCommand", "typeVersion": 1, "position": [672, 0], "parameters": { "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.auditoria --input \"{{ $('CONSTRUIR - Payload auditoria').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR - Payload auditoria').item.json.ruta_output_tmp }}\" ; true" } },
+    { "id": "05e5f764-ec8c-4896-91e3-264e9370f4c7", "name": "LEER - Resultado auditoria", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [896, 0], "parameters": { "operation": "read", "fileSelector": "={{ $('CONSTRUIR - Payload auditoria').item.json.ruta_output_tmp }}" } },
+    { "id": "cab90ff9-6451-406a-a94b-498b1aec1524", "name": "INTERPRETAR - Resultado auditoria", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [1120, 0], "parameters": { "operation": "fromJson" } }
+  ],
+  "nodeGroups": [],
+  "activeVersion": null,
+  "meta": { "aiBuilderAssisted": true, "builderVariant": "mcp" }
+}
