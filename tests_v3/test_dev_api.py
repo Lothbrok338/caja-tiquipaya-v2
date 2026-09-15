@@ -41,7 +41,17 @@ def _preparar_origen(tmp_path, cierres_por_fecha):
         nombre = run_batch.nombre_cierre_esperado(fecha)
         fx.crear_cierre(str(origen_dir / nombre), sfc101, sfc102)
     ruta_maestro = tmp_path / "MAESTRO.xlsm"
-    fx.crear_maestro_unico(str(ruta_maestro), macros_filas=[], atc_filas=[])
+    # FASE 10C: el precheck de cobertura del maestro (v3.precheck_maestro)
+    # ahora corre entre materializacion y motor -- estos tests no ejercitan
+    # esa precondicion (prueban CI/vouchers/publicacion, no cobertura de
+    # MACROS/ATC), asi que el maestro sintetico trae una fila DUMMY por
+    # cada fecha bajo prueba, suficiente para que el precheck confirme
+    # MAESTRO_APTO sin alterar ningun resultado contable real (montos
+    # "0.00"/"0.01" que nunca calzan con datos reales de las pruebas).
+    fechas = sorted(cierres_por_fecha.keys())
+    macros_filas = [(fecha, "DUMMY-PRECHECK", "0.01") for fecha in fechas]
+    atc_filas = [(fecha, "BANCO (NETO)", "999999999", "DUMMY PRECHECK", "0.00", "DUMMY") for fecha in fechas]
+    fx.crear_maestro_unico(str(ruta_maestro), macros_filas=macros_filas, atc_filas=atc_filas)
     ruta_plantilla = tmp_path / "Plantilla.xlsx"
     fx.crear_plantilla_sap(str(ruta_plantilla))
     return str(origen_dir), str(ruta_maestro), str(ruta_plantilla)

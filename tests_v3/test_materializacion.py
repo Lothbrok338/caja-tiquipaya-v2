@@ -114,6 +114,7 @@ def test_original_no_modificado(entorno):
     hash_antes = _sha256(entorno["ruta_cierre_origen"])
     hash_maestro_antes = _sha256(entorno["ruta_maestro_origen"])
     hash_plantilla_antes = _sha256(entorno["ruta_plantilla_origen"])
+    mtime_antes = os.path.getmtime(entorno["ruta_cierre_origen"])
 
     item = {"fecha": "2026-09-01", "archivo_esperado": "CIERRE 01-09-2026.xlsm", "estado_ingesta": ENCONTRADO}
     ejecutar_materializacion([item], _params(entorno))
@@ -121,6 +122,85 @@ def test_original_no_modificado(entorno):
     assert _sha256(entorno["ruta_cierre_origen"]) == hash_antes
     assert _sha256(entorno["ruta_maestro_origen"]) == hash_maestro_antes
     assert _sha256(entorno["ruta_plantilla_origen"]) == hash_plantilla_antes
+    # FASE 10A: ni siquiera el mtime del origen cambia -- shutil.copyfile()
+    # nunca abre el origen en modo escritura (misma garantia que aplica
+    # cuando origen_cierres_dir es una copia real descargada de Drive bajo
+    # ~/.n8n-files/tiq_v3_real_readonly_dev/, no solo un fixture DEV).
+    assert os.path.getmtime(entorno["ruta_cierre_origen"]) == mtime_antes
+
+
+# ---------------------------------------------------------------------------
+# FASE 10A — conexión de solo lectura a Google Drive real. v3/materializacion.py
+# NO CAMBIA una linea para soportar drive_readonly: el mecanismo de copia
+# (shutil.copyfile) es identico sin importar si origen_dir es un fixture DEV
+# o una copia real ya descargada por n8n bajo
+# ~/.n8n-files/tiq_v3_real_readonly_dev/ -- estas pruebas lo demuestran
+# usando esa MISMA ruta real como origen/destino.
+# ---------------------------------------------------------------------------
+
+# 8) descarga (copia) hacia el directorio DEV real (~/.n8n-files/tiq_v3_real_readonly_dev/)
+def test_copia_funciona_igual_apuntando_al_directorio_real_readonly_dev(tmp_path):
+    # Simula la forma real: origen_cierres_dir/ruta_maestro_origen/etc. YA
+    # fueron descargados por n8n (Google Drive, solo lectura) hacia
+    # ~/.n8n-files/tiq_v3_real_readonly_dev/*_origen/ antes de invocar este
+    # modulo -- aqui se reproduce esa misma estructura de directorios bajo
+    # tmp_path para no depender de una descarga real en el test.
+    real_readonly = tmp_path / "tiq_v3_real_readonly_dev"
+    origen_cierres = real_readonly / "cierres_origen"
+    origen_cierres.mkdir(parents=True)
+    ruta_cierre_origen = origen_cierres / "CIERRE 10-09-2026.xlsm"
+    fx.crear_cierre(
+        str(ruta_cierre_origen),
+        {"total_movimiento": "0.00", "cobros_atc": "0.00", "dolares": "0.00", "depositos": []},
+        {"total_movimiento": "0.00", "cobros_atc": "0.00", "dolares": "0.00", "depositos": []},
+    )
+    maestro_origen = real_readonly / "maestro_origen"
+    maestro_origen.mkdir()
+    ruta_maestro_origen = maestro_origen / "MACROS SEPTIEMBRE.xlsm"
+    fx.crear_maestro_unico(str(ruta_maestro_origen), macros_filas=[], atc_filas=[])
+    plantilla_origen = real_readonly / "plantilla_origen"
+    plantilla_origen.mkdir()
+    ruta_plantilla_origen = plantilla_origen / "Plantilla SAP maestra.xlsx"
+    fx.crear_plantilla_sap(str(ruta_plantilla_origen))
+
+    base_dir_dev = real_readonly / "dev_workdir"
+    item = {"fecha": "2026-09-10", "archivo_esperado": "CIERRE 10-09-2026.xlsm", "estado_ingesta": ENCONTRADO}
+    resultados = ejecutar_materializacion([item], {
+        "base_dir_dev": str(base_dir_dev),
+        "origen_cierres_dir": str(origen_cierres),
+        "ruta_maestro_origen": str(ruta_maestro_origen),
+        "ruta_plantilla_origen": str(ruta_plantilla_origen),
+        "markers_origen_dir": None,
+        "mes_rango": 9,
+    })
+    r = resultados[0]
+    assert r["estado_materializacion"] == MATERIALIZADO
+    assert os.path.isfile(r["ruta_cierre_local"])
+    assert _sha256(r["ruta_cierre_local"]) == _sha256(str(ruta_cierre_origen))
+    # la copia final vive DENTRO de ~/.n8n-files/tiq_v3_real_readonly_dev/ (aqui, su tmp_path equivalente)
+    assert os.path.commonpath([os.path.abspath(r["ruta_cierre_local"]), str(real_readonly)]) == str(real_readonly)
+
+
+# 7) solo se materializa el archivo EXACTO del cierre pedido -- otro archivo
+#    presente en la MISMA carpeta de origen (p. ej. otra fecha ya descargada
+#    en una corrida real previa) nunca se copia ni se mezcla.
+def test_solo_copia_el_archivo_exacto_nunca_otros_presentes_en_origen(entorno):
+    # Simula que origen_cierres_dir (la copia real de Drive) YA contiene
+    # ademas un archivo de OTRA fecha (descargado en una corrida anterior).
+    otro_cierre = os.path.join(entorno["origen_cierres_dir"], "CIERRE 02-09-2026.xlsm")
+    fx.crear_cierre(
+        otro_cierre,
+        {"total_movimiento": "0.00", "cobros_atc": "0.00", "dolares": "0.00", "depositos": []},
+        {"total_movimiento": "0.00", "cobros_atc": "0.00", "dolares": "0.00", "depositos": []},
+    )
+    item = {"fecha": "2026-09-01", "archivo_esperado": "CIERRE 01-09-2026.xlsm", "estado_ingesta": ENCONTRADO}
+    resultados = ejecutar_materializacion([item], _params(entorno))
+    r = resultados[0]
+    assert os.path.basename(r["ruta_cierre_local"]) == "CIERRE 01-09-2026.xlsm"
+    destino_dir = os.path.dirname(r["ruta_cierre_local"])
+    # el archivo de la OTRA fecha nunca fue pedido -> nunca se copia al destino
+    assert not os.path.isfile(os.path.join(destino_dir, "CIERRE 02-09-2026.xlsm"))
+    assert sorted(os.listdir(destino_dir)) == ["CIERRE 01-09-2026.xlsm"]
 
 
 # 5) rutas DEV correctas

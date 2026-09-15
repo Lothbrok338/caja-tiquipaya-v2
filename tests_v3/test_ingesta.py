@@ -6,6 +6,7 @@ CÓDIGO DE V3 en sí mismo se comporta como se diseñó.
 Uso: python -m pytest tests_v3/ -q
 """
 
+import json
 import os
 import sys
 
@@ -14,7 +15,8 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from v3.ingesta import (
-    buscar_cierre_exacto, ejecutar_ingesta,
+    buscar_cierre_exacto, ejecutar_ingesta, main as ingesta_main,
+    normalizar_listado_drive, expandir_candidatos_a_rango,
     ENCONTRADO, SIN_ARCHIVO, AMBIGUO, ERROR_INGESTA,
 )
 
@@ -155,3 +157,115 @@ def test_todas_las_filas_tienen_exactamente_las_6_claves_pedidas():
     resultados = ejecutar_ingesta("2026-09-01", "2026-09-01", {})
     esperado = {"fecha", "archivo_esperado", "estado_ingesta", "drive_file_id", "coincidencias", "mensaje"}
     assert set(resultados[0].keys()) == esperado
+
+
+# ---------------------------------------------------------------------------
+# FASE 10A — conexión de solo lectura a Google Drive real.
+# normalizar_listado_drive() / expandir_candidatos_a_rango() / CLI
+# (source_mode: fixture vs drive_readonly). Ver v3/TECHNICAL_DEBT.md
+# DEBT-001 (cerrado en esta fase: ya no hay REGLA G duplicada en JS).
+# ---------------------------------------------------------------------------
+
+def _cli(tmp_path, payload, nombre="in"):
+    ruta_in = tmp_path / f"{nombre}.json"
+    ruta_out = tmp_path / f"{nombre}_out.json"
+    ruta_in.write_text(json.dumps(payload), encoding="utf-8")
+    ingesta_main(["--input", str(ruta_in), "--output", str(ruta_out)])
+    with open(ruta_out, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+# 1) fixture mode sigue funcionando (CLI, sin cambios de comportamiento)
+def test_cli_fixture_mode_sigue_funcionando(tmp_path):
+    salida = _cli(tmp_path, {
+        "fecha_inicio": "2026-09-09", "fecha_fin": "2026-09-09", "source_mode": "fixture",
+        "candidatos_por_fecha": {"2026-09-09": [{"nombre": "CIERRE 09-09-2026.xlsm", "file_id": "id-09"}]},
+    })
+    assert salida["resultado"] == "OK"
+    assert salida["source_mode"] == "fixture"
+    assert salida["cierres"][0]["estado_ingesta"] == ENCONTRADO
+    assert salida["cierres"][0]["drive_file_id"] == "id-09"
+    assert "inventario_drive" not in salida  # solo se expone en modo drive_readonly
+
+
+# 2) drive_readonly recibe candidatos (listado crudo estilo Drive: name/id)
+def test_normalizar_listado_drive_convierte_name_id_a_nombre_file_id():
+    crudo = [{"id": "abc", "name": "CIERRE 09-09-2026.xlsm", "modifiedTime": "2026-09-09T10:00:00Z", "size": "1024"}]
+    normalizado = normalizar_listado_drive(crudo)
+    assert normalizado == [{"nombre": "CIERRE 09-09-2026.xlsm", "file_id": "abc"}]
+
+
+def test_expandir_candidatos_a_rango_repite_el_mismo_listado_por_fecha():
+    crudo = [{"id": "abc", "name": "CIERRE 09-09-2026.xlsm"}]
+    resultado = expandir_candidatos_a_rango("2026-09-09", "2026-09-11", crudo)
+    assert set(resultado.keys()) == {"2026-09-09", "2026-09-10", "2026-09-11"}
+    for candidatos in resultado.values():
+        assert candidatos == [{"nombre": "CIERRE 09-09-2026.xlsm", "file_id": "abc"}]
+
+
+# 3) 1 coincidencia exacta (forma cruda de Drive) -> ENCONTRADO
+def test_drive_readonly_un_exacto_da_encontrado(tmp_path):
+    salida = _cli(tmp_path, {
+        "fecha_inicio": "2026-09-09", "fecha_fin": "2026-09-09", "source_mode": "drive_readonly",
+        "candidatos_drive_crudo": [{"id": "id-09", "name": "CIERRE 09-09-2026.xlsm"}],
+    })
+    assert salida["cierres"][0]["estado_ingesta"] == ENCONTRADO
+    assert salida["cierres"][0]["drive_file_id"] == "id-09"
+    assert salida["cierres"][0]["coincidencias"] == 1
+
+
+# 4) 0 coincidencias exactas -> SIN_ARCHIVO
+def test_drive_readonly_cero_exactos_da_sin_archivo(tmp_path):
+    salida = _cli(tmp_path, {
+        "fecha_inicio": "2026-09-09", "fecha_fin": "2026-09-09", "source_mode": "drive_readonly",
+        "candidatos_drive_crudo": [{"id": "id-10", "name": "CIERRE 10-09-2026.xlsm"}],
+    })
+    assert salida["cierres"][0]["estado_ingesta"] == SIN_ARCHIVO
+    assert salida["cierres"][0]["drive_file_id"] is None
+
+
+# 5) >1 coincidencias exactas -> AMBIGUO (nunca se elige "el primero" del listado real)
+def test_drive_readonly_multiples_exactos_da_ambiguo(tmp_path):
+    salida = _cli(tmp_path, {
+        "fecha_inicio": "2026-09-09", "fecha_fin": "2026-09-09", "source_mode": "drive_readonly",
+        "candidatos_drive_crudo": [
+            {"id": "primero-en-el-listado", "name": "CIERRE 09-09-2026.xlsm"},
+            {"id": "segundo-en-el-listado", "name": "CIERRE 09-09-2026.xlsm"},
+        ],
+    })
+    assert salida["cierres"][0]["estado_ingesta"] == AMBIGUO
+    assert salida["cierres"][0]["drive_file_id"] is None  # NUNCA "primero-en-el-listado"
+    assert salida["cierres"][0]["coincidencias"] == 2
+
+
+# 6) archivos parecidos 09/10/11 en el MISMO listado real no se confunden
+def test_drive_readonly_incidente_09_10_11_no_se_confunde(tmp_path):
+    salida = _cli(tmp_path, {
+        "fecha_inicio": "2026-09-09", "fecha_fin": "2026-09-11", "source_mode": "drive_readonly",
+        "candidatos_drive_crudo": [
+            {"id": "id-09", "name": "CIERRE 09-09-2026.xlsm"},
+            {"id": "id-10", "name": "CIERRE 10-09-2026.xlsm"},
+            {"id": "id-11", "name": "CIERRE 11-09-2026.xlsm"},
+        ],
+    })
+    por_fecha = {c["fecha"]: c for c in salida["cierres"]}
+    assert por_fecha["2026-09-09"]["drive_file_id"] == "id-09"
+    assert por_fecha["2026-09-10"]["drive_file_id"] == "id-10"
+    assert por_fecha["2026-09-11"]["drive_file_id"] == "id-11"
+    assert all(c["estado_ingesta"] == ENCONTRADO for c in salida["cierres"])
+    # el inventario crudo (solo lectura) se reexpone tal cual, sin reinterpretar
+    assert len(salida["inventario_drive"]) == 3
+
+
+# 7) el drive_file_id resuelto es SIEMPRE el del candidato con nombre exacto,
+#    nunca el de un candidato "parecido" que llegue antes en el listado real.
+def test_drive_readonly_nunca_elige_file_id_de_candidato_no_exacto(tmp_path):
+    salida = _cli(tmp_path, {
+        "fecha_inicio": "2026-09-09", "fecha_fin": "2026-09-09", "source_mode": "drive_readonly",
+        "candidatos_drive_crudo": [
+            {"id": "id-copia-parecida", "name": "CIERRE 09-09-2026 (1).xlsm"},
+            {"id": "id-real", "name": "CIERRE 09-09-2026.xlsm"},
+            {"id": "id-otro-dia", "name": "CIERRE 10-09-2026.xlsm"},
+        ],
+    })
+    assert salida["cierres"][0]["drive_file_id"] == "id-real"

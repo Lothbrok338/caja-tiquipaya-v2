@@ -43,6 +43,7 @@ from v3.materializacion import _verificar_contenido_en_base_dir  # noqa: E402
 from v3.ingesta import ejecutar_ingesta  # noqa: E402
 from v3.materializacion import ejecutar_materializacion  # noqa: E402
 from v3.motor import ejecutar_motor  # noqa: E402
+from v3.precheck_maestro import aplicar_precheck_maestro, filtrar_aptos_para_motor  # noqa: E402
 from v3.clasificacion import ejecutar_clasificacion, LISTO_PARA_PUBLICAR, ERROR_REVISAR  # noqa: E402
 from v3.revision import revisar_y_corregir_cierre  # noqa: E402
 from v3.publicacion import publicar_lote  # noqa: E402
@@ -147,7 +148,17 @@ def procesar_lote(lote_id, base_dir_dev, origen_cierres_dir, ruta_maestro_origen
             "ruta_maestro_origen": ruta_maestro_origen, "ruta_plantilla_origen": ruta_plantilla_origen,
             "markers_origen_dir": markers_origen_dir, "mes_rango": mes_rango,
         })
-        procesados = ejecutar_motor(materializados, base_dir_dev, version_codigo)
+
+        # FASE 10C: precheck de cobertura del maestro, ANTES del motor (ver
+        # v3/precheck_maestro.py) — v3.motor.ejecutar_motor() JAMAS recibe
+        # un cierre BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA (filtrado
+        # aqui, no solo "no procesado" dentro del motor).
+        anotados_precheck = aplicar_precheck_maestro(materializados)
+        aptos_para_motor = filtrar_aptos_para_motor(anotados_precheck)
+        procesados_motor = ejecutar_motor(aptos_para_motor, base_dir_dev, version_codigo)
+        procesados_motor_por_fecha = {c["fecha"]: c for c in procesados_motor}
+        procesados = [procesados_motor_por_fecha.get(item["fecha"], item) for item in anotados_precheck]
+
         clasificados = ejecutar_clasificacion(procesados)
 
         lote["cierres"] = clasificados

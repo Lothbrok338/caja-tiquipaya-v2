@@ -4,8 +4,9 @@
 Este módulo NO calcula contabilidad, NO vuelve a ejecutar Python contable,
 NO modifica nada, NO publica y NO corrige: solo decide, para cada cierre
 que ya pasó por los módulos 01-03, a cuál de los 5 estados finales que
-YA EXISTEN en V2 pertenece. Esos 5 estados y sus nombres exactos NO se
-inventan aquí — se PORTAN literalmente de:
+YA EXISTEN en V2 (más un 6º estado exclusivo de V3, ver FASE 10C más abajo)
+pertenece. Esos 5 estados y sus nombres exactos NO se inventan aquí — se
+PORTAN literalmente de:
 
   - `run_batch._ESTADO_MAP` (pipeline_tiquipaya.py -> nombre de estado por
     cierre en `resultado_batch.json`):
@@ -45,6 +46,7 @@ import run_batch  # noqa: E402  (reutilizado tal cual: _ESTADO_MAP)
 from v3.ingesta import SIN_ARCHIVO as ING_SIN_ARCHIVO, AMBIGUO as ING_AMBIGUO, ERROR_INGESTA  # noqa: E402
 from v3.materializacion import ERROR_MATERIALIZACION  # noqa: E402
 from v3.motor import PROCESADO, NO_PROCESADO, ERROR_MOTOR, _ESTADO_MOTOR_MAP_RESULTADO  # noqa: E402
+from v3.precheck_maestro import BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA  # noqa: E402
 import pipeline_tiquipaya as pipeline  # noqa: E402
 
 
@@ -59,6 +61,16 @@ YA_PROCESADO = "YA_PROCESADO"
 ERROR_TECNICO = "ERROR_TECNICO"
 
 _ESTADOS_FINALES_V2 = (LISTO_PARA_PUBLICAR, ERROR_REVISAR, SIN_ARCHIVO, YA_PROCESADO, ERROR_TECNICO)
+
+# Sexto estado, EXCLUSIVO de V3 (FASE 10C) — nunca existió en V2 porque V2
+# nunca separó "el maestro no llegó a esta fecha" de "el cierre tiene un
+# problema real": ambos casos terminaban indistinguibles en ERROR_REVISAR
+# (ver v3/precheck_maestro.py). Es una PRECONDICIÓN de entorno, no una regla
+# contable: solo aparece cuando el item ya trae `estado_precheck_maestro`
+# (lo agrega v3.precheck_maestro.aplicar_precheck_maestro entre los Módulos
+# 02 y 03) — un item que nunca pasó por el precheck se clasifica exactamente
+# igual que antes de FASE 10C, sin ningún cambio de comportamiento.
+BLOQUEADO_MAESTRO = BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA
 
 ACCION_PUBLICAR = "PUBLICAR"
 ACCION_REVISAR = "REVISAR"
@@ -81,6 +93,10 @@ _ACCION_POR_ESTADO = {
     SIN_ARCHIVO: ACCION_NINGUNA,
     YA_PROCESADO: ACCION_NINGUNA,
     ERROR_TECNICO: ACCION_NINGUNA,
+    # Nunca ACCION_REVISAR: no es un problema del cierre que el auditor deba
+    # corregir aquí (ver v3/precheck_maestro.py) — no se ofrece formulario
+    # de corrección ni botón de publicar para este estado.
+    BLOQUEADO_MAESTRO: ACCION_NINGUNA,
 }
 
 _MENSAJES = {
@@ -89,6 +105,11 @@ _MENSAJES = {
     SIN_ARCHIVO: "No se encontró el archivo de cierre para esta fecha.",
     YA_PROCESADO: "Este cierre ya fue procesado y publicado previamente (idempotencia por SHA256).",
     ERROR_TECNICO: "Error técnico durante ingesta, materialización o ejecución del motor.",
+    BLOQUEADO_MAESTRO: (
+        "El maestro mensual no tiene cobertura confirmada hasta la fecha de "
+        "este cierre. Verifique o actualice el maestro antes de procesar — "
+        "esto no es necesariamente un error del cierre."
+    ),
 }
 
 
@@ -104,6 +125,7 @@ def clasificar_cierre(item):
     fecha = item.get("fecha")
     estado_ingesta = item.get("estado_ingesta")
     estado_materializacion = item.get("estado_materializacion")
+    estado_precheck_maestro = item.get("estado_precheck_maestro")
     estado_motor = item.get("estado_motor")
     resultado_motor = item.get("resultado")
 
@@ -123,6 +145,12 @@ def clasificar_cierre(item):
         estado_final = ERROR_REVISAR
     elif estado_materializacion == ERROR_MATERIALIZACION:
         estado_final = ERROR_TECNICO
+    elif estado_precheck_maestro == BLOQUEADO_MAESTRO:
+        # FASE 10C: precondición de entorno, evaluada ANTES del motor (ver
+        # v3/precheck_maestro.py) — nunca se deja caer en ERROR_REVISAR ni
+        # ERROR_TECNICO, para no confundir "el maestro no llegó a esta
+        # fecha" con "el cierre tiene un problema real".
+        estado_final = BLOQUEADO_MAESTRO
     elif estado_motor == ERROR_MOTOR:
         estado_final = ERROR_TECNICO
     elif estado_motor == PROCESADO:

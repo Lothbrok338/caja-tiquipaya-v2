@@ -589,6 +589,59 @@ async function test_no_publicar_no_habilitado() {
   dom.window.close();
 }
 
+// ---------------------------------------------------------------------------
+// FASE 10C: precheck de cobertura del maestro. BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA
+// es una precondicion de ENTORNO, nunca un error contable del cierre: la
+// tabla debe mostrar un tag/etiqueta DISTINTO de "revisar"/"error", el panel
+// de detalle debe mostrar la cobertura real (MACROS/ATC) y el mensaje de
+// verificacion, y NUNCA debe ofrecerse el formulario de correccion ni el
+// boton Publicar para este cierre.
+// ---------------------------------------------------------------------------
+async function test_maestro_sin_cobertura_no_ofrece_correccion_ni_publicacion() {
+  console.log("\n[FASE 10C] MAESTRO SIN COBERTURA CONFIRMADA: sin correccion ni publicacion");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  window.fetch = function (url) {
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-precheck", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
+    if (url.indexOf("/datos") !== -1) return Promise.resolve({
+      ok: true, json: () => Promise.resolve({
+        resultado: "OK", cierres: [{
+          fecha: "2026-09-11", archivo_esperado: "CIERRE 11-09-2026.xlsm",
+          estado_final: "BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA",
+          estado_precheck_maestro: "BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA",
+          fecha_maxima_macros: "2026-09-10", fecha_maxima_atc: "2026-09-10",
+          requiere_revision: false, publicable: false, publicado: false,
+          diferencia: null, bloqueadores: null,
+          mensaje: "El maestro mensual no tiene cobertura confirmada hasta la fecha de este cierre.",
+          mensajes: ["El maestro mensual no tiene cobertura confirmada hasta la fecha de este cierre."],
+        }],
+      }),
+    });
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  await waitFor(() => window.document.getElementById("in-fecha-desde") && window.document.getElementById("in-fecha-desde").value !== "");
+  window.document.getElementById("btn-procesar").click();
+  await waitFor(() => window.document.querySelector("#tabla-body tr[data-hash]"), 5000);
+
+  const tag = window.document.querySelector("#tabla-body .tag");
+  ok(!!tag && tag.classList.contains("bloqueo-maestro"), "la fila usa un tag distinto (bloqueo-maestro), nunca 'revisar' ni 'error'");
+  ok(!tag.classList.contains("revisar") && !tag.classList.contains("error"), "el tag NUNCA se confunde con revision/error contable");
+  ok(window.document.querySelectorAll("#tabla-body button.publicar").length === 0, "no se ofrece boton Publicar en la fila");
+
+  window.document.querySelector("#tabla-body tr[data-hash]").click();
+  await waitFor(() => window.document.getElementById("detalle-body").textContent.indexOf("MAESTRO SIN COBERTURA CONFIRMADA") !== -1, 3000);
+  const texto = window.document.getElementById("detalle-body").textContent;
+  ok(texto.indexOf("MAESTRO SIN COBERTURA CONFIRMADA") !== -1, "el panel de detalle muestra el aviso de cobertura no confirmada");
+  ok(texto.indexOf("2026-09-10") !== -1, "el panel muestra hasta donde llega la cobertura real (MACROS/ATC)");
+  ok(texto.indexOf("Verifique o actualice el maestro") !== -1, "el panel muestra el mensaje de verificacion pedido");
+  ok(window.document.getElementById("sel-excepcion") === null, "NUNCA se ofrece el formulario de correccion para este bloqueo");
+  ok(!Array.from(window.document.querySelectorAll("#detalle-body button")).some((b) => b.textContent.indexOf("PUBLICAR") !== -1), "NUNCA se ofrece el boton Publicar en el detalle");
+  dom.window.close();
+}
+
 (async () => {
   await test_demo_no_llama_backend();
   await test_procesar_rango_valido();
@@ -602,6 +655,7 @@ async function test_no_publicar_no_habilitado() {
   await test_cierre_ya_publicado_no_ofrece_boton_ni_infla_historial();
   await test_error_backend();
   await test_no_publicar_no_habilitado();
+  await test_maestro_sin_cobertura_no_ofrece_correccion_ni_publicacion();
 
   console.log("\n=========================================");
   console.log(passed + " passed, " + failures + " failed");

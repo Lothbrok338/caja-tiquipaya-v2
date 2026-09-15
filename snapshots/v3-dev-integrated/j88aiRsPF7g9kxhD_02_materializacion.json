@@ -3,32 +3,827 @@
   "name": "TIQ V3 · 02 MATERIALIZACION · DEV",
   "active": false,
   "isArchived": false,
-  "versionId": "0a5880dd-4bc6-4a44-b53a-c4241536ed8b",
+  "versionId": "ef30ce36-3d23-41d7-9646-0d26d724bb32",
   "activeVersionId": null,
   "triggerCount": 0,
   "createdAt": "2026-09-13T20:11:30.026Z",
-  "updatedAt": "2026-09-14T04:01:41.565Z",
-  "settings": { "executionOrder": "v1", "availableInMCP": true },
+  "updatedAt": "2026-09-14T11:54:44.820Z",
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
   "tags": [],
   "parentFolderId": null,
   "description": "Subworkflow DEV — modulo de Materializacion/Preparacion (maestro, plantilla, marcadores). Sin logica real, sin Drive productivo.",
   "connections": {
-    "ENTRADA (Execute Workflow Trigger)": { "main": [[{ "node": "CONSTRUIR - Payload materializacion", "type": "main", "index": 0 }]] },
-    "CONSTRUIR - Payload materializacion": { "main": [[{ "node": "ESCRIBIR - Input temporal (materializacion)", "type": "main", "index": 0 }]] },
-    "ESCRIBIR - Input temporal (materializacion)": { "main": [[{ "node": "EJECUTAR - Materializacion (Python)", "type": "main", "index": 0 }]] },
-    "EJECUTAR - Materializacion (Python)": { "main": [[{ "node": "LEER - Resultado materializacion", "type": "main", "index": 0 }]] },
-    "LEER - Resultado materializacion": { "main": [[{ "node": "INTERPRETAR - Resultado materializacion", "type": "main", "index": 0 }]] }
+    "CONSTRUIR - Payload materializacion": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR - Input temporal (materializacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR - Input temporal (materializacion)": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR - Materializacion (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR - Materializacion (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER - Resultado materializacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER - Resultado materializacion": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR - Resultado materializacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ENTRADA (Execute Workflow Trigger)": {
+      "main": [
+        [
+          {
+            "node": "RUTEAR - source_mode (materializacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TEST MANUAL (DEV - Drive readonly, materializacion)": {
+      "main": [
+        [
+          {
+            "node": "SET - Parametros prueba manual (DEV, materializacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SET - Parametros prueba manual (DEV, materializacion)": {
+      "main": [
+        [
+          {
+            "node": "RUTEAR - source_mode (materializacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RUTEAR - source_mode (materializacion)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Carpeta del mes (Maestro, real)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "DESCARGAR - Plantilla SAP real",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "BUSCAR - Marcadores reales",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "FILTRAR - Cierres ENCONTRADOS con drive_file_id (real)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PASAR - Params materializacion (fixture)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PASAR - Params materializacion (fixture)": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Payload materializacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Carpeta del mes (Maestro, real)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Archivo MACROS del mes (real)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Archivo MACROS del mes (real)": {
+      "main": [
+        [
+          {
+            "node": "DESCARGAR - Maestro real",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - Maestro real": {
+      "main": [
+        [
+          {
+            "node": "GUARDAR - Maestro real a disco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - Plantilla SAP real": {
+      "main": [
+        [
+          {
+            "node": "GUARDAR - Plantilla real a disco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Marcadores reales": {
+      "main": [
+        [
+          {
+            "node": "DESCARGAR - Marcador real",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - Marcador real": {
+      "main": [
+        [
+          {
+            "node": "GUARDAR - Marcador real a disco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FILTRAR - Cierres ENCONTRADOS con drive_file_id (real)": {
+      "main": [
+        [
+          {
+            "node": "DESCARGAR - Cierre real (solo ENCONTRADO)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - Cierre real (solo ENCONTRADO)": {
+      "main": [
+        [
+          {
+            "node": "GUARDAR - Cierre real a disco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OVERRIDE - Rutas origen reales (drive_readonly)": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Payload materializacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GUARDAR - Maestro real a disco": {
+      "main": [
+        [
+          {
+            "node": "SINCRONIZAR - Esperar 4 ramas reales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GUARDAR - Plantilla real a disco": {
+      "main": [
+        [
+          {
+            "node": "SINCRONIZAR - Esperar 4 ramas reales",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "GUARDAR - Marcador real a disco": {
+      "main": [
+        [
+          {
+            "node": "SINCRONIZAR - Esperar 4 ramas reales",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "GUARDAR - Cierre real a disco": {
+      "main": [
+        [
+          {
+            "node": "SINCRONIZAR - Esperar 4 ramas reales",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "SINCRONIZAR - Esperar 4 ramas reales": {
+      "main": [
+        [
+          {
+            "node": "OVERRIDE - Rutas origen reales (drive_readonly)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "nodes": [
-    { "id": "5546a44c-fedb-4b9e-86fd-ba305c6f7d6e", "name": "ENTRADA (Execute Workflow Trigger)", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1.2, "position": [0, 0], "parameters": { "inputSource": "workflowInputs", "workflowInputs": { "values": [ { "name": "cierres_ingesta", "type": "array" }, { "name": "base_dir_dev", "type": "string" }, { "name": "origen_cierres_dir", "type": "string" }, { "name": "ruta_maestro_origen", "type": "string" }, { "name": "ruta_plantilla_origen", "type": "string" }, { "name": "markers_origen_dir", "type": "string" }, { "name": "mes_rango", "type": "number" } ] } } },
-    { "id": "ab076408-ceb6-421f-8366-41fc68284551", "name": "Sticky Note b90de883", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [160, 0], "parameters": { "content": "## TIQ V3 · 02 MATERIALIZACION · DEV — FASE 5: IMPLEMENTADO\n**Proposito:** Preparar directorio DEV, materializar (copiar, solo lectura del origen) cierres ENCONTRADO, maestro, plantilla SAP y marcadores existentes para el futuro Modulo 03.\n\n**Real:** CONSTRUIR payload -> ESCRIBIR input temporal (base64) -> EJECUTAR v3.materializacion (Python, unica autoridad) -> LEER/INTERPRETAR resultado. CERO logica de negocio en JS (a diferencia de 01 INGESTA, ver v3/TECHNICAL_DEBT.md DEBT-001).\n\n**DEV:** origen_cierres_dir/ruta_maestro_origen/ruta_plantilla_origen/markers_origen_dir son fixtures locales explicitos — sin conexion real a Drive todavia.\n\n**Reutiliza de V2 (sin modificarlo):** run_batch.validar_maestro(), run_batch.cargar_marcadores_procesados().\n\n**Contratos V2 respetados:** CONTRACT-005 (original inmutable — solo copyfile, nunca escritura/mover/renombrar/borrar el origen); BR-022 (migracion de marcadores).\n\nVerificado: tests_v3/test_materializacion.py (16/16).", "color": 6 } },
-    { "id": "b0279753-c697-47d4-925b-a8a7ea785ae3", "name": "CONSTRUIR - Payload materializacion", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [224, 0], "parameters": { "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.materializacion.ejecutar_materializacion() (Python, unica\n// autoridad de esta logica). Este nodo NUNCA decide nada de negocio: solo\n// empaqueta lo que ya vino del trigger.\nconst payload = {\n  cierres_ingesta: t.cierres_ingesta || [],\n  params: {\n    base_dir_dev: t.base_dir_dev,\n    origen_cierres_dir: t.origen_cierres_dir,\n    ruta_maestro_origen: t.ruta_maestro_origen,\n    ruta_plantilla_origen: t.ruta_plantilla_origen,\n    markers_origen_dir: t.markers_origen_dir || null,\n    mes_rango: t.mes_rango,\n  },\n};\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_materializacion_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_materializacion_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];" } },
-    { "id": "2c9ea58c-a854-480f-a26b-ef517c346cc8", "name": "ESCRIBIR - Input temporal (materializacion)", "type": "n8n-nodes-base.executeCommand", "typeVersion": 1, "position": [448, 0], "parameters": { "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\"" } },
-    { "id": "2bb4ae87-da62-4f0e-b394-e976c7b2019f", "name": "EJECUTAR - Materializacion (Python)", "type": "n8n-nodes-base.executeCommand", "typeVersion": 1, "position": [672, 0], "parameters": { "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.materializacion --input \"{{ $('CONSTRUIR - Payload materializacion').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR - Payload materializacion').item.json.ruta_output_tmp }}\" ; true" } },
-    { "id": "fe131896-95f9-4c16-82c8-67a2197b5b93", "name": "LEER - Resultado materializacion", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [896, 0], "parameters": { "operation": "read", "fileSelector": "={{ $('CONSTRUIR - Payload materializacion').item.json.ruta_output_tmp }}" } },
-    { "id": "d11371c7-c034-4375-9ac5-55b745b72a0b", "name": "INTERPRETAR - Resultado materializacion", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [1120, 0], "parameters": { "operation": "fromJson" } }
+    {
+      "id": "5546a44c-fedb-4b9e-86fd-ba305c6f7d6e",
+      "name": "ENTRADA (Execute Workflow Trigger)",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "cierres_ingesta",
+              "type": "array"
+            },
+            {
+              "name": "base_dir_dev",
+              "type": "string"
+            },
+            {
+              "name": "origen_cierres_dir",
+              "type": "string"
+            },
+            {
+              "name": "ruta_maestro_origen",
+              "type": "string"
+            },
+            {
+              "name": "ruta_plantilla_origen",
+              "type": "string"
+            },
+            {
+              "name": "markers_origen_dir",
+              "type": "string"
+            },
+            {
+              "name": "mes_rango",
+              "type": "number"
+            },
+            {
+              "name": "source_mode",
+              "type": "string"
+            },
+            {
+              "name": "drive_folder_maestro_raiz",
+              "type": "string"
+            },
+            {
+              "name": "drive_file_id_plantilla_sap",
+              "type": "string"
+            },
+            {
+              "name": "drive_folder_markers",
+              "type": "string"
+            },
+            {
+              "name": "anio_mes_texto",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ab076408-ceb6-421f-8366-41fc68284551",
+      "name": "Sticky Note b90de883",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        160,
+        0
+      ],
+      "parameters": {
+        "content": "## TIQ V3 · 02 MATERIALIZACION · DEV — FASE 10A: Drive real solo lectura\n**Proposito:** Preparar directorio DEV, materializar (copiar, solo lectura del origen) cierres ENCONTRADO, maestro, plantilla SAP y marcadores existentes.\n\n**source_mode = fixture:** origen_cierres_dir/ruta_maestro_origen/ruta_plantilla_origen/markers_origen_dir llegan armados desde el trigger (DEV/tests), igual que FASE 5-9.\n**source_mode = drive_readonly:** este subworkflow localiza y descarga COPIAS de SOLO LECTURA (Google Drive: fileFolder/search + file/download, jamas move/update/delete/upload) del maestro mensual, la plantilla SAP, los marcadores existentes y (si cierres_ingesta trae items ENCONTRADO con drive_file_id) el cierre diario -- todo hacia ~/.n8n-files/tiq_v3_real_readonly_dev/. Luego apunta los MISMOS parametros (ruta_maestro_origen, etc.) a esas copias: v3.materializacion.py no cambia una linea, sigue usando shutil.copyfile sobre lo que sea que reciba.\n\n**CERO logica de negocio nueva en JS:** los nodos Code de la rama drive_readonly solo enrutan/renombran rutas, nunca deciden si un cierre esta ENCONTRADO (eso ya lo decidio v3.ingesta en Python, modulo 01).\n\n**TEST MANUAL (DEV):** Manual Trigger + Set con cierres_ingesta=[] a proposito -- prueba que maestro/plantilla/markers se descargan de Drive real SIN tocar ningun cierre diario todavia.\n\n**Contratos V2 respetados:** CONTRACT-005 (original inmutable -- solo copyfile/download, nunca escritura/mover/renombrar/borrar el origen en Drive); BR-022 (migracion de marcadores).",
+        "color": 6
+      }
+    },
+    {
+      "id": "b0279753-c697-47d4-925b-a8a7ea785ae3",
+      "name": "CONSTRUIR - Payload materializacion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.materializacion.ejecutar_materializacion() (Python, unica\n// autoridad de esta logica). Este nodo NUNCA decide nada de negocio: solo\n// empaqueta lo que ya vino de la rama fixture o drive_readonly (ver\n// RUTEAR - source_mode (materializacion)).\nconst payload = {\n  cierres_ingesta: t.cierres_ingesta || [],\n  params: {\n    base_dir_dev: t.base_dir_dev,\n    origen_cierres_dir: t.origen_cierres_dir,\n    ruta_maestro_origen: t.ruta_maestro_origen,\n    ruta_plantilla_origen: t.ruta_plantilla_origen,\n    markers_origen_dir: t.markers_origen_dir || null,\n    mes_rango: t.mes_rango,\n  },\n};\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_materializacion_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_materializacion_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+      }
+    },
+    {
+      "id": "2c9ea58c-a854-480f-a26b-ef517c346cc8",
+      "name": "ESCRIBIR - Input temporal (materializacion)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\""
+      }
+    },
+    {
+      "id": "2bb4ae87-da62-4f0e-b394-e976c7b2019f",
+      "name": "EJECUTAR - Materializacion (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.materializacion --input \"{{ $('CONSTRUIR - Payload materializacion').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR - Payload materializacion').item.json.ruta_output_tmp }}\" ; true"
+      }
+    },
+    {
+      "id": "fe131896-95f9-4c16-82c8-67a2197b5b93",
+      "name": "LEER - Resultado materializacion",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('CONSTRUIR - Payload materializacion').item.json.ruta_output_tmp }}"
+      }
+    },
+    {
+      "id": "d11371c7-c034-4375-9ac5-55b745b72a0b",
+      "name": "INTERPRETAR - Resultado materializacion",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "operation": "fromJson"
+      }
+    },
+    {
+      "id": "c7ee5a49-3631-4e95-98e7-3d22fdb2b4cf",
+      "name": "RUTEAR - source_mode (materializacion)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        0,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.source_mode }}",
+              "rightValue": "drive_readonly",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e549bd0d-29ca-4220-862e-30b99328cfe4",
+      "name": "PASAR - Params materializacion (fixture)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        340
+      ],
+      "parameters": {
+        "jsCode": "// Modo fixture: los origenes ya vienen armados desde el trigger, sin\n// tocar Drive. Ningun cambio de comportamiento respecto a FASE 5-9.\nconst t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nreturn [{\n  json: {\n    cierres_ingesta: t.cierres_ingesta || [],\n    base_dir_dev: t.base_dir_dev,\n    origen_cierres_dir: t.origen_cierres_dir,\n    ruta_maestro_origen: t.ruta_maestro_origen,\n    ruta_plantilla_origen: t.ruta_plantilla_origen,\n    markers_origen_dir: t.markers_origen_dir || null,\n    mes_rango: t.mes_rango,\n  },\n}];"
+      }
+    },
+    {
+      "id": "3efd0df8-1de3-49ed-8fee-8435d65280ab",
+      "name": "BUSCAR - Carpeta del mes (Maestro, real)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        224,
+        -320
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "={{ $json.anio_mes_texto }}",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $json.drive_folder_maestro_raiz }}"
+          },
+          "whatToSearch": "folders",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "8c26abe3-bc78-47dd-b89c-6eb5a68f228a",
+      "name": "BUSCAR - Archivo MACROS del mes (real)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        448,
+        -320
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "MACROS",
+        "returnAll": false,
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $json.id }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "9e33f73b-8bd5-4b1d-98e1-c2cdf82feeba",
+      "name": "DESCARGAR - Maestro real",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        672,
+        -320
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "ba331c93-2c32-44fd-aa2a-d053a406c739",
+      "name": "GUARDAR - Maestro real a disco",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        -320
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/maestro_origen/{{ $binary.data.fileName }}",
+        "dataPropertyName": "data"
+      }
+    },
+    {
+      "id": "552aed9a-71b6-4e58-95cb-87864264088d",
+      "name": "DESCARGAR - Plantilla SAP real",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        224,
+        -160
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('RUTEAR - source_mode (materializacion)').first().json.drive_file_id_plantilla_sap }}"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "480aba90-cb39-4548-918c-959a5bfb655a",
+      "name": "GUARDAR - Plantilla real a disco",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        -160
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/plantilla_origen/{{ $binary.data.fileName }}",
+        "dataPropertyName": "data"
+      }
+    },
+    {
+      "id": "8e4c11c8-76ca-48b5-9acd-283683876334",
+      "name": "BUSCAR - Marcadores reales",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RUTEAR - source_mode (materializacion)').first().json.drive_folder_markers }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "1fc99a42-ebbb-4caa-bc1b-0b9dc406e081",
+      "name": "DESCARGAR - Marcador real",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "9397e4eb-e8f8-4f02-a2b4-84e7872734c9",
+      "name": "GUARDAR - Marcador real a disco",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/markers_origen/{{ $binary.data.fileName }}",
+        "dataPropertyName": "data"
+      }
+    },
+    {
+      "id": "f95206f9-0fa5-4984-b993-65f313a6b6d1",
+      "name": "FILTRAR - Cierres ENCONTRADOS con drive_file_id (real)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        160
+      ],
+      "parameters": {
+        "jsCode": "// Solo filtra/reestructura: NUNCA decide REGLA G aqui (eso ya lo decidio\n// v3.ingesta en Python, modulo 01). Descarga UNICAMENTE los cierres que\n// llegaron ENCONTRADO con un drive_file_id EXACTO -- nunca AMBIGUO ni\n// SIN_ARCHIVO, nunca \"el primero\" de una lista. Con cierres_ingesta=[]\n// (prueba real de FASE 10A) esto produce 0 items a proposito.\nconst trigger = $('RUTEAR - source_mode (materializacion)').first().json;\nconst cierres = trigger.cierres_ingesta || [];\nconst encontrados = cierres.filter((c) => c.estado_ingesta === 'ENCONTRADO' && c.drive_file_id);\nreturn encontrados.map((c) => ({ json: { drive_file_id: c.drive_file_id, archivo_esperado: c.archivo_esperado } }));"
+      }
+    },
+    {
+      "id": "856d716f-06aa-4692-a1f3-4360e7dee988",
+      "name": "DESCARGAR - Cierre real (solo ENCONTRADO)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        448,
+        160
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.drive_file_id }}"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "5894e514-6bd3-434e-bdb1-1d8180ac4bd4",
+      "name": "GUARDAR - Cierre real a disco",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        160
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/cierres_origen/{{ $('FILTRAR - Cierres ENCONTRADOS con drive_file_id (real)').item.json.archivo_esperado }}",
+        "dataPropertyName": "data"
+      }
+    },
+    {
+      "id": "fa65589a-cd3a-41ed-bb23-2e3af979f5af",
+      "name": "OVERRIDE - Rutas origen reales (drive_readonly)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "// Combina las 4 ramas reales (maestro/plantilla/markers/cierres) en los\n// MISMOS nombres de parametro que ya usaba v3.materializacion en modo\n// fixture -- CERO cambios en v3/materializacion.py: el mecanismo de copia\n// (shutil.copyfile) es identico, solo cambia DE DONDE viene el origen.\nconst trigger = $('RUTEAR - source_mode (materializacion)').first().json;\nconst maestro = $('GUARDAR - Maestro real a disco').first();\nconst plantilla = $('GUARDAR - Plantilla real a disco').first();\n\nreturn [{\n  json: {\n    cierres_ingesta: trigger.cierres_ingesta || [],\n    base_dir_dev: trigger.base_dir_dev,\n    origen_cierres_dir: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/cierres_origen',\n    ruta_maestro_origen: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/maestro_origen/' + maestro.binary.data.fileName,\n    ruta_plantilla_origen: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/plantilla_origen/' + plantilla.binary.data.fileName,\n    markers_origen_dir: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/markers_origen',\n    mes_rango: trigger.mes_rango,\n  },\n}];"
+      }
+    },
+    {
+      "id": "eb47a76b-30b2-4e3e-b365-65c1b86d64bb",
+      "name": "TEST MANUAL (DEV - Drive readonly, materializacion)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -480
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "127d7998-6ce5-46af-a305-656e58d19ff3",
+      "name": "SET - Parametros prueba manual (DEV, materializacion)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -400
+      ],
+      "parameters": {
+        "jsCode": "// SOLO para pruebas manuales reales de este subworkflow de forma aislada\n// (FASE 10A). cierres_ingesta VACIO a proposito: esta prueba NO descarga\n// ningun cierre diario todavia (el usuario aun no elige la fecha para la\n// primera prueba COMPLETA) -- solo demuestra que maestro/plantilla/markers\n// se pueden localizar y copiar desde Drive real.\nreturn [{\n  json: {\n    cierres_ingesta: [],\n    base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir',\n    source_mode: 'drive_readonly',\n    drive_folder_maestro_raiz: '17ErHuUwCkRW750NiSvjjv69778IyEflS',\n    drive_file_id_plantilla_sap: '1RUH99XheyDx0z88SA_YFt3kgWrvbLc9Z',\n    drive_folder_markers: '1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu',\n    anio_mes_texto: '2026-09',\n    mes_rango: 9,\n  },\n}];"
+      }
+    },
+    {
+      "id": "843dbc50-4807-4804-8cd0-09a648f22a01",
+      "name": "SINCRONIZAR - Esperar 4 ramas reales",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 4
+      }
+    }
   ],
   "nodeGroups": [],
   "activeVersion": null,
-  "meta": { "aiBuilderAssisted": true, "builderVariant": "mcp" }
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  }
 }

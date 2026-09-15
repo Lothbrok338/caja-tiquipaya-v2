@@ -31,6 +31,8 @@ llamada real de solo lectura a Drive, o un fixture sintético en modo DEV)
 es responsabilidad exclusiva del llamador — nunca de este módulo.
 """
 
+import argparse
+import json
 import os
 import sys
 
@@ -129,8 +131,95 @@ def ejecutar_ingesta(fecha_inicio, fecha_fin, candidatos_por_fecha):
     return resultados
 
 
+# ---------------------------------------------------------------------------
+# FASE 10A — conexión de solo lectura a Google Drive real. `source_mode`
+# distingue explícitamente de dónde vino `candidatos_por_fecha`:
+#   "fixture"        -> candidatos_por_fecha ya viene armado (DEV, tests).
+#   "drive_readonly" -> n8n hizo UN listado de solo lectura de la carpeta
+#                        real (sin filtrar por fecha; ver incidente 09/10/11
+#                        documentado en CONTRACT-010 — nunca confiar en un
+#                        query de Drive por nombre, siempre traer TODO el
+#                        listado y dejar que REGLA G decida en Python) y ese
+#                        MISMO listado se evalúa contra cada fecha del rango.
+# Este módulo NUNCA se conecta a Drive (ver docstring del archivo): solo
+# reestructura un listado ya obtenido por el llamador.
+# ---------------------------------------------------------------------------
+
+def normalizar_listado_drive(archivos_drive):
+    """Convierte el listado crudo de la API de Google Drive (objetos con
+    al menos `name`/`id`) al formato {"nombre":, "file_id":} que
+    buscar_cierre_exacto()/ejecutar_ingesta() ya esperaban desde FASE 5.
+    Pura reestructuración de datos -- NUNCA decide nada de REGLA G aquí
+    (eso sigue siendo exclusivo de buscar_cierre_exacto)."""
+    return [
+        {"nombre": a.get("name"), "file_id": a.get("id")}
+        for a in (archivos_drive or [])
+    ]
+
+
+def expandir_candidatos_a_rango(fecha_inicio, fecha_fin, candidatos_planos):
+    """Modo drive_readonly: Drive devuelve UN listado completo de la
+    carpeta de entrada (nunca una búsqueda por fecha específica -- ver
+    normalizar_listado_drive). Cada fecha del rango se evalúa contra ESE
+    MISMO listado completo; REGLA G (buscar_cierre_exacto) filtra por
+    nombre EXACTO dentro de él para cada fecha, exactamente igual que si
+    se hubiera pedido un listado ya acotado por fecha. Reutiliza
+    run_batch.generar_rango_fechas tal cual (puede lanzar
+    RANGO_INVALIDO/RANGO_CRUZA_MES, sin reinterpretar esa regla aquí)."""
+    fechas = run_batch.generar_rango_fechas(fecha_inicio, fecha_fin)
+    candidatos_normalizados = normalizar_listado_drive(candidatos_planos)
+    return {fecha: candidatos_normalizados for fecha in fechas}
+
+
+# ---------------------------------------------------------------------------
+# CLI — cierra DEBT-001 (ver v3/TECHNICAL_DEBT.md): mismo patrón
+# Execute-Command-invoca-Python que v3/materializacion.py/dev_api.py desde
+# FASE 5/9. Python es la única autoridad; el subworkflow n8n
+# `TIQ V3 · 01 INGESTA · DEV` (CanZtkmnm0ukAC8c) ya NO reimplementa REGLA G
+# en JavaScript -- solo arma el payload (candidatos_por_fecha en modo
+# fixture, o el listado crudo de Drive en modo drive_readonly) y lee este
+# resultado.
+# ---------------------------------------------------------------------------
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Modulo 01 INGESTA de V3 (DEV).")
+    parser.add_argument("--input", required=True, help="Ruta a un JSON {'fecha_inicio','fecha_fin','source_mode','candidatos_por_fecha'|'candidatos_drive_crudo'}")
+    parser.add_argument("--output", required=True, help="Ruta donde escribir el JSON de resultado")
+    args = parser.parse_args(argv)
+
+    with open(args.input, "r", encoding="utf-8") as f:
+        datos = json.load(f)
+
+    source_mode = datos.get("source_mode") or "fixture"
+    try:
+        fecha_inicio = datos["fecha_inicio"]
+        fecha_fin = datos["fecha_fin"]
+        if source_mode == "drive_readonly":
+            candidatos_drive_crudo = datos.get("candidatos_drive_crudo") or []
+            candidatos_por_fecha = expandir_candidatos_a_rango(fecha_inicio, fecha_fin, candidatos_drive_crudo)
+        else:
+            candidatos_por_fecha = datos.get("candidatos_por_fecha") or {}
+
+        cierres = ejecutar_ingesta(fecha_inicio, fecha_fin, candidatos_por_fecha)
+        salida = {"resultado": "OK", "source_mode": source_mode, "cierres": cierres}
+        if source_mode == "drive_readonly":
+            # Inventario crudo tal cual lo devolvió Drive (solo lectura),
+            # reexpuesto sin reinterpretar -- para reportar qué archivos
+            # existen realmente, más allá de si calzan con alguna fecha
+            # pedida en este rango.
+            salida["inventario_drive"] = candidatos_drive_crudo
+    except Exception as exc:
+        salida = {"resultado": "ERROR", "codigo": type(exc).__name__, "mensaje": str(exc), "source_mode": source_mode}
+
+    try:
+        texto = json.dumps(salida, ensure_ascii=False, indent=2)
+    except TypeError as exc:
+        texto = json.dumps({"resultado": "ERROR", "codigo": "SALIDA_NO_SERIALIZABLE", "mensaje": str(exc)}, ensure_ascii=False, indent=2)
+
+    with open(args.output, "w", encoding="utf-8") as f:
+        f.write(texto)
+    return 0
+
+
 if __name__ == "__main__":
-    import json
-    print(json.dumps(
-        ejecutar_ingesta(sys.argv[1], sys.argv[2], {}), ensure_ascii=False, indent=2
-    ))
+    sys.exit(main())

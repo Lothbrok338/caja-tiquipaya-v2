@@ -353,6 +353,10 @@
   .tag.error { background: rgba(179,38,30,0.10); color: var(--red); border: 1px solid rgba(179,38,30,0.3); }
   .tag.neutral { background: rgba(156,150,143,0.14); color: var(--gray); border: 1px solid rgba(156,150,143,0.35); }
   .tag.procesando { background: rgba(110,136,160,0.14); color: var(--blue); border: 1px solid rgba(110,136,160,0.35); }
+  /* FASE 10C: precondicion de entorno (cobertura del maestro) -- bronce/dorado
+     institucional, deliberadamente distinto de verde/ambar/rojo para nunca
+     confundirse con un estado contable real. */
+  .tag.bloqueo-maestro { background: rgba(138,100,20,0.12); color: #8a6414; border: 1px solid rgba(138,100,20,0.35); }
 
   .row-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 
@@ -570,6 +574,10 @@
     SIN_ARCHIVO:          { label: "Faltante", tag: "neutral" },
     YA_PROCESADO:         { label: "Ya procesado", tag: "neutral" },
     PROCESANDO:           { label: "Procesando", tag: "procesando" },
+    // FASE 10C: precondición de ENTORNO (cobertura del maestro), nunca un
+    // error contable del cierre — tag/label deliberadamente distintos de
+    // "revisar"/"error" para no confundir ambos casos (ver v3/precheck_maestro.py).
+    BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA: { label: "Maestro sin cobertura", tag: "bloqueo-maestro" },
   };
 
   var state = { cierres: [], seleccion: null, loteId: null };
@@ -839,6 +847,26 @@
     [["Fecha", fmtFecha(c.fecha)], ["Archivo", c.archivo || "—"], ["Estado", (ESTADOS[c.estado] || {}).label || c.estado || "—"], ["Hash origen", c.hash || "N/D (demo)"]]
       .forEach(function (kv) { secResumen.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: kv[0] }), el("span", { class: "v", text: kv[1] })])); });
     cont.appendChild(secResumen);
+
+    // ---- FASE 10C: precheck de cobertura del maestro — precondición de
+    // ENTORNO, nunca un error contable del cierre (ver
+    // v3/precheck_maestro.py). Nunca se ofrece formulario de corrección
+    // (requiere_revision ya llega en false para este estado) ni botón
+    // Publicar (publicable también llega en false) — esta sección solo
+    // informa la cobertura real del maestro, sin inventar ningún importe.
+    if (c._raw && c._raw.estado_final === "BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA") {
+      var secMaestro = el("div", { class: "detalle-section" });
+      secMaestro.appendChild(el("h3", { text: "MAESTRO SIN COBERTURA CONFIRMADA", style: "color:#8a6414;" }));
+      [
+        ["Fecha del cierre", fmtFecha(c.fecha)],
+        ["Cobertura MACROS hasta", c._raw.fecha_maxima_macros || "N/D"],
+        ["Cobertura ATC hasta", c._raw.fecha_maxima_atc || "N/D"],
+      ].forEach(function (kv) {
+        secMaestro.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: kv[0] }), el("span", { class: "v", text: kv[1] })]));
+      });
+      secMaestro.appendChild(el("div", { class: "placeholder-note", text: "Verifique o actualice el maestro antes de procesar este cierre." }));
+      cont.appendChild(secMaestro);
+    }
 
     // ---- cuadre ----
     var secCuadre = el("div", { class: "detalle-section" });
