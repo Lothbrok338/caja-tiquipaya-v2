@@ -63,17 +63,6 @@
     text-align: center;
     letter-spacing: .03em;
   }
-  #real-banner {
-    background: #FBEAEA;
-    border-bottom: 1px solid #E3B0AC;
-    color: #8C1D18;
-    padding: 8px 20px;
-    font-size: 12px;
-    font-weight: 700;
-    text-align: center;
-    letter-spacing: .02em;
-  }
-
   /* ---------------- header ---------------- */
   header {
     display: flex;
@@ -107,13 +96,15 @@
     letter-spacing: .01em;
   }
   header h1 .v3 { color: var(--guindo); }
+  /* indicador pequeño y discreto de entorno (institucional, guindo/dorado
+     suave) -- reemplaza el banner técnico largo de "MODO REAL". */
   .badge-dev {
     font-family: var(--mono);
     font-size: 10.5px;
     font-weight: 700;
-    color: var(--amber);
-    background: rgba(156,107,10,0.10);
-    border: 1px solid rgba(156,107,10,0.3);
+    color: var(--guindo-dark);
+    background: var(--gold-soft);
+    border: 1px solid rgba(200,155,44,0.5);
     padding: 3px 8px;
     border-radius: 20px;
     letter-spacing: .06em;
@@ -449,12 +440,11 @@
 <body>
 
 <div id="demo-banner">MODO DEMO — datos 100% simulados en el navegador. Ningún botón llama a n8n, Drive ni Python. Nada se modifica.</div>
-<div id="real-banner" style="display:none;">MODO REAL — llama a /webhook/tiq-v3-dev/* (workflow "TIQ V3 · BACKEND DEV (webhooks)", DEV, sin credenciales de Drive, sin SAP/marcadores productivos). El workflow debe estar accesible en n8n para que estas llamadas respondan; usa <code>?demo=1</code> para probar la interfaz sin backend.</div>
 
 <header>
   <div class="brand">
     <h1>CAJA TIQUIPAYA <span class="v3">V3</span></h1>
-    <span class="badge-dev">ESTADO: DEV</span>
+    <span class="badge-dev">ENTORNO: DEV</span>
   </div>
   <div class="sub">Control de Cierres · interfaz de desarrollo, separada del frontend V2</div>
   <div class="spacer"></div>
@@ -516,7 +506,7 @@
             </tr>
           </thead>
           <tbody id="tabla-body">
-            <tr><td colspan="8" class="empty-state">Pulsa "Procesar cierres" para cargar el rango (modo demo).</td></tr>
+            <tr><td colspan="8" class="empty-state">Pulsa "Procesar cierres" para cargar el rango.</td></tr>
           </tbody>
         </table>
       </div>
@@ -623,6 +613,11 @@
     return e;
   }
   function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function textoPlaceholderVacio() {
+    return DEMO
+      ? 'Pulsa "Procesar cierres" para cargar el rango (modo demo).'
+      : 'Pulsa "Procesar cierres" para cargar el rango.';
+  }
   function fmtFecha(iso) {
     if (!iso) return "N/D";
     var p = String(iso).split("-");
@@ -823,6 +818,13 @@
         cierre.detalle = cierre.detalle || {};
         cierre.detalle.excepciones = resp.excepciones || [];
         cierre.detalle.observaciones = resp.mensaje || cierre.detalle.observaciones;
+        // Cuadre REAL refrescado tras el reproceso (nunca el dato viejo de
+        // antes de la corrección) -- mismo cuadre real que expone /datos.
+        if (resp.cuadre && resp.cuadre.universo_ajustado != null) {
+          cierre.detalle.universo = resp.cuadre.universo_ajustado;
+          cierre.detalle.recaudado = resp.cuadre.recaudacion_explicada;
+          cierre.detalle.diferenciaCuadre = resp.cuadre.diferencia;
+        }
         if (state.seleccion === cierre) renderDetalle();
       }).catch(function (err) {
         cierre._detalleRevisionCargado = true; // no reintentar en bucle
@@ -844,7 +846,7 @@
     // ---- resumen ----
     var secResumen = el("div", { class: "detalle-section" });
     secResumen.appendChild(el("h3", { text: "Resumen" }));
-    [["Fecha", fmtFecha(c.fecha)], ["Archivo", c.archivo || "—"], ["Estado", (ESTADOS[c.estado] || {}).label || c.estado || "—"], ["Hash origen", c.hash || "N/D (demo)"]]
+    [["Fecha", fmtFecha(c.fecha)], ["Archivo", c.archivo || "—"], ["Estado", (ESTADOS[c.estado] || {}).label || c.estado || "—"], ["Hash origen", c.hash || (DEMO ? "N/D (demo)" : "N/D")]]
       .forEach(function (kv) { secResumen.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: kv[0] }), el("span", { class: "v", text: kv[1] })])); });
     cont.appendChild(secResumen);
 
@@ -871,7 +873,8 @@
     // ---- cuadre ----
     var secCuadre = el("div", { class: "detalle-section" });
     secCuadre.appendChild(el("h3", { text: "Cuadre" }));
-    [["Universo", d.universo != null ? fmtMoney(d.universo) : "N/D"], ["Recaudación explicada", d.recaudado != null ? fmtMoney(d.recaudado) : "N/D"], ["Diferencia", c.diferencia != null ? fmtMoney(c.diferencia) : "N/D"]]
+    var diferenciaCuadre = d.diferenciaCuadre != null ? d.diferenciaCuadre : c.diferencia;
+    [["Universo", d.universo != null ? fmtMoney(d.universo) : "N/D"], ["Recaudación explicada", d.recaudado != null ? fmtMoney(d.recaudado) : "N/D"], ["Diferencia", diferenciaCuadre != null ? fmtMoney(diferenciaCuadre) : "N/D"]]
       .forEach(function (kv) { secCuadre.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: kv[0] }), el("span", { class: "v", text: kv[1] })])); });
     cont.appendChild(secCuadre);
 
@@ -1174,8 +1177,17 @@
       sap: item.ruta_sap ? item.ruta_sap.split("/").pop() : "—",
       revision: item.requiere_revision ? (item.resultado_reproceso === "LISTO_PARA_PUBLICAR" ? "Corregido" : "Pendiente") : "N/A",
       hash: item.sha256 || null,
+      // FASE 10F: Universo/Recaudación explicada/Diferencia vienen del
+      // cuadre REAL ya calculado por V2 (item.cuadre, agregado por
+      // v3.dev_api.obtener_datos/_construir_cuadre_real) -- nunca se
+      // recalculan aqui. diferenciaCuadre usa la MISMA diferencia
+      // universo-vs-recaudacion que ese cuadre expone (distinta del
+      // `diferencia` de nivel superior, que puede priorizar la diferencia
+      // del asiento contable para la columna de la tabla -- sin cambios ahi).
       detalle: {
-        universo: null, recaudado: null,
+        universo: (item.cuadre && item.cuadre.universo_ajustado != null) ? item.cuadre.universo_ajustado : null,
+        recaudado: (item.cuadre && item.cuadre.recaudacion_explicada != null) ? item.cuadre.recaudacion_explicada : null,
+        diferenciaCuadre: (item.cuadre && item.cuadre.diferencia != null) ? item.cuadre.diferencia : null,
         observaciones: item.mensaje || "",
         excepciones: [], // se completan bajo demanda via /revisar (ver seleccionar())
         historial: item.mensajes || [],
@@ -1299,14 +1311,9 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     initFechas();
-    if (DEMO) {
-      qs("#real-banner").style.display = "none";
-      qs("#demo-banner").style.display = "block";
-    } else {
-      qs("#demo-banner").style.display = "none";
-      qs("#real-banner").style.display = "block";
-    }
+    qs("#demo-banner").style.display = DEMO ? "block" : "none";
     renderIndicadores([]);
+    qs("#tabla-body").innerHTML = '<tr><td colspan="8" class="empty-state">' + textoPlaceholderVacio() + '</td></tr>';
     qs("#btn-procesar").addEventListener("click", procesarCierres);
     qs("#btn-recargar").addEventListener("click", function () {
       state.cierres = [];
@@ -1314,7 +1321,7 @@
       renderIndicadores([]);
       renderTabla([]);
       renderDetalle();
-      qs("#tabla-body").innerHTML = '<tr><td colspan="8" class="empty-state">Pulsa "Procesar cierres" para cargar el rango (modo demo).</td></tr>';
+      qs("#tabla-body").innerHTML = '<tr><td colspan="8" class="empty-state">' + textoPlaceholderVacio() + '</td></tr>';
     });
   });
 })();

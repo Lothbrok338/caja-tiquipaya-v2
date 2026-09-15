@@ -34,10 +34,12 @@ import os
 import sys
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import run_batch  # noqa: E402  (reutilizado tal cual: generar_rango_fechas)
+import excel_io  # noqa: E402  (reutilizado tal cual: money_str)
 import correcciones_tiquipaya as correcciones  # noqa: E402  (reutilizado tal cual)
 from v3.materializacion import _verificar_contenido_en_base_dir  # noqa: E402
 from v3.ingesta import ejecutar_ingesta  # noqa: E402
@@ -187,9 +189,60 @@ def obtener_estado(lote_id, base_dir_dev):
     }
 
 
+def _leer_resultado_json(ruta_resultado):
+    if not ruta_resultado or not os.path.isfile(ruta_resultado):
+        return None
+    with open(ruta_resultado, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _construir_cuadre_real(resultado_json):
+    """Cuadre REAL ya calculado por V2 (pipeline_tiquipaya._construir_resultado_json),
+    reexpuesto tal cual — nunca se inventa ni se recalcula ningún importe
+    aquí. La única excepción es `recaudacion_explicada`: V2 SÍ la calcula
+    (motor_tiquipaya.ejecutar_v2, ETAPA 4 — `recaudacion_explicada` es un
+    campo real de ese resultado) pero `pipeline_tiquipaya._construir_resultado_json`
+    (V2, sin cambios) no la copia al `resultado_json` final. Se deriva aquí
+    invirtiendo la MISMA identidad que V2 ya aplicó internamente
+    (`diferencia = universo_ajustado - recaudacion_explicada`, ver
+    motor_tiquipaya.py línea ~726) usando los dos valores que V2 SÍ expone
+    (`universo_ajustado`, `diferencia`) — no es una regla contable nueva,
+    es una resta que despeja una fórmula ya aplicada por V2."""
+    if not resultado_json:
+        return {}
+    universo_ajustado = resultado_json.get("universo_ajustado")
+    diferencia = resultado_json.get("diferencia")
+    recaudacion_explicada = None
+    if universo_ajustado is not None and diferencia is not None:
+        recaudacion_explicada = excel_io.money_str(Decimal(universo_ajustado) - Decimal(diferencia))
+    return {
+        "universo_original": resultado_json.get("universo_original"),
+        "alquileres": resultado_json.get("alquileres"),
+        "universo_ajustado": universo_ajustado,
+        "recaudacion_explicada": recaudacion_explicada,
+        "diferencia": diferencia,
+        "total_vouchers": resultado_json.get("total_vouchers"),
+        "cantidad_vouchers": resultado_json.get("cantidad_vouchers"),
+        "total_ci": resultado_json.get("total_ci"),
+        "cantidad_ci": resultado_json.get("cantidad_ci"),
+        "atc_bruto": resultado_json.get("atc_bruto"),
+        "atc_neto": resultado_json.get("atc_neto"),
+        "atc_comision": resultado_json.get("atc_comision"),
+    }
+
+
 def obtener_datos(lote_id, base_dir_dev):
     lote = _leer_lote(lote_id, base_dir_dev)
-    return {"lote_id": lote_id, "estado_lote": lote["estado_lote"], "cierres": lote.get("cierres", [])}
+    cierres = lote.get("cierres", [])
+    # Cuadre real (Universo/Recaudación explicada/Diferencia) por cierre,
+    # para que el panel de detalle lo muestre sin volver a pedir /revisar
+    # (que solo aplica a cierres que requieren revisión) — solo lectura del
+    # resultado_json ya generado por el motor, nunca se recalcula nada más.
+    cierres_con_cuadre = [
+        dict(c, cuadre=_construir_cuadre_real(_leer_resultado_json(c.get("ruta_resultado"))))
+        for c in cierres
+    ]
+    return {"lote_id": lote_id, "estado_lote": lote["estado_lote"], "cierres": cierres_con_cuadre}
 
 
 # ---------------------------------------------------------------------------
@@ -248,11 +301,8 @@ def obtener_detalle_revision(lote_id, fecha, base_dir_dev):
 
     campos_por_categoria = {cat: sorted(campos) for cat, campos in correcciones.CAMPOS_CORREGIBLES.items()}
     excepciones = []
-    cuadre = {}
-    ruta_resultado = item.get("ruta_resultado")
-    if ruta_resultado and os.path.isfile(ruta_resultado):
-        with open(ruta_resultado, "r", encoding="utf-8") as f:
-            resultado_json = json.load(f)
+    resultado_json = _leer_resultado_json(item.get("ruta_resultado"))
+    if resultado_json:
         # Cada excepción se enriquece con `campos_corregibles_aplicables`
         # (subconjunto de los campos PERMITIDOS por categoría que realmente
         # corresponden al problema de ESA excepción puntual — ver
@@ -261,22 +311,11 @@ def obtener_detalle_revision(lote_id, fecha, base_dir_dev):
             dict(exc, campos_corregibles_aplicables=_campos_aplicables(exc, campos_por_categoria.get(exc.get("categoria"), [])))
             for exc in resultado_json.get("excepciones", [])
         ]
-        # Cuadre REAL ya calculado por V2 (pipeline_tiquipaya._construir_resultado_json),
-        # reexpuesto tal cual para el caso "sigue ERROR_REVISAR pero ya no
-        # hay excepciones corregibles" — nunca se inventa ni se recalcula
-        # ningun importe aqui.
-        cuadre = {
-            "universo_original": resultado_json.get("universo_original"),
-            "alquileres": resultado_json.get("alquileres"),
-            "universo_ajustado": resultado_json.get("universo_ajustado"),
-            "total_vouchers": resultado_json.get("total_vouchers"),
-            "cantidad_vouchers": resultado_json.get("cantidad_vouchers"),
-            "total_ci": resultado_json.get("total_ci"),
-            "cantidad_ci": resultado_json.get("cantidad_ci"),
-            "atc_bruto": resultado_json.get("atc_bruto"),
-            "atc_neto": resultado_json.get("atc_neto"),
-            "atc_comision": resultado_json.get("atc_comision"),
-        }
+    # Cuadre REAL (Universo/Recaudación explicada/Diferencia + desglose) —
+    # ver _construir_cuadre_real: nunca se inventa ni se recalcula ningún
+    # importe salvo recaudacion_explicada, derivada de una identidad que V2
+    # ya aplicó.
+    cuadre = _construir_cuadre_real(resultado_json)
 
     return {
         "fecha": fecha, "estado_final": item.get("estado_final"),
@@ -330,7 +369,12 @@ def aplicar_correccion(lote_id, fecha, correccion_parcial, base_dir_dev):
     resultado = revisar_y_corregir_cierre(item_con_correccion, base_dir_dev, controles_dir_dev=lote.get("controles_dir_dev"))
     lote["cierres"][idx] = resultado
     _escribir_lote(lote, base_dir_dev)
-    return resultado
+    # Cuadre real del reproceso (Universo/Recaudación explicada/Diferencia),
+    # para que el frontend lo muestre de inmediato incluso cuando el
+    # reproceso quedó LISTO_PARA_PUBLICAR (caso en el que nunca se vuelve a
+    # pedir /revisar — ver v3_control_cierres.html::seleccionar()).
+    cuadre = _construir_cuadre_real(_leer_resultado_json(resultado.get("ruta_resultado")))
+    return dict(resultado, cuadre=cuadre)
 
 
 # ---------------------------------------------------------------------------

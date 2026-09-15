@@ -364,3 +364,40 @@ def test_cli_main_produce_json_valido_para_todas_las_acciones(tmp_path):
 
     r7 = _run("publicar", {"lote_id": lote_id, "fechas": ["2026-09-01"], "usuario_auditor": "a", "base_dir_dev": base_dir_dev})
     assert r7["resultado"] == "OK" and r7["publicados"][0]["estado_publicacion"] == PUBLICADO
+
+
+# ---------------------------------------------------------------------------
+# FASE 10F — ajustes de interfaz: el panel "Cuadre" del frontend necesita
+# Universo/Recaudación explicada/Diferencia REALES por cierre, no solo para
+# cierres ERROR_REVISAR (antes solo /revisar los exponía). Estas pruebas
+# verifican que /datos y /corregir ahora incluyen `cuadre` con esos 3
+# valores, y que recaudacion_explicada (que V2 no copia a resultado_json)
+# se deriva correctamente de la MISMA identidad que V2 ya aplica
+# (diferencia = universo_ajustado - recaudacion_explicada) — nunca inventada.
+def test_obtener_datos_expone_cuadre_real_con_recaudacion_explicada(tmp_path):
+    lote, base_dir_dev = _procesar(tmp_path, "2026-09-01", "2026-09-01", {"2026-09-01": (_SFC_VACIO, _SFC_VACIO)})
+    datos = dev_api.obtener_datos(lote["lote_id"], base_dir_dev)
+    cuadre = datos["cierres"][0]["cuadre"]
+    assert cuadre["universo_ajustado"] is not None
+    assert cuadre["diferencia"] is not None
+    assert cuadre["recaudacion_explicada"] is not None
+    # identidad de V2 (motor_tiquipaya.ejecutar_v2): diferencia = universo_ajustado - recaudacion_explicada
+    from decimal import Decimal
+    assert Decimal(cuadre["universo_ajustado"]) - Decimal(cuadre["recaudacion_explicada"]) == Decimal(cuadre["diferencia"])
+
+
+def test_obtener_datos_sin_resultado_expone_cuadre_vacio_no_falla(tmp_path):
+    # SIN_ARCHIVO nunca llega al motor -> no hay resultado_json que leer;
+    # cuadre debe ser {} (nunca inventar valores), sin lanzar.
+    lote, base_dir_dev = _procesar(tmp_path, "2026-09-01", "2026-09-01", {})
+    datos = dev_api.obtener_datos(lote["lote_id"], base_dir_dev)
+    assert datos["cierres"][0]["cuadre"] == {}
+
+
+def test_aplicar_correccion_expone_cuadre_del_reproceso(tmp_path):
+    lote, base_dir_dev = _procesar(tmp_path, "2026-09-01", "2026-09-01", {"2026-09-01": (_cierre_ci_bloqueante_dict(), _SFC_VACIO)})
+    correccion = _correccion("COMUNICACION_INTERNA", "CI_CUENTA_FALTANTE", {"sfc": "SFC101", "factura": "F-1"}, "cuenta_contable", "210201005")
+    resultado = dev_api.aplicar_correccion(lote["lote_id"], "2026-09-01", correccion, base_dir_dev)
+    assert resultado["resultado_reproceso"] == LISTO_PARA_PUBLICAR
+    assert resultado["cuadre"]["universo_ajustado"] is not None
+    assert resultado["cuadre"]["recaudacion_explicada"] is not None

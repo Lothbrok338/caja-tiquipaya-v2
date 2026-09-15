@@ -642,6 +642,57 @@ async function test_maestro_sin_cobertura_no_ofrece_correccion_ni_publicacion() 
   dom.window.close();
 }
 
+// ---------------------------------------------------------------------------
+// FASE 10F: ajustes de interfaz. Banner tecnico "MODO REAL" eliminado (con
+// indicador pequeño "ENTORNO: DEV" en cabecera), texto residual "(modo
+// demo)" corregido en modo real, panel Cuadre con datos reales (Universo/
+// Recaudación explicada/Diferencia) sin "N/D" cuando existen, y sin
+// referencias "(demo)" en cierres reales (Hash origen).
+// ---------------------------------------------------------------------------
+async function test_ajustes_interfaz_fase_10f() {
+  console.log("\n[FASE 10F] Banner tecnico eliminado, cuadre real, sin residuos demo");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  window.fetch = function (url) {
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-10f", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
+    if (url.indexOf("/datos") !== -1) return Promise.resolve({
+      ok: true, json: () => Promise.resolve({
+        resultado: "OK", cierres: [{
+          fecha: "2026-09-10", archivo_esperado: "CIERRE 10-09-2026.xlsm", estado_final: "LISTO_PARA_PUBLICAR",
+          diferencia: "0.00", bloqueadores: 0, requiere_revision: false, publicable: true, publicado: false,
+          sha256: null, mensajes: ["Motor ejecutado: OK."],
+          cuadre: { universo_ajustado: "1500.00", recaudacion_explicada: "1500.00", diferencia: "0.00" },
+        }],
+      }),
+    });
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  // el banner tecnico "MODO REAL" ya no existe en el DOM
+  ok(window.document.getElementById("real-banner") === null, "el banner tecnico #real-banner fue eliminado");
+  // indicador pequeño de entorno en cabecera
+  const badge = window.document.querySelector(".badge-dev");
+  ok(!!badge && badge.textContent.indexOf("ENTORNO: DEV") !== -1, "aparece el indicador pequeño 'ENTORNO: DEV' en cabecera");
+
+  await waitFor(() => window.document.getElementById("in-fecha-desde") && window.document.getElementById("in-fecha-desde").value !== "");
+  // texto residual sin "(modo demo)" en modo real, desde el primer render
+  ok(window.document.getElementById("tabla-body").textContent.indexOf("(modo demo)") === -1, "el placeholder inicial en modo real NO dice '(modo demo)'");
+  ok(window.document.getElementById("tabla-body").textContent.indexOf("Pulsa") !== -1, "el placeholder sigue invitando a procesar");
+
+  window.document.getElementById("btn-procesar").click();
+  await waitFor(() => window.document.querySelector("#tabla-body tr[data-hash]"), 5000);
+  window.document.querySelector("#tabla-body tr[data-hash]").click();
+  await waitFor(() => window.document.getElementById("detalle-body").textContent.indexOf("Cuadre") !== -1, 3000);
+
+  const texto = window.document.getElementById("detalle-body").textContent;
+  ok(texto.indexOf("N/D") === -1 || texto.indexOf("Bs 1.500,00") !== -1, "el cuadre real (Universo/Recaudación) se muestra, no N/D, cuando el dato existe");
+  ok(texto.indexOf("(demo)") === -1, "ninguna referencia '(demo)' aparece en un cierre real");
+  ok(texto.indexOf("Hash origen") !== -1 && texto.indexOf("N/D (demo)") === -1, "Hash origen ausente se muestra como N/D simple, sin '(demo)', en modo real");
+  dom.window.close();
+}
+
 (async () => {
   await test_demo_no_llama_backend();
   await test_procesar_rango_valido();
@@ -656,6 +707,7 @@ async function test_maestro_sin_cobertura_no_ofrece_correccion_ni_publicacion() 
   await test_error_backend();
   await test_no_publicar_no_habilitado();
   await test_maestro_sin_cobertura_no_ofrece_correccion_ni_publicacion();
+  await test_ajustes_interfaz_fase_10f();
 
   console.log("\n=========================================");
   console.log(passed + " passed, " + failures + " failed");

@@ -16,36 +16,49 @@ Evidencia objetiva reutilizada (ningún parser nuevo, ningún criterio de
 fecha reinterpretado dos veces):
   - excel_io.leer_macros_bnb()  -> fecha máxima con movimientos reales en
     la hoja "Tablas Dinamicas Profesional".
-  - excel_io.leer_atc_mensual() -> fecha máxima con registro real en la
-    hoja "ATC TIQUIPAYA" (modo PRECONCILIADO) o el ATC legado.
+  - excel_io.leer_atc_mensual() -> fechas con registro real en la hoja
+    "ATC TIQUIPAYA" (modo PRECONCILIADO) o el ATC legado.
+  - excel_io.leer_cierre()      -> cobros_atc de SFC101/SFC102 del propio
+    cierre, para decidir si ESE día tuvo movimiento ATC.
 
-Criterio (FASE 10B, confirmado con el maestro real de septiembre 2026 —
-MACROS y ATC ambos hasta 2026-09-10; cierre 2026-09-10 cubierto,
-2026-09-11 sin ningún registro):
+Criterio MACROS (sin cambios desde FASE 10C): fecha_cierre debe estar
+dentro del rango que MACROS ya cubre (fecha_cierre <= fecha_maxima_macros).
+Un maestro sin ninguna fecha registrada en MACROS, o ilegible, SIEMPRE
+bloquea.
 
-    fecha_cierre <= fecha_maxima_macros  Y  fecha_cierre <= fecha_maxima_atc
-        -> MAESTRO_APTO
-    en cualquier otro caso (incluido un maestro sin ninguna fecha
-    registrada, o ilegible)
-        -> BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA
+Criterio ATC (CORREGIDO en FASE 10E — ver hallazgo real del 12/09/2026,
+día real sin movimiento ATC que el criterio anterior bloqueaba
+incorrectamente por comparar contra una fecha máxima global):
+  1. Se determina, a partir del PROPIO archivo del cierre
+     (excel_io.leer_cierre), si tuvo movimiento ATC — MISMO criterio
+     EXACTO que motor_tiquipaya.cruzar_atc_preconciliado() ya usa para
+     decidir ATC_NO_APLICA: bruto_cierre = cobros_atc(SFC101) +
+     cobros_atc(SFC102); tiene movimiento si bruto_cierre != 0.
+  2. Si TUVO movimiento ATC: se exige una fila REAL en ATC TIQUIPAYA para
+     ESA fecha EXACTA (fecha_cierre in atc["por_fecha"]) — nunca un proxy
+     de fecha máxima. Si falta, bloquea con un mensaje simple y literal.
+  3. Si NO tuvo movimiento ATC: la ausencia de fila ATC para esa fecha es
+     legítima (mismo día sin ATC que V2 ya reconoce) — NO se exige nada
+     de ATC, y NUNCA se inventa una fila cero para "completar" la
+     evidencia.
 
-Un hueco INTERMEDIO (una fecha sin fila propia pero anterior a la fecha
-máxima real) NUNCA se interpreta automáticamente como desactualización:
-solo importa hasta dónde llegan los datos, no si cada día individual tiene
-fila (un día sin ATC puede ser legítimo — ver motor_tiquipaya.ATC_NO_APLICA
-para bruto_cierre == 0, que este módulo no reinterpreta).
+`fecha_maxima_atc` se sigue calculando y devolviendo (informativo, para
+mostrar "cobertura ATC hasta" en la interfaz), pero YA NO es, por sí solo,
+motivo de bloqueo.
 
 NO se usa `MAESTRO_DESACTUALIZADO` como afirmación automática: el nombre
 del estado bloqueado es deliberadamente literal sobre lo que se sabe
 ("cobertura no confirmada"), nunca una acusación de que el maestro esté
 desactualizado (podría, por ejemplo, ser un mes que genuinamente todavía
-no tiene más movimientos porque el mes no ha avanzado más).
+no tiene más movimientos porque el mes no ha avanzado más, o un día
+genuinamente sin ATC).
 """
 
 import argparse
 import json
 import os
 import sys
+from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -76,19 +89,31 @@ def _fecha_maxima_atc(ruta_maestro):
     return _fecha_maxima(atc["por_fecha"].keys())
 
 
-def evaluar_cobertura_maestro(ruta_maestro, fecha_cierre):
-    """Evalúa UN maestro contra UNA fecha de cierre. Devuelve dict con
+def _cierre_tiene_movimiento_atc(ruta_cierre):
+    """MISMO criterio EXACTO que motor_tiquipaya.cruzar_atc_preconciliado()
+    usa para decidir ATC_NO_APLICA: bruto_cierre = cobros_atc(SFC101) +
+    cobros_atc(SFC102). Reutiliza excel_io.leer_cierre() (mismo parser que
+    ya usa V2/V3) -- no reinterpreta el archivo del cierre."""
+    cierre = excel_io.leer_cierre(ruta_cierre)
+    bruto = Decimal(cierre["sfc101"]["cobros_atc"]) + Decimal(cierre["sfc102"]["cobros_atc"])
+    return bruto != 0
+
+
+def evaluar_cobertura_maestro(ruta_maestro, fecha_cierre, ruta_cierre):
+    """Evalúa UN maestro (más el propio cierre, para saber si ese día tuvo
+    movimiento ATC) contra UNA fecha de cierre. Devuelve dict con
     EXACTAMENTE estas claves: estado, fecha_cierre, fecha_maxima_macros,
     fecha_maxima_atc, mensaje.
 
     `estado` in (MAESTRO_APTO, BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA).
     Un maestro ilegible (archivo inexistente, hoja faltante, columnas
-    faltantes, workbook corrupto) o sin NINGUNA fecha registrada en
-    ninguna de las dos hojas SIEMPRE bloquea — nunca se asume apto por
-    defecto ante evidencia insuficiente ("no adivinar")."""
+    faltantes, workbook corrupto), sin NINGUNA fecha registrada en MACROS,
+    o un cierre cuyo archivo no se puede leer para determinar si tuvo
+    movimiento ATC, SIEMPRE bloquea — nunca se asume apto por defecto ante
+    evidencia insuficiente ("no adivinar")."""
     try:
         fecha_maxima_macros = _fecha_maxima_macros(ruta_maestro)
-        fecha_maxima_atc = _fecha_maxima_atc(ruta_maestro)
+        atc = excel_io.leer_atc_mensual(ruta_maestro)
     except Exception as exc:
         return {
             "estado": BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
@@ -100,43 +125,71 @@ def evaluar_cobertura_maestro(ruta_maestro, fecha_cierre):
                 "confirmar objetivamente la cobertura del maestro."
             ),
         }
+    fecha_maxima_atc = _fecha_maxima(atc["por_fecha"].keys())
 
-    if fecha_maxima_macros is None or fecha_maxima_atc is None:
+    if fecha_maxima_macros is None:
+        return {
+            "estado": BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
+            "fecha_cierre": fecha_cierre,
+            "fecha_maxima_macros": None,
+            "fecha_maxima_atc": fecha_maxima_atc,
+            "mensaje": (
+                "MAESTRO_SIN_FECHAS_REGISTRADAS: no se encontró ninguna fecha "
+                "con movimientos reales en MACROS. No se puede confirmar "
+                "objetivamente la cobertura del maestro."
+            ),
+        }
+
+    if fecha_cierre > fecha_maxima_macros:
         return {
             "estado": BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
             "fecha_cierre": fecha_cierre,
             "fecha_maxima_macros": fecha_maxima_macros,
             "fecha_maxima_atc": fecha_maxima_atc,
             "mensaje": (
-                "MAESTRO_SIN_FECHAS_REGISTRADAS: no se encontró ninguna fecha "
-                "con movimientos reales en MACROS y/o ATC TIQUIPAYA. No se "
-                "puede confirmar objetivamente la cobertura del maestro."
+                f"El maestro no tiene registros de MACROS que alcancen la fecha "
+                f"del cierre ({fecha_cierre}): MACROS llega hasta "
+                f"{fecha_maxima_macros}. Esto NO es necesariamente un error del "
+                "cierre: verifique o actualice el maestro antes de procesar."
             ),
         }
 
-    if fecha_cierre <= fecha_maxima_macros and fecha_cierre <= fecha_maxima_atc:
+    try:
+        tiene_atc = _cierre_tiene_movimiento_atc(ruta_cierre)
+    except Exception as exc:
         return {
-            "estado": MAESTRO_APTO,
+            "estado": BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
             "fecha_cierre": fecha_cierre,
             "fecha_maxima_macros": fecha_maxima_macros,
             "fecha_maxima_atc": fecha_maxima_atc,
             "mensaje": (
-                "Cobertura temporal minima confirmada: MACROS y ATC TIQUIPAYA "
-                "tienen registros que alcanzan la fecha del cierre. Esto NO "
-                "confirma importes ni ausencia de errores contables."
+                f"No se pudo leer el cierre para determinar si tuvo movimiento "
+                f"ATC: {type(exc).__name__}: {exc}."
+            ),
+        }
+
+    if tiene_atc and fecha_cierre not in atc["por_fecha"]:
+        return {
+            "estado": BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
+            "fecha_cierre": fecha_cierre,
+            "fecha_maxima_macros": fecha_maxima_macros,
+            "fecha_maxima_atc": fecha_maxima_atc,
+            "mensaje": (
+                "No se encontró información ATC del maestro para la fecha del "
+                "cierre. Actualice/verifique el maestro y vuelva a procesar."
             ),
         }
 
     return {
-        "estado": BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
+        "estado": MAESTRO_APTO,
         "fecha_cierre": fecha_cierre,
         "fecha_maxima_macros": fecha_maxima_macros,
         "fecha_maxima_atc": fecha_maxima_atc,
         "mensaje": (
-            f"El maestro no tiene registros que alcancen la fecha del cierre "
-            f"({fecha_cierre}): MACROS llega hasta {fecha_maxima_macros}, ATC "
-            f"TIQUIPAYA llega hasta {fecha_maxima_atc}. Esto NO es necesariamente "
-            "un error del cierre: verifique o actualice el maestro antes de procesar."
+            "Cobertura minima confirmada: MACROS alcanza la fecha del cierre"
+            + (", y ATC TIQUIPAYA tiene fila para esa fecha." if tiene_atc else
+               " y el cierre no tuvo movimiento ATC ese día (no se exige fila).")
+            + " Esto NO confirma importes ni ausencia de errores contables."
         ),
     }
 
@@ -161,7 +214,9 @@ def aplicar_precheck_maestro(cierres_materializados):
             resultados.append(dict(item))
             continue
 
-        cobertura = evaluar_cobertura_maestro(item.get("ruta_maestro_local"), item.get("fecha"))
+        cobertura = evaluar_cobertura_maestro(
+            item.get("ruta_maestro_local"), item.get("fecha"), item.get("ruta_cierre_local"),
+        )
         salida = dict(item)
         salida.update({
             "estado_precheck_maestro": cobertura["estado"],
