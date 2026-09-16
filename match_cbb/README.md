@@ -110,12 +110,14 @@ El formato lo arma `reporte.py`, que solo presenta: no decide ningún match.
 | # | Hoja | Para qué sirve |
 |---|---|---|
 | 1 | `RESUMEN_VISUAL` | Dashboard: totales, importes, leyenda de colores, distribución de tiempos y validaciones |
-| 2 | **`PARA_PEGAR_CBB`** | **Hoja de trabajo.** Los casos utilizables (seguros + probables) con su `Nro Oper.` |
+| 2 | **`PARA_PEGAR_CBB`** | **Hoja final consolidada.** Seguros + probables + lo confirmado a mano |
 | 3 | `REVISAR_MANUAL` | Los `REVISAR`, con zona de decisión manual (ver abajo) |
 | 4 | `SIN_MATCH` | Separa `SIN_MATCH_CORTE_BCP` (el extracto no cubre la fecha) de `SIN_MATCH_REAL`, con el candidato más cercano como referencia |
 | 5 | `TARJETA` | Pagos con tarjeta, fuera del cruce QR |
-| 6 | `AUDITORIA_EXCEPCIONES` | Probables + revisar + sin match, ordenados por prioridad, con las métricas técnicas y una columna en blanco para comentarios |
-| 7 | `TODOS` | Todo el reporte de Cochabamba, coloreado por estado |
+| 6 | `INGRESOS_NORMALIZADOS` | El reporte original de Cochabamba ya normalizado, con sus 10 columnas y nada del cruce |
+
+Dos hojas ocultas sostienen los desplegables y la confirmación manual: `_CANDIDATOS` y
+`_MANUALES`.
 
 Colores: verde = seguro, azul = probable, amarillo = revisar, rojo = sin match, gris = tarjeta.
 Todas las hojas operativas llevan autofiltro, primera fila congelada, fecha `dd/mm/yyyy hh:mm:ss`
@@ -135,8 +137,28 @@ resaltadas porque son las dos celdas que se editan.
   (`_CANDIDATOS`); no hay que copiar nada a mano y funciona en Excel Online.
 - **`Q` Decisión** — desplegable `CONFIRMAR MATCH` / `DESCARTAR` / `PENDIENTE`, por defecto
   `PENDIENTE`.
+- **`R` Control** — avisa si el `Nro Oper.` elegido ya lo usa otro match
+  (`NRO OPER YA UTILIZADO`, resaltado en rojo) y confirma cuando la fila entró a
+  `PARA_PEGAR_CBB`.
 
-Elegir otro candidato **no cambia el match**: la hoja es solo para revisión humana.
+Elegir otro candidato **no cambia el match del motor**: `REVISAR_MANUAL` no mueve ni borra
+filas, solo registra la decisión.
+
+### Cómo llega una confirmación a `PARA_PEGAR_CBB`
+
+Debajo de los matches automáticos hay una ranura por cada caso de `REVISAR_MANUAL`, toda
+resuelta por fórmula. Marcar `CONFIRMAR MATCH` la llena con los datos **del candidato
+elegido en `J:P`**, no con el automático; `DESCARTAR` o `PENDIENTE` la dejan vacía. Las
+confirmadas se compactan sin dejar huecos, y el `RESUMEN_VISUAL` recalcula *automáticos +
+confirmados manualmente = total listo para pegar*.
+
+Los confirmados a mano llegan con `Estado = MATCH_MANUAL_CONFIRMADO` y
+`Origen del match = CONFIRMADO MANUALMENTE`; los del motor, con `AUTOMÁTICO`.
+
+Un `Nro Oper.` que ya use otro match **no se incorpora**: la hoja oculta `_MANUALES` lo
+cuenta contra los automáticos y contra las confirmaciones anteriores, y la fila queda fuera
+con la alerta visible en `R`. Todo con `INDEX`/`MATCH`/`COUNTIF`, sin macros ni fórmulas
+dinámicas, así que funciona igual en Excel Online y en versiones antiguas.
 
 ## Validaciones
 

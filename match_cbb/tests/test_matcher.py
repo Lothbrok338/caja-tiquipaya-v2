@@ -282,12 +282,13 @@ def test_flujo_completo_no_modifica_los_originales(tmp_path):
     assert {r: (os.path.getsize(r), open(r, "rb").read()) for r in (ruta_cbb, ruta_bcp)} == antes
     assert salida.exists()
     wb = openpyxl.load_workbook(salida)
-    visibles = [n for n in wb.sheetnames if wb[n].sheet_state == "visible"]
-    assert visibles == ["RESUMEN_VISUAL", "PARA_PEGAR_CBB", "REVISAR_MANUAL", "SIN_MATCH",
-                        "TARJETA", "AUDITORIA_EXCEPCIONES", "TODOS"]
     import reporte
 
-    assert wb[reporte.HOJA_CANDIDATOS].sheet_state == "hidden"
+    visibles = [n for n in wb.sheetnames if wb[n].sheet_state == "visible"]
+    assert visibles == ["RESUMEN_VISUAL", "PARA_PEGAR_CBB", "REVISAR_MANUAL", "SIN_MATCH",
+                        "TARJETA", "INGRESOS_NORMALIZADOS"]
+    ocultas = [n for n in wb.sheetnames if wb[n].sheet_state == "hidden"]
+    assert ocultas == [reporte.HOJA_CANDIDATOS, reporte.HOJA_MANUALES]
     assert len(datos["registros"]) == 2  # el pie de totales no se cuenta como registro
     estados = {r.registro.crudo["Numero Factura"]: r.estado for r in datos["resultados"]}
     assert estados == {"16180": M.ESTADO_SEGURO, "16181": M.ESTADO_NO_QR}
@@ -370,6 +371,8 @@ def test_conversion_de_horas():
 # --------------------------------------------------------------------------- #
 
 def test_hojas_operativas_traen_los_casos_correctos(tmp_path):
+    import reporte
+
     ruta_cbb, ruta_bcp = tmp_path / "a.xlsx", tmp_path / "b.xlsx"
     _crear_cbb(ruta_cbb)
     _crear_bcp(ruta_bcp)
@@ -377,12 +380,21 @@ def test_hojas_operativas_traen_los_casos_correctos(tmp_path):
     M.ejecutar([str(ruta_cbb), str(ruta_bcp)], str(salida), CFG)
 
     wb = openpyxl.load_workbook(salida)
-    assert [c.value for c in wb["PARA_PEGAR_CBB"][1]][:2] == ["Estado", "Factura"]
-    estados = [f[0] for f in wb["PARA_PEGAR_CBB"].iter_rows(min_row=2, values_only=True)]
-    assert estados == [M.ESTADO_SEGURO]
+    assert [c.value for c in wb["PARA_PEGAR_CBB"][1]][:3] == ["Estado", "Origen del match", "Factura"]
+    filas = list(wb["PARA_PEGAR_CBB"].iter_rows(min_row=2, values_only=True))
+    assert [f[0] for f in filas] == [M.ESTADO_SEGURO]  # sin casos REVISAR no hay ranuras
+    assert filas[0][1] == reporte.ORIGEN_AUTOMATICO
+    ingresos = wb["INGRESOS_NORMALIZADOS"]
+    assert [c.value for c in ingresos[1]] == [
+        "Nro", "Fecha", "Número Factura", "Nit/C.I.", "Razon Social",
+        "Nombre Estudiante", "Tipo Pago", "Monto", "Canal de Pago", "Estado",
+    ]
+    assert ingresos.max_row == 3  # los dos registros del reporte, sin pie de totales
     tarjeta = list(wb["TARJETA"].iter_rows(min_row=2, values_only=True))
     assert len(tarjeta) == 1 and tarjeta[0][-1] == "Pago con tarjeta - fuera del cruce QR"
-    assert "NO_QR" not in str(list(wb["TODOS"].iter_rows(min_row=2, values_only=True)))
+    for hoja in wb.sheetnames:
+        if wb[hoja].sheet_state == "visible":
+            assert "NO_QR" not in str(list(wb[hoja].iter_rows(values_only=True)))
 
 
 def test_candidatos_para_revision_incluyen_todo_el_dia_y_monto():
@@ -428,7 +440,7 @@ def test_zona_de_decision_tiene_desplegable_y_formulas(tmp_path):
     ws = wb["REVISAR_MANUAL"]
     assert [c.value for c in ws[1]][9:] == [
         "Candidato elegido", "Nro Oper elegido", "Fecha/hora BCP elegida", "Importe BCP elegido",
-        "Glosa BCP elegida", "Cd. Confirmación actual", "Dif. seg elegido", "Decisión",
+        "Glosa BCP elegida", "Cd. Confirmación actual", "Dif. seg elegido", "Decisión", "Control",
     ]
     # J preseleccionado con el candidato que eligio el algoritmo.
     assert ws["J2"].value.startswith("A | ")
@@ -451,6 +463,31 @@ def test_zona_de_decision_tiene_desplegable_y_formulas(tmp_path):
     ]
 
 
+def test_ranuras_manuales_dependen_de_la_decision(tmp_path):
+    import reporte
+
+    registros = [reg(1, t(10, 0, 0), 500)]
+    movimientos = [mov(10, t(10, 0, 50), 500, "A"), mov(11, t(10, 1, 30), 500, "B")]
+    resultados = M.emparejar(registros, movimientos, CFG)
+    salida = tmp_path / "MATCH_CBB.xlsx"
+    reporte.escribir(resultados, registros, movimientos, [], CFG, str(salida))
+
+    wb = openpyxl.load_workbook(salida)
+    pegar, manuales = wb["PARA_PEGAR_CBB"], wb[reporte.HOJA_MANUALES]
+
+    # Un caso REVISAR: una ranura, toda por formula y sin valores fijos.
+    assert pegar.max_row == 2
+    assert pegar["A2"].value.startswith("=IFERROR(INDEX('_MANUALES'!$F$2:$F$2,MATCH(1,")
+    # La ranura solo se llena si la decision es CONFIRMAR MATCH y no hay duplicado.
+    assert manuales["A2"].value == "=REVISAR_MANUAL!Q2"
+    assert manuales["D2"].value == '=IF(AND($A2="CONFIRMAR MATCH",$C2=0),1,0)'
+    assert "COUNTIF(PARA_PEGAR_CBB!$K$2:$K$1,$B2)" in manuales["C2"].value
+    assert manuales["F2"].value == reporte.ESTADO_MANUAL
+    assert manuales["G2"].value == reporte.ORIGEN_MANUAL
+    # El control de duplicados avisa en REVISAR_MANUAL.
+    assert reporte.ALERTA_DUPLICADO in wb["REVISAR_MANUAL"]["R2"].value
+
+
 def test_separa_el_sin_match_por_corte_del_extracto():
     import reporte
 
@@ -459,18 +496,6 @@ def test_separa_el_sin_match_por_corte_del_extracto():
     dentro = M.Resultado(reg(2, t(12, 0, 0), 500), None, None, M.ESTADO_SIN_MATCH, 0, None, None, False, "")
     assert reporte._tipo_sin_match(despues, inicio, fin) == reporte.SIN_MATCH_CORTE
     assert reporte._tipo_sin_match(dentro, inicio, fin) == reporte.SIN_MATCH_REAL
-
-
-def test_prioridad_de_auditoria():
-    import reporte
-
-    sin_match = M.Resultado(reg(1, t(10, 0), 500), None, None, M.ESTADO_SIN_MATCH, 0, None, None, False, "")
-    revisar = M.Resultado(reg(2, t(10, 0), 500), None, 60.0, M.ESTADO_REVISAR, 1, None, None, False, "")
-    probable = M.Resultado(reg(3, t(10, 0), 500), None, 20.0, M.ESTADO_PROBABLE, 1, None, None, False, "")
-    assert reporte._prioridad(sin_match, reporte.SIN_MATCH_REAL) == "ALTA"
-    assert reporte._prioridad(sin_match, reporte.SIN_MATCH_CORTE) == "MEDIA"
-    assert reporte._prioridad(revisar, None) == "MEDIA"
-    assert reporte._prioridad(probable, None) == "BAJA"
 
 
 def test_observacion_humana_menciona_cd_confirmacion_existente():

@@ -9,6 +9,7 @@ import datetime as dt
 from typing import Any, Callable, Sequence
 
 from openpyxl import Workbook
+from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -23,6 +24,7 @@ ROJO = ("B71C1C", "FFEBEE")
 ROJO_INTENSO = "FFCDD2"
 GRIS = ("616161", "F5F5F5")
 AZUL_OSCURO = ("1F4E79", "FFFFFF")
+AZUL_OSCURO_TARJETA = ("1F4E79", "DCE6F1")
 INDIGO = ("283593", "E8EAF6")
 INDIGO_EDITABLE = "C5CAE9"
 ROJO_TEXTO = "C62828"
@@ -36,8 +38,6 @@ COLOR_POR_ESTADO = {
     M.ESTADO_NO_QR: GRIS[1],
 }
 
-# El usuario nunca ve el codigo interno NO_QR.
-ETIQUETA_ESTADO = {M.ESTADO_NO_QR: "TARJETA"}
 OBSERVACION_TARJETA = "Pago con tarjeta - fuera del cruce QR"
 
 FECHA_HORA = "DD/MM/YYYY HH:MM:SS"
@@ -49,8 +49,20 @@ SIN_MATCH_CORTE = "SIN_MATCH_CORTE_BCP"
 SIN_MATCH_REAL = "SIN_MATCH_REAL"
 
 HOJA_CANDIDATOS = "_CANDIDATOS"
-DECISIONES = ("CONFIRMAR MATCH", "DESCARTAR", "PENDIENTE")
+HOJA_MANUALES = "_MANUALES"
+DECISION_CONFIRMAR = "CONFIRMAR MATCH"
+DECISIONES = (DECISION_CONFIRMAR, "DESCARTAR", "PENDIENTE")
 DECISION_POR_DEFECTO = "PENDIENTE"
+
+ORIGEN_AUTOMATICO = "AUTOMÁTICO"
+ORIGEN_MANUAL = "CONFIRMADO MANUALMENTE"
+ESTADO_MANUAL = "MATCH_MANUAL_CONFIRMADO"
+OBSERVACION_MANUAL = "Confirmado manualmente en REVISAR_MANUAL"
+ALERTA_DUPLICADO = "NRO OPER YA UTILIZADO"
+VERDE_MANUAL = "F1F8E9"
+
+# En _MANUALES, la primera columna que PARA_PEGAR_CBB copia en sus ranuras.
+PRIMERA_COLUMNA_SALIDA_MANUAL = 6
 
 ETIQUETAS_ESTADISTICA = {
     "minimo": "Mínimo (seg)", "mediana": "Mediana (seg)", "p90": "Percentil 90 (seg)",
@@ -83,14 +95,6 @@ def _cd(res: M.Resultado) -> Any:
     return res.movimiento.cd_confirmacion if res.movimiento else None
 
 
-def _estado_visible(res: M.Resultado) -> str:
-    return ETIQUETA_ESTADO.get(res.estado, res.estado)
-
-
-def _motivo_visible(res: M.Resultado) -> str:
-    return OBSERVACION_TARJETA if res.estado == M.ESTADO_NO_QR else res.motivo
-
-
 def _bs(valor: float | None) -> str:
     """Importe en formato boliviano: 2.596,00"""
     if valor is None:
@@ -106,36 +110,12 @@ def _observacion_pegar(res: M.Resultado) -> str:
     return base
 
 
-def _motivo_revision(res: M.Resultado) -> str:
-    if res.motivo:
-        return res.motivo
-    if res.candidatos > 1:
-        return f"{res.candidatos} movimientos BCP posibles en la misma fecha y monto"
-    return f"Candidato único con diferencia de {res.diferencia_seg:.0f} s"
-
-
-def _accion_sugerida(res: M.Resultado) -> str:
-    if res.ambiguo or res.candidatos > 1:
-        return "Revisar, más de un candidato posible"
-    if res.diferencia_seg is not None and res.diferencia_seg > 30:
-        return "Revisar manualmente, delta alto"
-    return "Revisar, candidato único"
-
-
 def _tipo_sin_match(res: M.Resultado, inicio: dt.datetime | None, fin: dt.datetime | None) -> str:
     """Distingue el pago que el extracto no alcanza a cubrir del que deberia estar y no esta."""
     fecha = res.registro.fecha_hora
     if fecha is None or inicio is None or fin is None:
         return SIN_MATCH_REAL
     return SIN_MATCH_CORTE if fecha > fin or fecha < inicio else SIN_MATCH_REAL
-
-
-def _prioridad(res: M.Resultado, tipo_sin_match: str | None) -> str:
-    if res.estado in (M.ESTADO_SIN_MATCH, M.ESTADO_INCOMPLETO):
-        return "MEDIA" if tipo_sin_match == SIN_MATCH_CORTE else "ALTA"
-    if res.estado == M.ESTADO_REVISAR:
-        return "MEDIA"
-    return "BAJA"
 
 
 # --------------------------------------------------------------------------- #
@@ -209,9 +189,15 @@ def _columnas_comunes() -> list[Columna]:
     ]
 
 
-def _hoja_para_pegar(ws, resultados: Sequence[M.Resultado]) -> None:
+def _hoja_para_pegar(ws, resultados: Sequence[M.Resultado], n_manuales: int) -> None:
+    """Automaticos fijos, mas una ranura por cada caso de REVISAR_MANUAL.
+
+    Las ranuras se llenan solas cuando se marca CONFIRMAR MATCH y quedan vacias
+    en cualquier otro caso, asi que no hay que tocar esta hoja a mano.
+    """
     columnas = [
-        Columna("Estado", lambda r: r.estado, ancho=16),
+        Columna("Estado", lambda r: r.estado, ancho=24),
+        Columna("Origen del match", lambda r: ORIGEN_AUTOMATICO, ancho=22),
         *_columnas_comunes(),
         Columna("Tipo Pago", lambda r: r.registro.crudo.get("Tipo Pago"), ancho=12),
         Columna("Canal de Pago", lambda r: r.registro.crudo.get("Canal de Pago"), ancho=15),
@@ -220,10 +206,76 @@ def _hoja_para_pegar(ws, resultados: Sequence[M.Resultado]) -> None:
         Columna("Nro Oper BCP", lambda r: r.movimiento.nro_oper if r.movimiento else None, ancho=14),
         Columna("Glosa BCP", lambda r: r.movimiento.glosa.strip() if r.movimiento else None, ancho=24),
         Columna("Cd. Confirmación BCP", lambda r: _cd(r), ancho=18),
-        Columna("Observación", _observacion_pegar, ancho=42),
+        Columna("Observación", _observacion_pegar, ancho=44),
     ]
     _escribir_tabla(ws, columnas, resultados, encabezado=AZUL_OSCURO,
                     relleno=lambda r: COLOR_POR_ESTADO.get(r.estado))
+    _ranuras_manuales(ws, columnas, primera_fila=len(resultados) + 2, cantidad=n_manuales)
+
+
+def _ranuras_manuales(ws, columnas: Sequence[Columna], primera_fila: int, cantidad: int) -> None:
+    if not cantidad:
+        return
+    aux = f"'{HOJA_MANUALES}'"
+    orden = f"{aux}!$E$2:$E${cantidad + 1}"
+    for k in range(1, cantidad + 1):
+        fila = primera_fila + k - 1
+        for indice, columna in enumerate(columnas):
+            letra = get_column_letter(PRIMERA_COLUMNA_SALIDA_MANUAL + indice)
+            rango = f"{aux}!${letra}$2:${letra}${cantidad + 1}"
+            celda = ws.cell(row=fila, column=indice + 1)
+            celda.value = f'=IFERROR(INDEX({rango},MATCH({k},{orden},0)),"")'
+            celda.border = BORDE
+            celda.fill = PatternFill("solid", fgColor=VERDE_MANUAL)
+            if columna.formato:
+                celda.number_format = columna.formato
+    ultima = primera_fila + cantidad - 1
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(columnas))}{ultima}"
+
+
+def _hoja_manuales(ws, revisar: Sequence[M.Resultado], filas_automaticas: int) -> None:
+    """Puente entre la decision humana y PARA_PEGAR_CBB.
+
+    Una fila por caso de REVISAR_MANUAL. Lee la decision y el candidato elegido,
+    descarta los duplicados de Nro Oper y numera los validos para que las ranuras
+    de PARA_PEGAR_CBB los tomen en orden, sin dejar huecos.
+    """
+    ws.append(["Decision", "NroOperElegido", "Duplicados", "Valido", "Orden",
+               "Estado", "Origen", "Factura", "Nombre", "FechaHoraCBB", "Monto",
+               "TipoPago", "Canal", "FechaHoraBCP", "DifSeg", "NroOper", "Glosa",
+               "CdConfirmacion", "Observacion"])
+    revisar_hoja = "REVISAR_MANUAL"
+    opers_automaticos = f"PARA_PEGAR_CBB!$K$2:$K${filas_automaticas + 1}"
+
+    for i, res in enumerate(revisar, start=2):
+        origen = i  # misma posicion de fila en REVISAR_MANUAL
+        previos = (f'+COUNTIFS($A$2:$A{i - 1},"{DECISION_CONFIRMAR}",$B$2:$B{i - 1},$B{i})'
+                   if i > 2 else "")
+        ws.append([
+            f"={revisar_hoja}!Q{origen}",
+            f"={revisar_hoja}!K{origen}",
+            f'=IF($B{i}="",0,COUNTIF({opers_automaticos},$B{i}){previos})',
+            f'=IF(AND($A{i}="{DECISION_CONFIRMAR}",$C{i}=0),1,0)',
+            f'=IF($D{i}=1,SUM($D$2:$D{i}),"")',
+            ESTADO_MANUAL,
+            ORIGEN_MANUAL,
+            f"={revisar_hoja}!A{origen}",
+            f"={revisar_hoja}!B{origen}",
+            f"={revisar_hoja}!C{origen}",
+            f"={revisar_hoja}!D{origen}",
+            res.registro.crudo.get("Tipo Pago"),
+            res.registro.crudo.get("Canal de Pago"),
+            f"={revisar_hoja}!L{origen}",
+            f"={revisar_hoja}!P{origen}",
+            f"={revisar_hoja}!K{origen}",
+            f"={revisar_hoja}!N{origen}",
+            f"={revisar_hoja}!O{origen}",
+            OBSERVACION_MANUAL,
+        ])
+        ws.cell(row=i, column=10).number_format = FECHA_HORA
+        ws.cell(row=i, column=11).number_format = MONEDA
+        ws.cell(row=i, column=14).number_format = FECHA_HORA
+    ws.sheet_state = "hidden"
 
 
 def candidatos_mismo_dia_monto(
@@ -323,6 +375,7 @@ def _hoja_revisar(
         Columna("Cd. Confirmación actual", lambda r: None, ancho=18),
         Columna("Dif. seg elegido", lambda r: None, "0", ancho=12),
         Columna("Decisión", lambda r: DECISION_POR_DEFECTO, ancho=18),
+        Columna("Control", lambda r: None, ancho=30),
     ]
 
     _escribir_tabla(ws, analisis + decision, resultados, encabezado=NARANJA, relleno=lambda r: NARANJA[1])
@@ -379,6 +432,24 @@ def _formulas_decision(ws, resultados: Sequence[M.Resultado], rangos: dict[int, 
                     f'=IFERROR(IF(ISBLANK({indice}),"",{indice}),"")'
                 )
         validacion_decision.add(ws.cell(row=i, column=primera_columna + 7))
+        col_decision = get_column_letter(primera_columna + 7)
+        ws.cell(row=i, column=primera_columna + 8).value = (
+            f"=IF('{HOJA_MANUALES}'!$C{i}>0,\"{ALERTA_DUPLICADO}\","
+            f'IF({col_decision}{i}="{DECISION_CONFIRMAR}","Incorporado a PARA_PEGAR_CBB",'
+            f'IF({col_decision}{i}="DESCARTAR","Descartado","")))'
+        )
+
+    if not resultados:
+        return
+    columna_control = get_column_letter(primera_columna + 8)
+    ws.conditional_formatting.add(
+        f"{columna_control}2:{columna_control}{len(resultados) + 1}",
+        FormulaRule(
+            formula=[f'${columna_control}2="{ALERTA_DUPLICADO}"'],
+            fill=PatternFill("solid", fgColor=ROJO_INTENSO),
+            font=Font(bold=True, color=ROJO_TEXTO),
+        ),
+    )
 
 
 def _hoja_sin_match(ws, resultados: Sequence[M.Resultado], tipos: dict[int, str]) -> None:
@@ -411,58 +482,21 @@ def _hoja_tarjeta(ws, resultados: Sequence[M.Resultado]) -> None:
     _escribir_tabla(ws, columnas, resultados, encabezado=GRIS, relleno=lambda r: GRIS[1])
 
 
-def _hoja_auditoria(ws, resultados: Sequence[M.Resultado], tipos: dict[int, str]) -> None:
-    orden = {"ALTA": 0, "MEDIA": 1, "BAJA": 2}
-    filas = sorted(
-        resultados,
-        key=lambda r: (orden[_prioridad(r, tipos.get(r.registro.fila_excel))], r.registro.fila_excel),
-    )
+def _hoja_ingresos(ws, registros: Sequence[M.RegistroCBB]) -> None:
+    """El reporte original de Cochabamba ya normalizado. Sin nada del cruce."""
     columnas = [
-        Columna("Prioridad", lambda r: _prioridad(r, tipos.get(r.registro.fila_excel)), ancho=11),
-        Columna("Estado", lambda r: tipos.get(r.registro.fila_excel) or r.estado, ancho=22),
-        *_columnas_comunes(),
-        Columna("Fecha y hora BCP", lambda r: r.movimiento.fecha_hora if r.movimiento else None, FECHA_HORA, ancho=21),
-        Columna("Dif. seg", lambda r: r.diferencia_seg, "0", ancho=9),
-        Columna("Nro Oper BCP", lambda r: r.movimiento.nro_oper if r.movimiento else None, ancho=14),
-        Columna("Glosa BCP", lambda r: r.movimiento.glosa.strip() if r.movimiento else None, ancho=24),
-        Columna("Cd. Confirmación BCP", lambda r: _cd(r), ancho=18),
-        Columna("Candidatos", lambda r: r.candidatos, "0", ancho=11),
-        Columna("2º mejor (seg)", lambda r: r.segundo_delta, "0", ancho=13),
-        Columna("Margen vs 2º", lambda r: r.margen, "0", ancho=13),
-        Columna("Motivo", _motivo_revision, ancho=42),
-        Columna("Comentario", lambda r: None, ancho=34),
+        Columna("Nro", lambda r: r.crudo.get("Nro"), "0", ancho=8),
+        Columna("Fecha", lambda r: r.fecha_hora, "DD/MM/YYYY", ancho=13),
+        Columna("Número Factura", lambda r: r.crudo.get("Numero Factura"), ancho=15),
+        Columna("Nit/C.I.", lambda r: r.crudo.get("Nit/C.I."), ancho=14),
+        Columna("Razon Social", lambda r: r.crudo.get("Razon Social"), ancho=24),
+        Columna("Nombre Estudiante", lambda r: r.crudo.get("Nombre Estudiante"), ancho=36),
+        Columna("Tipo Pago", lambda r: r.crudo.get("Tipo Pago"), ancho=13),
+        Columna("Monto", lambda r: M.centavos_a_float(r.centavos), MONEDA, ancho=13),
+        Columna("Canal de Pago", lambda r: r.crudo.get("Canal de Pago"), ancho=16),
+        Columna("Estado", lambda r: r.crudo.get("Estado"), ancho=11),
     ]
-    _escribir_tabla(ws, columnas, filas, encabezado=NARANJA,
-                    relleno=lambda r: COLOR_POR_ESTADO.get(r.estado))
-
-
-def _hoja_todos(ws, resultados: Sequence[M.Resultado], cfg: M.Config) -> None:
-    columnas = [
-        Columna("Nro", lambda r: r.registro.crudo.get("Nro"), "0", ancho=7),
-        Columna("Estado", _estado_visible, ancho=18),
-        *_columnas_comunes(),
-        Columna("Nit/C.I.", lambda r: r.registro.crudo.get("Nit/C.I."), ancho=14),
-        Columna("Razon Social", lambda r: r.registro.crudo.get("Razon Social"), ancho=22),
-        Columna("Tipo Pago", lambda r: r.registro.crudo.get("Tipo Pago"), ancho=12),
-        Columna("Canal de Pago", lambda r: r.registro.crudo.get("Canal de Pago"), ancho=15),
-        Columna("Estado CBB", lambda r: r.registro.crudo.get("Estado"), ancho=11),
-        Columna("Fecha y hora BCP", lambda r: r.movimiento.fecha_hora if r.movimiento else None, FECHA_HORA, ancho=21),
-        Columna("Importe BCP", lambda r: M.centavos_a_float(r.movimiento.centavos) if r.movimiento else None,
-                MONEDA, ancho=13),
-        Columna("Dif. seg", lambda r: r.diferencia_seg, "0", ancho=9),
-        Columna("Delta con signo", _delta_con_signo, "+0;-0;0", ancho=15),
-        Columna("Nro Oper BCP", lambda r: r.movimiento.nro_oper if r.movimiento else None, ancho=14),
-        Columna("Glosa BCP", lambda r: r.movimiento.glosa.strip() if r.movimiento else None, ancho=24),
-        Columna("Cd. Confirmación BCP", lambda r: _cd(r), ancho=18),
-        Columna("Conflicto ciudad", lambda r: "SI" if M._conflicto_ciudad(r, cfg) else "", ancho=15),
-        Columna("Candidatos", lambda r: r.candidatos, "0", ancho=11),
-        Columna("Ambiguo", lambda r: "SI" if r.ambiguo else "", ancho=9),
-        Columna("Motivo", _motivo_visible, ancho=42),
-        Columna("Fila Excel CBB", lambda r: r.registro.fila_excel, "0", ancho=13),
-        Columna("Fila Excel BCP", lambda r: r.movimiento.fila_excel if r.movimiento else None, "0", ancho=13),
-    ]
-    _escribir_tabla(ws, columnas, resultados, encabezado=AZUL_OSCURO,
-                    relleno=lambda r: COLOR_POR_ESTADO.get(r.estado))
+    _escribir_tabla(ws, columnas, registros, encabezado=AZUL_OSCURO)
 
 
 # --------------------------------------------------------------------------- #
@@ -499,6 +533,16 @@ def _hoja_resumen(ws, datos: dict[str, Any]) -> None:
     fila += 1
     _tarjetas(ws, fila, [("% ENCONTRADO SOBRE QR COCHABAMBA", datos["pct"], VERDE, "0.00%")], ancho_tarjeta=8)
     fila += 3
+
+    # Se recalculan solas con las decisiones que se tomen en REVISAR_MANUAL.
+    validos = f"'{HOJA_MANUALES}'!$D$2:$D${datos['n_revisar_casos'] + 1}"
+    _seccion(ws, fila, "LISTO PARA PEGAR")
+    fila = _tarjetas(ws, fila + 1, [
+        ("AUTOMÁTICOS", datos["n_automaticos"], AZUL_OSCURO_TARJETA),
+        ("CONFIRMADOS MANUALMENTE", f"=SUM({validos})", VERDE),
+        ("TOTAL LISTO PARA PEGAR", f"={datos['n_automaticos']}+SUM({validos})", VERDE),
+    ], ancho_tarjeta=2)
+    fila += 1
 
     _seccion(ws, fila, "IMPORTES (Bs)")
     fila += 1
@@ -649,6 +693,9 @@ def escribir(
     fechas_cbb = [r.fecha for r in registros if r.fecha is not None]
     encontrados = sum(len(por_estado[e]) for e in (M.ESTADO_SEGURO, M.ESTADO_PROBABLE, M.ESTADO_REVISAR))
 
+    automaticos = por_estado[M.ESTADO_SEGURO] + por_estado[M.ESTADO_PROBABLE]
+    revisar = por_estado[M.ESTADO_REVISAR]
+
     wb = Workbook()
     wb.remove(wb.active)
 
@@ -671,22 +718,22 @@ def escribir(
         "distribucion": conteo,
         "estadisticas": stats,
         "alertas": alertas,
+        "n_automaticos": len(automaticos),
+        "n_revisar_casos": len(revisar),
     })
 
-    _hoja_para_pegar(wb.create_sheet("PARA_PEGAR_CBB"),
-                     por_estado[M.ESTADO_SEGURO] + por_estado[M.ESTADO_PROBABLE])
+    _hoja_para_pegar(wb.create_sheet("PARA_PEGAR_CBB"), automaticos, len(revisar))
 
-    revisar = por_estado[M.ESTADO_REVISAR]
     candidatos = {r.registro.fila_excel: candidatos_mismo_dia_monto(r, movimientos) for r in revisar}
     rangos = _hoja_candidatos(wb.create_sheet(HOJA_CANDIDATOS), candidatos)
     _hoja_revisar(wb.create_sheet("REVISAR_MANUAL"), revisar, candidatos, rangos)
+    _hoja_manuales(wb.create_sheet(HOJA_MANUALES), revisar, len(automaticos))
 
     _hoja_sin_match(wb.create_sheet("SIN_MATCH"), sin_match, tipos)
     _hoja_tarjeta(wb.create_sheet("TARJETA"), por_estado[M.ESTADO_NO_QR])
-    _hoja_auditoria(wb.create_sheet("AUDITORIA_EXCEPCIONES"),
-                    por_estado[M.ESTADO_PROBABLE] + revisar + sin_match, tipos)
-    _hoja_todos(wb.create_sheet("TODOS"), resultados, cfg)
-    wb.move_sheet(HOJA_CANDIDATOS, offset=len(wb.sheetnames))
+    _hoja_ingresos(wb.create_sheet("INGRESOS_NORMALIZADOS"), registros)
+    for oculta in (HOJA_CANDIDATOS, HOJA_MANUALES):
+        wb.move_sheet(oculta, offset=len(wb.sheetnames))
 
     wb.save(salida)
     return salida
