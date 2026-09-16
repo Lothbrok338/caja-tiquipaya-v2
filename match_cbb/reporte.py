@@ -11,6 +11,7 @@ from typing import Any, Callable, Sequence
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 
 import matcher as M
 
@@ -22,6 +23,8 @@ ROJO = ("B71C1C", "FFEBEE")
 ROJO_INTENSO = "FFCDD2"
 GRIS = ("616161", "F5F5F5")
 AZUL_OSCURO = ("1F4E79", "FFFFFF")
+INDIGO = ("283593", "E8EAF6")
+INDIGO_EDITABLE = "C5CAE9"
 ROJO_TEXTO = "C62828"
 
 COLOR_POR_ESTADO = {
@@ -33,12 +36,21 @@ COLOR_POR_ESTADO = {
     M.ESTADO_NO_QR: GRIS[1],
 }
 
+# El usuario nunca ve el codigo interno NO_QR.
+ETIQUETA_ESTADO = {M.ESTADO_NO_QR: "TARJETA"}
+OBSERVACION_TARJETA = "Pago con tarjeta - fuera del cruce QR"
+
 FECHA_HORA = "DD/MM/YYYY HH:MM:SS"
+HORA = "HH:MM:SS"
 MONEDA = "#,##0.00"
 BORDE = Border(*(Side(style="thin", color="D0D0D0"),) * 4)
 
 SIN_MATCH_CORTE = "SIN_MATCH_CORTE_BCP"
 SIN_MATCH_REAL = "SIN_MATCH_REAL"
+
+HOJA_CANDIDATOS = "_CANDIDATOS"
+DECISIONES = ("CONFIRMAR MATCH", "DESCARTAR", "PENDIENTE")
+DECISION_POR_DEFECTO = "PENDIENTE"
 
 ETIQUETAS_ESTADISTICA = {
     "minimo": "Mínimo (seg)", "mediana": "Mediana (seg)", "p90": "Percentil 90 (seg)",
@@ -69,6 +81,21 @@ def _delta_con_signo(res: M.Resultado) -> float | None:
 
 def _cd(res: M.Resultado) -> Any:
     return res.movimiento.cd_confirmacion if res.movimiento else None
+
+
+def _estado_visible(res: M.Resultado) -> str:
+    return ETIQUETA_ESTADO.get(res.estado, res.estado)
+
+
+def _motivo_visible(res: M.Resultado) -> str:
+    return OBSERVACION_TARJETA if res.estado == M.ESTADO_NO_QR else res.motivo
+
+
+def _bs(valor: float | None) -> str:
+    """Importe en formato boliviano: 2.596,00"""
+    if valor is None:
+        return ""
+    return f"{valor:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
 
 
 def _observacion_pegar(res: M.Resultado) -> str:
@@ -199,30 +226,159 @@ def _hoja_para_pegar(ws, resultados: Sequence[M.Resultado]) -> None:
                     relleno=lambda r: COLOR_POR_ESTADO.get(r.estado))
 
 
-def _hoja_revisar(ws, resultados: Sequence[M.Resultado]) -> None:
-    columnas = [
-        *_columnas_comunes(),
-        Columna("Fecha y hora BCP", lambda r: r.movimiento.fecha_hora if r.movimiento else None, FECHA_HORA, ancho=21),
-        Columna("Dif. seg", lambda r: r.diferencia_seg, "0", ancho=9),
-        Columna("Delta con signo", _delta_con_signo, "+0;-0;0", ancho=15),
-        Columna("Nro Oper BCP", lambda r: r.movimiento.nro_oper if r.movimiento else None, ancho=14),
-        Columna("Glosa BCP", lambda r: r.movimiento.glosa.strip() if r.movimiento else None, ancho=24),
-        Columna("Cd. Confirmación BCP", lambda r: _cd(r), ancho=18),
-        Columna("Candidatos", lambda r: r.candidatos, "0", ancho=11),
-        Columna("2º mejor (seg)", lambda r: r.segundo_delta, "0", ancho=13),
-        Columna("Margen vs 2º", lambda r: r.margen, "0", ancho=13),
-        Columna("Motivo de revisión", _motivo_revision, ancho=40),
-        Columna("Acción sugerida", _accion_sugerida, ancho=34),
-    ]
-    _escribir_tabla(ws, columnas, resultados, encabezado=NARANJA, relleno=lambda r: NARANJA[1])
+def candidatos_mismo_dia_monto(
+    res: M.Resultado, movimientos: Sequence[M.MovimientoBCP]
+) -> list[tuple[M.MovimientoBCP, float]]:
+    """Todos los movimientos BCP del mismo dia y mismo importe, por cercania horaria.
 
-    # Resaltar en rojo la diferencia cuando supera los 30 s.
-    col_dif = next(i for i, c in enumerate(columnas, start=1) if c.titulo == "Dif. seg")
+    Es una vista mas amplia que la del motor (que ademas exige glosa QR y ventana de
+    tiempo): aqui la persona decide, asi que ve todo lo que podria corresponder.
+    """
+    reg = res.registro
+    if reg.fecha_hora is None or reg.centavos is None:
+        return []
+    candidatos = [
+        (m, abs((reg.fecha_hora - m.fecha_hora).total_seconds()))
+        for m in movimientos
+        if m.fecha == reg.fecha and m.centavos == reg.centavos and m.fecha_hora is not None
+    ]
+    return sorted(candidatos, key=lambda par: (par[1], par[0].fila_excel))
+
+
+def _etiqueta_candidato(mov: M.MovimientoBCP, delta: float) -> str:
+    """Etiqueta legible del desplegable: sin esto la lista solo mostraria el Nro Oper."""
+    return (f"{mov.nro_oper} | {mov.fecha_hora:%H:%M:%S} | Bs {_bs(M.centavos_a_float(mov.centavos))}"
+            f" | {mov.glosa.strip()[:22]} | Δ {delta:.0f} s")
+
+
+def _hoja_candidatos(ws, candidatos: dict[int, list[tuple[M.MovimientoBCP, float]]]) -> dict[int, tuple[int, int]]:
+    """Tabla auxiliar oculta que alimenta el desplegable y las formulas de la zona de decision.
+
+    Devuelve, por fila de Excel del pago de Cochabamba, el rango de sus candidatos.
+    """
+    ws.append(["Etiqueta", "Nro Oper", "FechaHora", "Importe", "Glosa", "Cd Confirmacion", "Dif seg"])
+    rangos: dict[int, tuple[int, int]] = {}
+    fila = 2
+    for clave, lista in candidatos.items():
+        inicio = fila
+        for mov, delta in lista:
+            ws.append([
+                _etiqueta_candidato(mov, delta),
+                mov.nro_oper,
+                mov.fecha_hora,
+                M.centavos_a_float(mov.centavos),
+                mov.glosa.strip(),
+                # Cadena vacia y no None: INDEX sobre una celda vacia devolveria 0.
+                "" if mov.cd_confirmacion is None else mov.cd_confirmacion,
+                round(delta),
+            ])
+            ws.cell(row=fila, column=3).number_format = FECHA_HORA
+            ws.cell(row=fila, column=4).number_format = MONEDA
+            fila += 1
+        if fila > inicio:
+            rangos[clave] = (inicio, fila - 1)
+    ws.sheet_state = "hidden"
+    return rangos
+
+
+def _hoja_revisar(
+    ws,
+    resultados: Sequence[M.Resultado],
+    candidatos: dict[int, list[tuple[M.MovimientoBCP, float]]],
+    rangos: dict[int, tuple[int, int]],
+) -> None:
+    def lista(res: M.Resultado) -> list[tuple[M.MovimientoBCP, float]]:
+        return candidatos.get(res.registro.fila_excel, [])
+
+    def observacion(res: M.Resultado) -> str:
+        cantidad = len(lista(res))
+        if cantidad == 0:
+            return "Sin candidatos del mismo día y monto"
+        if cantidad == 1:
+            return "Candidato único"
+        return f"Existen {cantidad} candidatos - revisar selección"
+
+    def etiqueta_automatica(res: M.Resultado) -> str | None:
+        if res.movimiento is None:
+            return None
+        for mov, delta in lista(res):
+            if mov.fila_excel == res.movimiento.fila_excel:
+                return _etiqueta_candidato(mov, delta)
+        return None
+
+    analisis = [
+        *_columnas_comunes(),
+        Columna("Candidato automático BCP", etiqueta_automatica, ancho=52),
+        Columna("Dif. seg automática", lambda r: r.diferencia_seg, "0", ancho=11),
+        Columna("Delta con signo", _delta_con_signo, "+0;-0;0", ancho=15),
+        Columna("Cantidad candidatos", lambda r: len(lista(r)), "0", ancho=12),
+        Columna("Observación", observacion, ancho=34),
+    ]
+    decision = [
+        Columna("Candidato elegido", etiqueta_automatica, ancho=52),
+        Columna("Nro Oper elegido", lambda r: None, ancho=16),
+        Columna("Fecha/hora BCP elegida", lambda r: None, FECHA_HORA, ancho=21),
+        Columna("Importe BCP elegido", lambda r: None, MONEDA, ancho=15),
+        Columna("Glosa BCP elegida", lambda r: None, ancho=26),
+        Columna("Cd. Confirmación actual", lambda r: None, ancho=18),
+        Columna("Dif. seg elegido", lambda r: None, "0", ancho=12),
+        Columna("Decisión", lambda r: DECISION_POR_DEFECTO, ancho=18),
+    ]
+
+    _escribir_tabla(ws, analisis + decision, resultados, encabezado=NARANJA, relleno=lambda r: NARANJA[1])
+    _pintar_zona_decision(ws, len(analisis), len(decision), len(resultados))
+    _formulas_decision(ws, resultados, rangos, primera_columna=len(analisis) + 1)
+
+    col_dif = next(i for i, c in enumerate(analisis, start=1) if c.titulo == "Dif. seg automática")
     for i, res in enumerate(resultados, start=2):
         if res.diferencia_seg is not None and res.diferencia_seg > 30:
             celda = ws.cell(row=i, column=col_dif)
             celda.font = Font(bold=True, color=ROJO_TEXTO)
             celda.fill = PatternFill("solid", fgColor=ROJO_INTENSO)
+
+
+def _pintar_zona_decision(ws, n_analisis: int, n_decision: int, n_filas: int) -> None:
+    """J:Q se distingue del analisis; J y Q son los dos campos que se manipulan."""
+    editables = (n_analisis + 1, n_analisis + n_decision)
+    for columna in range(n_analisis + 1, n_analisis + n_decision + 1):
+        encabezado = ws.cell(row=1, column=columna)
+        encabezado.fill = PatternFill("solid", fgColor=INDIGO[0])
+        for fila in range(2, n_filas + 2):
+            celda = ws.cell(row=fila, column=columna)
+            celda.fill = PatternFill("solid", fgColor=
+                                     INDIGO_EDITABLE if columna in editables else INDIGO[1])
+            if columna in editables:
+                celda.font = Font(bold=True)
+
+
+def _formulas_decision(ws, resultados: Sequence[M.Resultado], rangos: dict[int, tuple[int, int]],
+                       primera_columna: int) -> None:
+    """K:P se resuelven con INDEX/MATCH sobre la tabla auxiliar segun lo elegido en J."""
+    col_elegido = get_column_letter(primera_columna)
+    aux = f"'{HOJA_CANDIDATOS}'"
+    validacion_decision = DataValidation(
+        type="list", formula1='"' + ",".join(DECISIONES) + '"', allow_blank=False
+    )
+    ws.add_data_validation(validacion_decision)
+
+    for i, res in enumerate(resultados, start=2):
+        rango = rangos.get(res.registro.fila_excel)
+        if rango:
+            inicio, fin = rango
+            validacion = DataValidation(
+                type="list", formula1=f"{aux}!$A${inicio}:$A${fin}", allow_blank=True
+            )
+            ws.add_data_validation(validacion)
+            validacion.add(ws.cell(row=i, column=primera_columna))
+
+            for desplazamiento, columna_aux in enumerate("BCDEFG", start=1):
+                indice = (f"INDEX({aux}!${columna_aux}${inicio}:${columna_aux}${fin},"
+                          f"MATCH(${col_elegido}{i},{aux}!$A${inicio}:$A${fin},0))")
+                # ISBLANK: sin esto una celda vacia (Cd. Confirmacion) se mostraria como 0.
+                ws.cell(row=i, column=primera_columna + desplazamiento).value = (
+                    f'=IFERROR(IF(ISBLANK({indice}),"",{indice}),"")'
+                )
+        validacion_decision.add(ws.cell(row=i, column=primera_columna + 7))
 
 
 def _hoja_sin_match(ws, resultados: Sequence[M.Resultado], tipos: dict[int, str]) -> None:
@@ -244,13 +400,13 @@ def _hoja_sin_match(ws, resultados: Sequence[M.Resultado], tipos: dict[int, str]
                     relleno=lambda r: ROJO_INTENSO if tipos[r.registro.fila_excel] == SIN_MATCH_REAL else ROJO[1])
 
 
-def _hoja_no_qr(ws, resultados: Sequence[M.Resultado]) -> None:
+def _hoja_tarjeta(ws, resultados: Sequence[M.Resultado]) -> None:
     columnas = [
         *_columnas_comunes(),
         Columna("Tipo Pago", lambda r: r.registro.crudo.get("Tipo Pago"), ancho=14),
         Columna("Canal de Pago", lambda r: r.registro.crudo.get("Canal de Pago"), ancho=15),
         Columna("Estado", lambda r: r.registro.crudo.get("Estado"), ancho=12),
-        Columna("Observación", lambda r: "No incluido en cruce QR", ancho=28),
+        Columna("Observación", lambda r: OBSERVACION_TARJETA, ancho=38),
     ]
     _escribir_tabla(ws, columnas, resultados, encabezado=GRIS, relleno=lambda r: GRIS[1])
 
@@ -270,6 +426,9 @@ def _hoja_auditoria(ws, resultados: Sequence[M.Resultado], tipos: dict[int, str]
         Columna("Nro Oper BCP", lambda r: r.movimiento.nro_oper if r.movimiento else None, ancho=14),
         Columna("Glosa BCP", lambda r: r.movimiento.glosa.strip() if r.movimiento else None, ancho=24),
         Columna("Cd. Confirmación BCP", lambda r: _cd(r), ancho=18),
+        Columna("Candidatos", lambda r: r.candidatos, "0", ancho=11),
+        Columna("2º mejor (seg)", lambda r: r.segundo_delta, "0", ancho=13),
+        Columna("Margen vs 2º", lambda r: r.margen, "0", ancho=13),
         Columna("Motivo", _motivo_revision, ancho=42),
         Columna("Comentario", lambda r: None, ancho=34),
     ]
@@ -280,7 +439,7 @@ def _hoja_auditoria(ws, resultados: Sequence[M.Resultado], tipos: dict[int, str]
 def _hoja_todos(ws, resultados: Sequence[M.Resultado], cfg: M.Config) -> None:
     columnas = [
         Columna("Nro", lambda r: r.registro.crudo.get("Nro"), "0", ancho=7),
-        Columna("Estado", lambda r: r.estado, ancho=18),
+        Columna("Estado", _estado_visible, ancho=18),
         *_columnas_comunes(),
         Columna("Nit/C.I.", lambda r: r.registro.crudo.get("Nit/C.I."), ancho=14),
         Columna("Razon Social", lambda r: r.registro.crudo.get("Razon Social"), ancho=22),
@@ -298,28 +457,12 @@ def _hoja_todos(ws, resultados: Sequence[M.Resultado], cfg: M.Config) -> None:
         Columna("Conflicto ciudad", lambda r: "SI" if M._conflicto_ciudad(r, cfg) else "", ancho=15),
         Columna("Candidatos", lambda r: r.candidatos, "0", ancho=11),
         Columna("Ambiguo", lambda r: "SI" if r.ambiguo else "", ancho=9),
-        Columna("Motivo", lambda r: r.motivo, ancho=42),
+        Columna("Motivo", _motivo_visible, ancho=42),
         Columna("Fila Excel CBB", lambda r: r.registro.fila_excel, "0", ancho=13),
         Columna("Fila Excel BCP", lambda r: r.movimiento.fila_excel if r.movimiento else None, "0", ancho=13),
     ]
     _escribir_tabla(ws, columnas, resultados, encabezado=AZUL_OSCURO,
                     relleno=lambda r: COLOR_POR_ESTADO.get(r.estado))
-
-
-FORMATOS_RAW = {
-    "FechaHora_CBB": FECHA_HORA, "BCP_FechaHora": FECHA_HORA, "BCP_Fecha": "DD/MM/YYYY",
-    "Monto": MONEDA, "BCP_Importe": MONEDA,
-}
-
-
-def _hoja_raw(ws, resultados: Sequence[M.Resultado], cfg: M.Config) -> None:
-    """Salida tecnica intacta: nombres de campo originales, para trazabilidad."""
-    filas = M.a_filas(resultados, cfg)
-    columnas = [
-        Columna(nombre, lambda fila, clave=nombre: fila[clave], FORMATOS_RAW.get(nombre))
-        for nombre in M.COLUMNAS_SALIDA
-    ]
-    _escribir_tabla(ws, columnas, filas, encabezado=GRIS)
 
 
 # --------------------------------------------------------------------------- #
@@ -340,7 +483,7 @@ def _hoja_resumen(ws, datos: dict[str, Any]) -> None:
     fila = _tarjetas(ws, fila + 1, [
         ("Registros Cochabamba", datos["total_cbb"], GRIS),
         ("QR Cochabamba", datos["total_qr"], GRIS),
-        ("No QR", datos["total_no_qr"], GRIS),
+        ("Tarjeta", datos["total_tarjeta"], GRIS),
         ("Movimientos BCP", datos["total_bcp"], GRIS),
     ])
 
@@ -375,7 +518,7 @@ def _hoja_resumen(ws, datos: dict[str, Any]) -> None:
     fila += 1
     for texto, color in (("VERDE — MATCH SEGURO", VERDE[1]), ("AZUL — MATCH PROBABLE", AZUL[1]),
                          ("AMARILLO — REVISAR", NARANJA[1]), ("ROJO — SIN MATCH", ROJO[1]),
-                         ("GRIS — NO QR (no entra al cruce)", GRIS[1])):
+                         ("GRIS — TARJETA (fuera del cruce QR)", GRIS[1])):
         celda = ws.cell(row=fila, column=1, value=texto)
         celda.fill = PatternFill("solid", fgColor=color)
         celda.border = BORDE
@@ -513,7 +656,7 @@ def escribir(
         "periodo": (f"{min(fechas_cbb):%d/%m/%Y} a {max(fechas_cbb):%d/%m/%Y}" if fechas_cbb else "-"),
         "total_cbb": len(registros),
         "total_qr": len(qr),
-        "total_no_qr": len(por_estado[M.ESTADO_NO_QR]),
+        "total_tarjeta": len(por_estado[M.ESTADO_NO_QR]),
         "total_bcp": len(movimientos),
         "n_seguro": len(por_estado[M.ESTADO_SEGURO]),
         "n_probable": len(por_estado[M.ESTADO_PROBABLE]),
@@ -532,15 +675,18 @@ def escribir(
 
     _hoja_para_pegar(wb.create_sheet("PARA_PEGAR_CBB"),
                      por_estado[M.ESTADO_SEGURO] + por_estado[M.ESTADO_PROBABLE])
-    _hoja_revisar(wb.create_sheet("REVISAR_MANUAL"), por_estado[M.ESTADO_REVISAR])
+
+    revisar = por_estado[M.ESTADO_REVISAR]
+    candidatos = {r.registro.fila_excel: candidatos_mismo_dia_monto(r, movimientos) for r in revisar}
+    rangos = _hoja_candidatos(wb.create_sheet(HOJA_CANDIDATOS), candidatos)
+    _hoja_revisar(wb.create_sheet("REVISAR_MANUAL"), revisar, candidatos, rangos)
+
     _hoja_sin_match(wb.create_sheet("SIN_MATCH"), sin_match, tipos)
-    _hoja_no_qr(wb.create_sheet("NO_QR"), por_estado[M.ESTADO_NO_QR])
+    _hoja_tarjeta(wb.create_sheet("TARJETA"), por_estado[M.ESTADO_NO_QR])
     _hoja_auditoria(wb.create_sheet("AUDITORIA_EXCEPCIONES"),
-                    por_estado[M.ESTADO_PROBABLE] + por_estado[M.ESTADO_REVISAR] + sin_match, tipos)
+                    por_estado[M.ESTADO_PROBABLE] + revisar + sin_match, tipos)
     _hoja_todos(wb.create_sheet("TODOS"), resultados, cfg)
-    _hoja_raw(wb.create_sheet("RAW_MATCH_SEGURO"), por_estado[M.ESTADO_SEGURO], cfg)
-    _hoja_raw(wb.create_sheet("RAW_MATCH_PROBABLE"), por_estado[M.ESTADO_PROBABLE], cfg)
-    _hoja_raw(wb.create_sheet("RAW_REVISAR"), por_estado[M.ESTADO_REVISAR], cfg)
+    wb.move_sheet(HOJA_CANDIDATOS, offset=len(wb.sheetnames))
 
     wb.save(salida)
     return salida

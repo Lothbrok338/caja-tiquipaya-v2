@@ -282,9 +282,12 @@ def test_flujo_completo_no_modifica_los_originales(tmp_path):
     assert {r: (os.path.getsize(r), open(r, "rb").read()) for r in (ruta_cbb, ruta_bcp)} == antes
     assert salida.exists()
     wb = openpyxl.load_workbook(salida)
-    assert wb.sheetnames == ["RESUMEN_VISUAL", "PARA_PEGAR_CBB", "REVISAR_MANUAL", "SIN_MATCH",
-                             "NO_QR", "AUDITORIA_EXCEPCIONES", "TODOS", "RAW_MATCH_SEGURO",
-                             "RAW_MATCH_PROBABLE", "RAW_REVISAR"]
+    visibles = [n for n in wb.sheetnames if wb[n].sheet_state == "visible"]
+    assert visibles == ["RESUMEN_VISUAL", "PARA_PEGAR_CBB", "REVISAR_MANUAL", "SIN_MATCH",
+                        "TARJETA", "AUDITORIA_EXCEPCIONES", "TODOS"]
+    import reporte
+
+    assert wb[reporte.HOJA_CANDIDATOS].sheet_state == "hidden"
     assert len(datos["registros"]) == 2  # el pie de totales no se cuenta como registro
     estados = {r.registro.crudo["Numero Factura"]: r.estado for r in datos["resultados"]}
     assert estados == {"16180": M.ESTADO_SEGURO, "16181": M.ESTADO_NO_QR}
@@ -377,8 +380,75 @@ def test_hojas_operativas_traen_los_casos_correctos(tmp_path):
     assert [c.value for c in wb["PARA_PEGAR_CBB"][1]][:2] == ["Estado", "Factura"]
     estados = [f[0] for f in wb["PARA_PEGAR_CBB"].iter_rows(min_row=2, values_only=True)]
     assert estados == [M.ESTADO_SEGURO]
-    no_qr = list(wb["NO_QR"].iter_rows(min_row=2, values_only=True))
-    assert len(no_qr) == 1 and no_qr[0][-1] == "No incluido en cruce QR"
+    tarjeta = list(wb["TARJETA"].iter_rows(min_row=2, values_only=True))
+    assert len(tarjeta) == 1 and tarjeta[0][-1] == "Pago con tarjeta - fuera del cruce QR"
+    assert "NO_QR" not in str(list(wb["TODOS"].iter_rows(min_row=2, values_only=True)))
+
+
+def test_candidatos_para_revision_incluyen_todo_el_dia_y_monto():
+    import reporte
+
+    # El motor solo mira glosas QR dentro de la ventana; la revision humana ve mas.
+    res = M.emparejar(
+        [reg(1, t(10, 0, 0), 500)],
+        [mov(10, t(10, 0, 50), 500, "A"), mov(11, t(18, 0, 0), 500, "B"),
+         mov(12, t(10, 0, 10), 900, "OTRO_MONTO")],
+        CFG,
+    )[0]
+    assert res.estado == M.ESTADO_REVISAR
+    candidatos = reporte.candidatos_mismo_dia_monto(res, [
+        mov(10, t(10, 0, 50), 500, "A"), mov(11, t(18, 0, 0), 500, "B"),
+        mov(12, t(10, 0, 10), 900, "OTRO_MONTO"),
+    ])
+    assert [m.nro_oper for m, _ in candidatos] == ["A", "B"]  # ordenados por cercania
+    assert [round(d) for _, d in candidatos] == [50, 28800]
+
+
+def test_etiqueta_del_desplegable_distingue_candidatos():
+    import reporte
+
+    etiqueta = reporte._etiqueta_candidato(
+        mov(10, t(19, 1, 18), 2596, 940311, glosa="QR DE CARRERA RECALD"), 42.0
+    )
+    assert etiqueta == "940311 | 19:01:18 | Bs 2.596,00 | QR DE CARRERA RECALD | Δ 42 s"
+
+
+def test_zona_de_decision_tiene_desplegable_y_formulas(tmp_path):
+    import reporte
+
+    registros = [reg(1, t(10, 0, 0), 500)]
+    movimientos = [mov(10, t(10, 0, 50), 500, "A"), mov(11, t(10, 1, 30), 500, "B")]
+    resultados = M.emparejar(registros, movimientos, CFG)
+    assert resultados[0].estado == M.ESTADO_REVISAR
+
+    salida = tmp_path / "MATCH_CBB.xlsx"
+    reporte.escribir(resultados, registros, movimientos, [], CFG, str(salida))
+
+    wb = openpyxl.load_workbook(salida)
+    ws = wb["REVISAR_MANUAL"]
+    assert [c.value for c in ws[1]][9:] == [
+        "Candidato elegido", "Nro Oper elegido", "Fecha/hora BCP elegida", "Importe BCP elegido",
+        "Glosa BCP elegida", "Cd. Confirmación actual", "Dif. seg elegido", "Decisión",
+    ]
+    # J preseleccionado con el candidato que eligio el algoritmo.
+    assert ws["J2"].value.startswith("A | ")
+    assert ws["E2"].value == ws["J2"].value
+    assert ws["Q2"].value == "PENDIENTE"
+    # K:P se calculan a partir de J.
+    for celda in ("K2", "L2", "M2", "N2", "O2", "P2"):
+        assert ws[celda].value.startswith("=IFERROR(IF(ISBLANK(INDEX(")
+        assert "$J2" in ws[celda].value
+
+    listas = [dv for dv in ws.data_validations.dataValidation if dv.type == "list"]
+    rangos = {str(dv.sqref): dv.formula1 for dv in listas}
+    assert rangos["J2"].startswith(f"'{reporte.HOJA_CANDIDATOS}'!$A$")
+    assert rangos["Q2"] == '"CONFIRMAR MATCH,DESCARTAR,PENDIENTE"'
+
+    aux = wb[reporte.HOJA_CANDIDATOS]
+    assert aux.sheet_state == "hidden"
+    assert [f[0] for f in aux.iter_rows(min_row=2, values_only=True)] == [
+        ws["J2"].value, "B | 10:01:30 | Bs 500,00 | QR DE PRUEBA | Δ 90 s",
+    ]
 
 
 def test_separa_el_sin_match_por_corte_del_extracto():
