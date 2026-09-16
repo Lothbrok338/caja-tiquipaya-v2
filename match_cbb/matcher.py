@@ -525,6 +525,9 @@ class Resultado:
     margen: float | None
     ambiguo: bool
     motivo: str
+    # Referencia informativa cuando no hubo asignacion: no interviene en el match.
+    candidato_cercano: "MovimientoBCP | None" = None
+    candidato_cercano_delta: float | None = None
 
 
 def emparejar(
@@ -553,7 +556,7 @@ def emparejar(
             resultados.append(_resultado_simple(reg, ESTADO_NO_QR, "Tipo de pago no QR"))
             continue
         if not reg.utilizable:
-            resultados.append(_resultado_simple(reg, ESTADO_INCOMPLETO, ", ".join(reg.problemas) or "Fecha o monto invalido"))
+            resultados.append(_resultado_simple(reg, ESTADO_INCOMPLETO, ", ".join(reg.problemas) or "Fecha o monto inválido"))
             continue
         grupos_cbb.setdefault((reg.fecha, reg.centavos), []).append(reg)
 
@@ -574,7 +577,7 @@ def _emparejar_grupo(
     cfg: Config,
 ) -> list[Resultado]:
     if not candidatos:
-        return [_resultado_simple(r, ESTADO_SIN_MATCH, "Sin movimiento BCP en la misma fecha y monto") for r in grupo]
+        return [_resultado_simple(r, ESTADO_SIN_MATCH, "Sin ningún movimiento BCP con la misma fecha y monto") for r in grupo]
 
     deltas = np.array(
         [[abs((r.fecha_hora - m.fecha_hora).total_seconds()) for m in candidatos] for r in grupo],
@@ -598,17 +601,18 @@ def _emparejar_grupo(
 
         j = asignado_por_cbb.get(i)
         if j is None:
+            cercano = int(np.argmin(deltas[i]))
             if en_ventana:
-                motivo = "Candidatos ya asignados a otro pago"
+                motivo = "El movimiento BCP más cercano ya fue asignado a otro pago"
             else:
-                cercano = int(np.argmin(deltas[i]))
                 motivo = (
-                    f"Ningun movimiento BCP dentro de {cfg.revisar_seg:g} s; el mas cercano "
-                    f"con misma fecha y monto esta a {deltas[i, cercano]:.0f} s "
+                    f"Ningún movimiento BCP dentro de {cfg.revisar_seg:g} s; el más cercano "
+                    f"con la misma fecha y monto está a {deltas[i, cercano]:.0f} s "
                     f"(Nro Oper. {candidatos[cercano].nro_oper}, no asignado)"
                 )
             resultados.append(
-                Resultado(reg, None, None, ESTADO_SIN_MATCH, len(en_ventana), segundo, None, False, motivo)
+                Resultado(reg, None, None, ESTADO_SIN_MATCH, len(en_ventana), segundo, None, False, motivo,
+                          candidatos[cercano], round(float(deltas[i, cercano]), 3))
             )
             continue
 
@@ -622,7 +626,7 @@ def _emparejar_grupo(
         estado = _clasificar(delta, cfg)
         motivo = ""
         if libre_cercano and cfg.degradar_ambiguos and estado in (ESTADO_SEGURO, ESTADO_PROBABLE):
-            motivo = f"Degradado a REVISAR: otro movimiento BCP libre a <= {cfg.margen_ambiguo_seg:g} s"
+            motivo = f"Degradado a REVISAR: hay otro movimiento BCP libre a menos de {cfg.margen_ambiguo_seg:g} s"
             estado = ESTADO_REVISAR
         resultados.append(
             Resultado(reg, candidatos[j], round(delta, 3), estado, len(en_ventana), segundo, margen, libre_cercano, motivo)
@@ -676,16 +680,16 @@ def validar(
         f = norm_id(reg.crudo.get("Numero Factura"))
         if f:
             facturas[f] = facturas.get(f, 0) + 1
-    agregar("ALERTA", "Cochabamba: numeros de factura repetidos",
+    agregar("ALERTA", "Cochabamba: números de factura repetidos",
             sum(v - 1 for v in facturas.values() if v > 1))
 
     agregar("INFO", "BCP: movimientos con importe negativo (cargos, excluidos del cruce)",
             sum(1 for m in movimientos if m.centavos is not None and m.centavos < 0))
-    agregar("ALERTA", "BCP: movimientos sin fecha u hora valida",
+    agregar("ALERTA", "BCP: movimientos sin fecha u hora válida",
             sum(1 for m in movimientos if m.fecha_hora is None))
     agregar("ALERTA", "BCP: movimientos sin Nro Oper.",
             sum(1 for m in movimientos if not m.nro_oper_norm))
-    agregar("ALERTA", "BCP: importes no numericos",
+    agregar("ALERTA", "BCP: importes no numéricos",
             sum(1 for m in movimientos if m.centavos is None))
 
     opers: dict[str, int] = {}
@@ -699,10 +703,10 @@ def validar(
     for res in resultados:
         if res.movimiento is not None:
             usados[res.movimiento.fila_excel] = usados.get(res.movimiento.fila_excel, 0) + 1
-    agregar("CRITICO", "BCP: un mismo movimiento fue asignado a mas de un pago",
+    agregar("CRITICO", "BCP: un mismo movimiento fue asignado a más de un pago",
             sum(1 for v in usados.values() if v > 1))
 
-    agregar("ALERTA", "Casos con mas de un candidato dentro de la ventana",
+    agregar("ALERTA", "Casos con más de un candidato dentro de la ventana",
             sum(1 for r in resultados if r.candidatos > 1))
     agregar("ALERTA", "Casos ambiguos (otro movimiento BCP libre casi igual de cerca)",
             sum(1 for r in resultados if r.ambiguo))
@@ -714,7 +718,7 @@ def validar(
         agregar("ALERTA", f"Cochabamba: pagos fuera del rango del extracto BCP ({ini} a {fin})", fuera)
 
     conflictos = sum(1 for r in resultados if _conflicto_ciudad(r, cfg))
-    agregar("INFO", "Matches con Cd. Confirmacion de otra ciudad (no afecta el match)", conflictos)
+    agregar("INFO", "Matches con Cd. Confirmación de otra ciudad (no afecta el match)", conflictos)
     return alertas
 
 
@@ -901,42 +905,9 @@ def exportar(
     cfg: Config,
     salida: str,
 ) -> str:
-    import pandas as pd
+    import reporte
 
-    filas = a_filas(resultados, cfg)
-    todos = pd.DataFrame(filas, columns=COLUMNAS_SALIDA)
-    qr = todos[todos["Estado_match"] != ESTADO_NO_QR]
-    resumen = pd.DataFrame(
-        construir_resumen(registros, movimientos, resultados, alertas, cfg),
-        columns=["Concepto", "Valor"],
-    )
-
-    hojas = {
-        "RESUMEN": resumen,
-        "COCHABAMBA_MATCH": qr,
-        "MATCH_SEGURO": qr[qr["Estado_match"] == ESTADO_SEGURO],
-        "MATCH_PROBABLE": qr[qr["Estado_match"] == ESTADO_PROBABLE],
-        "REVISAR": qr[qr["Estado_match"] == ESTADO_REVISAR],
-        "SIN_MATCH": qr[qr["Estado_match"].isin([ESTADO_SIN_MATCH, ESTADO_INCOMPLETO])],
-        "NO_QR": todos[todos["Estado_match"] == ESTADO_NO_QR],
-        "TODOS": todos,
-    }
-    formatos = {"FechaHora_CBB": "DD/MM/YYYY HH:MM:SS", "BCP_Fecha": "DD/MM/YYYY",
-                "BCP_FechaHora": "DD/MM/YYYY HH:MM:SS", "Monto": "#,##0.00", "BCP_Importe": "#,##0.00"}
-    with pd.ExcelWriter(salida, engine="openpyxl") as writer:
-        for nombre, df in hojas.items():
-            df.to_excel(writer, sheet_name=nombre, index=False)
-            _formatear(writer.sheets[nombre], formatos)
-    return salida
-
-
-def _formatear(hoja, formatos: dict[str, str]) -> None:
-    columnas = {celda.value: celda.column for celda in hoja[1]}
-    for nombre, formato in formatos.items():
-        if nombre not in columnas:
-            continue
-        for (celda,) in hoja.iter_rows(min_row=2, min_col=columnas[nombre], max_col=columnas[nombre]):
-            celda.number_format = formato
+    return reporte.escribir(resultados, registros, movimientos, alertas, cfg, salida)
 
 
 # --------------------------------------------------------------------------- #

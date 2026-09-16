@@ -110,7 +110,7 @@ def test_bcp_nunca_se_reutiliza():
     sin_match = [r for r in res if r.movimiento is None]
     assert len(sin_match) == 1
     assert sin_match[0].estado == M.ESTADO_SIN_MATCH
-    assert "ya asignados" in sin_match[0].motivo
+    assert "ya fue asignado a otro pago" in sin_match[0].motivo
 
 
 # --------------------------------------------------------------------------- #
@@ -282,8 +282,9 @@ def test_flujo_completo_no_modifica_los_originales(tmp_path):
     assert {r: (os.path.getsize(r), open(r, "rb").read()) for r in (ruta_cbb, ruta_bcp)} == antes
     assert salida.exists()
     wb = openpyxl.load_workbook(salida)
-    assert wb.sheetnames == ["RESUMEN", "COCHABAMBA_MATCH", "MATCH_SEGURO", "MATCH_PROBABLE",
-                             "REVISAR", "SIN_MATCH", "NO_QR", "TODOS"]
+    assert wb.sheetnames == ["RESUMEN_VISUAL", "PARA_PEGAR_CBB", "REVISAR_MANUAL", "SIN_MATCH",
+                             "NO_QR", "AUDITORIA_EXCEPCIONES", "TODOS", "RAW_MATCH_SEGURO",
+                             "RAW_MATCH_PROBABLE", "RAW_REVISAR"]
     assert len(datos["registros"]) == 2  # el pie de totales no se cuenta como registro
     estados = {r.registro.crudo["Numero Factura"]: r.estado for r in datos["resultados"]}
     assert estados == {"16180": M.ESTADO_SEGURO, "16181": M.ESTADO_NO_QR}
@@ -359,6 +360,66 @@ def test_conversion_de_horas():
     assert M.a_time("10:49:10") == dt.time(10, 49, 10)
     assert M.a_time(0.45082) == dt.time(10, 49, 11)
     assert M.a_time(None) is None
+
+
+# --------------------------------------------------------------------------- #
+# Presentacion (reporte.py): no cambia ningun resultado, solo como se muestra
+# --------------------------------------------------------------------------- #
+
+def test_hojas_operativas_traen_los_casos_correctos(tmp_path):
+    ruta_cbb, ruta_bcp = tmp_path / "a.xlsx", tmp_path / "b.xlsx"
+    _crear_cbb(ruta_cbb)
+    _crear_bcp(ruta_bcp)
+    salida = tmp_path / "MATCH_CBB.xlsx"
+    M.ejecutar([str(ruta_cbb), str(ruta_bcp)], str(salida), CFG)
+
+    wb = openpyxl.load_workbook(salida)
+    assert [c.value for c in wb["PARA_PEGAR_CBB"][1]][:2] == ["Estado", "Factura"]
+    estados = [f[0] for f in wb["PARA_PEGAR_CBB"].iter_rows(min_row=2, values_only=True)]
+    assert estados == [M.ESTADO_SEGURO]
+    no_qr = list(wb["NO_QR"].iter_rows(min_row=2, values_only=True))
+    assert len(no_qr) == 1 and no_qr[0][-1] == "No incluido en cruce QR"
+
+
+def test_separa_el_sin_match_por_corte_del_extracto():
+    import reporte
+
+    inicio, fin = t(8, 0, 0), t(22, 0, 0)
+    despues = M.Resultado(reg(1, t(22, 30, 0), 500), None, None, M.ESTADO_SIN_MATCH, 0, None, None, False, "")
+    dentro = M.Resultado(reg(2, t(12, 0, 0), 500), None, None, M.ESTADO_SIN_MATCH, 0, None, None, False, "")
+    assert reporte._tipo_sin_match(despues, inicio, fin) == reporte.SIN_MATCH_CORTE
+    assert reporte._tipo_sin_match(dentro, inicio, fin) == reporte.SIN_MATCH_REAL
+
+
+def test_prioridad_de_auditoria():
+    import reporte
+
+    sin_match = M.Resultado(reg(1, t(10, 0), 500), None, None, M.ESTADO_SIN_MATCH, 0, None, None, False, "")
+    revisar = M.Resultado(reg(2, t(10, 0), 500), None, 60.0, M.ESTADO_REVISAR, 1, None, None, False, "")
+    probable = M.Resultado(reg(3, t(10, 0), 500), None, 20.0, M.ESTADO_PROBABLE, 1, None, None, False, "")
+    assert reporte._prioridad(sin_match, reporte.SIN_MATCH_REAL) == "ALTA"
+    assert reporte._prioridad(sin_match, reporte.SIN_MATCH_CORTE) == "MEDIA"
+    assert reporte._prioridad(revisar, None) == "MEDIA"
+    assert reporte._prioridad(probable, None) == "BAJA"
+
+
+def test_observacion_humana_menciona_cd_confirmacion_existente():
+    import reporte
+
+    con_cd = M.emparejar([reg(1, t(11, 38, 56), 660)], [mov(10, t(11, 38, 55), 660, 1, cd="SUCRE")], CFG)[0]
+    sin_cd = M.emparejar([reg(1, t(11, 38, 56), 660)], [mov(10, t(11, 38, 55), 660, 1)], CFG)[0]
+    assert reporte._observacion_pegar(sin_cd) == "Listo para usar"
+    assert "SUCRE" in reporte._observacion_pegar(con_cd)
+
+
+def test_delta_con_signo_distingue_el_orden_de_los_hechos():
+    import reporte
+
+    despues = M.emparejar([reg(1, t(10, 0, 5), 500)], [mov(10, t(10, 0, 0), 500, 1)], CFG)[0]
+    antes = M.emparejar([reg(1, t(10, 0, 0), 500)], [mov(10, t(10, 0, 5), 500, 1)], CFG)[0]
+    assert reporte._delta_con_signo(despues) == 5.0
+    assert reporte._delta_con_signo(antes) == -5.0
+    assert despues.diferencia_seg == antes.diferencia_seg == 5.0
 
 
 def test_registro_sin_fecha_queda_incompleto():

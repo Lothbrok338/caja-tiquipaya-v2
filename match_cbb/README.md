@@ -105,13 +105,22 @@ sedes. **No decide el match y no se modifica.** Solo se muestra:
 
 ## Salida: `MATCH_CBB.xlsx`
 
-| Hoja | Contenido |
-|---|---|
-| `RESUMEN` | Parámetros, universo, resultado, importes, distribución de segundos y validaciones |
-| `COCHABAMBA_MATCH` | Los pagos QR de Cochabamba con su movimiento BCP |
-| `MATCH_SEGURO` / `MATCH_PROBABLE` / `REVISAR` / `SIN_MATCH` | Subconjuntos por estado |
-| `NO_QR` | Pagos que no son QR (no se cruzan) |
-| `TODOS` | Todo el reporte de Cochabamba |
+El formato lo arma `reporte.py`, que solo presenta: no decide ningún match.
+
+| # | Hoja | Para qué sirve |
+|---|---|---|
+| 1 | `RESUMEN_VISUAL` | Dashboard: totales, importes, leyenda de colores, distribución de tiempos y validaciones |
+| 2 | **`PARA_PEGAR_CBB`** | **Hoja de trabajo.** Los casos utilizables (seguros + probables) con su `Nro Oper.` |
+| 3 | `REVISAR_MANUAL` | Solo los `REVISAR`, con delta con signo, candidatos y acción sugerida |
+| 4 | `SIN_MATCH` | Separa `SIN_MATCH_CORTE_BCP` (el extracto no cubre la fecha) de `SIN_MATCH_REAL`, con el candidato más cercano como referencia |
+| 5 | `NO_QR` | Pagos que no entran al cruce QR (Tarjeta D/C) |
+| 6 | `AUDITORIA_EXCEPCIONES` | Probables + revisar + sin match, ordenados por prioridad, con columna en blanco para comentarios |
+| 7 | `TODOS` | Todo el reporte de Cochabamba, coloreado por estado |
+| 8-10 | `RAW_MATCH_SEGURO`, `RAW_MATCH_PROBABLE`, `RAW_REVISAR` | Salida técnica con los nombres de campo internos, para trazabilidad |
+
+Colores: verde = seguro, azul = probable, amarillo = revisar, rojo = sin match, gris = no QR.
+Todas las hojas operativas llevan autofiltro, primera fila congelada, fecha `dd/mm/yyyy hh:mm:ss`
+y montos `#,##0.00`.
 
 ## Validaciones
 

@@ -1,5 +1,4 @@
 # Dependencias del matcher Cochabamba vs BCP (independientes del motor Caja Tiquipaya).
-pandas>=2.0
 numpy>=1.24
 scipy>=1.10
 openpyxl>=3.1
