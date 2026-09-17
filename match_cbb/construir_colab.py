@@ -1,6 +1,6 @@
-"""Genera MATCH_CBB_COLAB.txt: el mismo codigo, en una sola celda de Google Colab.
+"""Genera QUICKVALLE_COLAB.txt: el mismo codigo, en una sola celda de Google Colab.
 
-matcher.py y reporte.py se empotran literalmente, sin reescribirlos, para que la
+matcher.py, reporte.py y cierre.py se empotran literalmente, sin reescribirlos, para que la
 version Colab no pueda desviarse de la aprobada. Regenerar con:
 
     python match_cbb/construir_colab.py
@@ -11,19 +11,23 @@ from __future__ import annotations
 import pathlib
 
 RAIZ = pathlib.Path(__file__).resolve().parent
-SALIDA = RAIZ / "MATCH_CBB_COLAB.txt"
+SALIDA = RAIZ / "QUICKVALLE_COLAB.txt"
 
-CABECERA = '''# =============================================================================
-# MATCH_CBB - Cruce del reporte de Ingresos Cochabamba contra el extracto BCP.
+CABECERA = '''#@title ▶ EJECUTAR QUICKVALLE { display-mode: "form" }
+# =============================================================================
+# QUICKVALLE - Cruce del reporte de Ingresos Cochabamba contra el extracto BCP.
 #
 # COMO SE USA: copiar TODO este contenido en UNA sola celda de Google Colab y
-# ejecutarla. Pide los dos archivos, genera MATCH_CBB.xlsx y lo descarga.
+# ejecutarla. Queda plegada como formulario; basta pulsar el boton de ejecutar.
+#
+# Sube 2 archivos (Ingresos + BCP) o 3 (ademas el QUICKVALLE de un cierre
+# anterior, cuyos matches quedan congelados). Genera QUICKVALLE.xlsx y lo baja.
 #
 # Los archivos subidos son solo lectura: nunca se escribe sobre ellos.
 # No necesita IA, tokens, cuentas ni conexion a ningun servicio externo.
 #
-# Este archivo se genera desde matcher.py y reporte.py con construir_colab.py:
-# el codigo del motor y del reporte va empotrado tal cual, sin modificaciones.
+# Este archivo se genera desde matcher.py, reporte.py y cierre.py con
+# construir_colab.py: el codigo va empotrado tal cual, sin modificaciones.
 # =============================================================================
 
 !pip install -q openpyxl xlrd scipy numpy
@@ -31,44 +35,85 @@ CABECERA = '''# ================================================================
 import os
 import pathlib
 import sys
+import traceback
 
 '''
 
 PIE = '''
 
-# --- Escribir los dos modulos y cargarlos -----------------------------------
+# --- Escribir los modulos y cargarlos ----------------------------------------
 _CARPETA = pathlib.Path.cwd()
-(_CARPETA / "matcher.py").write_text(_MATCHER_PY, encoding="utf-8")
-(_CARPETA / "reporte.py").write_text(_REPORTE_PY, encoding="utf-8")
+for _nombre, _fuente in (("matcher", _MATCHER_PY), ("reporte", _REPORTE_PY), ("cierre", _CIERRE_PY)):
+    (_CARPETA / f"{_nombre}.py").write_text(_fuente, encoding="utf-8")
+    sys.modules.pop(_nombre, None)
 if str(_CARPETA) not in sys.path:
     sys.path.insert(0, str(_CARPETA))
-for _nombre in ("matcher", "reporte"):
-    sys.modules.pop(_nombre, None)
 
+import cierre
 import matcher
+import reporte
 
-# --- Subir los dos archivos --------------------------------------------------
+# --- Subir los archivos ------------------------------------------------------
 from google.colab import files
 
-print("Sube los DOS archivos:")
-print("   1) Ingresos Cochabamba  (.xls o .xlsx)")
-print("   2) Extracto BCP         (.xlsx)")
-print("El orden no importa: se identifican por su estructura, no por el nombre.")
+print("Suba Ingresos y BCP.")
+print("Opcional: QUICKVALLE anterior si desea conservar un cierre previo.")
 print()
 
 _subidos = files.upload()
 _rutas = [n for n in _subidos if os.path.splitext(n)[1].lower() in (".xls", ".xlsx", ".xlsm")]
-if len(_rutas) != 2:
+if len(_rutas) not in (2, 3):
     raise SystemExit(
-        f"Debes subir exactamente 2 archivos Excel. Recibidos: {sorted(_subidos)}"
+        f"Suba 2 archivos (Ingresos y BCP) o 3 (ademas el QUICKVALLE anterior). "
+        f"Recibidos: {sorted(_subidos)}"
     )
 
-# --- Cruzar y generar el reporte --------------------------------------------
-_cfg = matcher.Config()
-_datos = matcher.ejecutar(_rutas, matcher.NOMBRE_SALIDA, _cfg)
+# --- Cruzar y generar el reporte ---------------------------------------------
+try:
+    _cfg = matcher.Config()
+    _datos = matcher.ejecutar(_rutas, matcher.NOMBRE_SALIDA, _cfg)
+except Exception:
+    print()
+    print("ERROR: no se pudo procesar. Detalle:")
+    traceback.print_exc()
+    raise
+
+_res = _datos["resultados"]
+
+
+def _contar(*estados):
+    return sum(1 for r in _res if r.estado in estados)
+
+
+_historicos = _contar(cierre.ESTADO_HISTORICO)
+_automaticos = _contar(matcher.ESTADO_SEGURO, matcher.ESTADO_PROBABLE)
+_pendientes = _contar(matcher.ESTADO_REVISAR)
+_sin_match = _contar(matcher.ESTADO_SIN_MATCH, matcher.ESTADO_INCOMPLETO)
+_tarjetas = _contar(matcher.ESTADO_NO_QR)
 
 print()
-matcher.imprimir_reporte(_datos, _cfg)
+print("=" * 46)
+print("  PROCESO TERMINADO")
+print("=" * 46)
+if _datos["tabla_cierre"] is not None:
+    print(f"  Cierre anterior aplicado: {os.path.basename(_datos['tabla_cierre'].ruta)}")
+print(f"  Automaticos             : {_automaticos}")
+print(f"  Confirmados historicos  : {_historicos}")
+print(f"  Pendientes de revision  : {_pendientes}")
+print(f"  Sin match               : {_sin_match}")
+print(f"  Tarjetas                : {_tarjetas}")
+print(f"  Total listo para pegar  : {_automaticos + _historicos}")
+print("=" * 46)
+
+_avisos = [(n, d, c) for n, d, c in _datos["alertas"] if n == "CRITICO"]
+if _avisos:
+    print()
+    print("  REVISAR:")
+    for _, _detalle, _cantidad in _avisos:
+        print(f"   - {_detalle}: {_cantidad}")
+
+print()
+print(f"Archivo generado: {matcher.NOMBRE_SALIDA}")
 
 # --- Descargar el resultado --------------------------------------------------
 files.download(matcher.NOMBRE_SALIDA)
@@ -88,6 +133,8 @@ def construir() -> pathlib.Path:
         + _empotrar("_MATCHER_PY", RAIZ / "matcher.py")
         + "\n"
         + _empotrar("_REPORTE_PY", RAIZ / "reporte.py")
+        + "\n"
+        + _empotrar("_CIERRE_PY", RAIZ / "cierre.py")
         + PIE
     )
     compile(contenido.replace("!pip install -q openpyxl xlrd scipy numpy", "pass"),

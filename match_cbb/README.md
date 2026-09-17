@@ -1,10 +1,10 @@
-# MATCH_CBB — cruce Ingresos Cochabamba vs extracto BCP nacional
+# QUICKVALLE — cruce Ingresos Cochabamba vs extracto BCP nacional
 
 Localiza dentro del extracto BCP nacional los pagos QR que aparecen en el reporte de
 ingresos de Cochabamba, y devuelve el `Nro Oper.` que corresponde a cada pago.
 
 **Los dos archivos de entrada son solo lectura.** El único archivo que se escribe es
-`MATCH_CBB.xlsx`. Esta fase no escribe nada sobre la base nacional.
+`QUICKVALLE.xlsx`. Esta fase no escribe nada sobre la base nacional.
 
 ## Instalación
 
@@ -27,13 +27,13 @@ nombre ni por el nombre de la hoja. También funciona así:
 python match_cbb/matcher.py IngresosDiarios16092026_1548.xls BCP.xlsx
 ```
 
-Genera `MATCH_CBB.xlsx` en el directorio actual (`--salida` para cambiarlo).
+Genera `QUICKVALLE.xlsx` en el directorio actual (`--salida` para cambiarlo).
 
 ### Opciones
 
 | Opción | Por defecto | Para qué sirve |
 |---|---|---|
-| `--salida` | `MATCH_CBB.xlsx` | Nombre del Excel de resultado |
+| `--salida` | `QUICKVALLE.xlsx` | Nombre del Excel de resultado |
 | `--seguro` | `5` | Segundos hasta los que un match es `MATCH_SEGURO` |
 | `--probable` | `30` | Segundos hasta los que es `MATCH_PROBABLE` |
 | `--revisar` | `120` | Segundos hasta los que es `REVISAR`; más allá es `SIN_MATCH` |
@@ -103,7 +103,7 @@ sedes. **No decide el match y no se modifica.** Solo se muestra:
 - `Nro Oper.` se normaliza para comparar (`301902`, `"301902"`, `" 301902 "` y `301902.0`
   son el mismo identificador) pero en la salida se muestra el valor original.
 
-## Salida: `MATCH_CBB.xlsx`
+## Salida: `QUICKVALLE.xlsx`
 
 El formato lo arma `reporte.py`, que solo presenta: no decide ningún match.
 
@@ -112,9 +112,9 @@ El formato lo arma `reporte.py`, que solo presenta: no decide ningún match.
 | 1 | `RESUMEN_VISUAL` | Dashboard: totales, importes, leyenda de colores, distribución de tiempos y validaciones |
 | 2 | **`PARA_PEGAR_CBB`** | **Hoja final consolidada.** Seguros + probables + lo confirmado a mano |
 | 3 | `REVISAR_MANUAL` | Los `REVISAR`, con zona de decisión manual (ver abajo) |
-| 4 | `SIN_MATCH` | Separa `SIN_MATCH_CORTE_BCP` (el extracto no cubre la fecha) de `SIN_MATCH_REAL`, con el candidato más cercano como referencia |
+| 4 | `SIN_MATCH` | Separa `SIN_MATCH_CORTE_BCP` (el extracto no cubre la fecha) de `SIN_MATCH_REAL`, también con zona de decisión manual |
 | 5 | `TARJETA` | Pagos con tarjeta, fuera del cruce QR |
-| 6 | `INGRESOS_NORMALIZADOS` | El reporte original de Cochabamba ya normalizado, con sus 10 columnas y nada del cruce |
+| 6 | `INGRESOS_NORMALIZADOS` | El reporte original de Cochabamba ya normalizado (A:J) más `K = Nro Oper BCP` |
 
 Dos hojas ocultas sostienen los desplegables y la confirmación manual: `_CANDIDATOS` y
 `_MANUALES`.
@@ -173,3 +173,46 @@ mismo movimiento BCP hubiera quedado asignado dos veces.
 ```bash
 python -m pytest match_cbb/tests -q
 ```
+
+
+## Cierre de fin de mes: el tercer archivo
+
+El programa acepta **2 archivos** (Ingresos + BCP) o **3** (además el `QUICKVALLE.xlsx`
+de un cierre anterior). El tercero se identifica por estructura — su hoja
+`PARA_PEGAR_CBB` —, nunca por el nombre.
+
+Entregarlo significa que ese cierre es definitivo:
+
+1. Sus matches finales (los que tienen `Nro Oper.`) se congelan como
+   `MATCH_HISTORICO`, con origen `CIERRE ANTERIOR`.
+2. Esos pagos **salen del universo antes de cruzar**: el algoritmo no los vuelve a
+   decidir, aunque en el BCP nuevo aparezca un candidato mejor.
+3. Sus `Nro Oper.` quedan **reservados** y ningún match nuevo puede usarlos.
+4. Lo que quedó `PENDIENTE`, `SIN_MATCH` o `REVISAR` sin confirmar **no se congela**:
+   vuelve a analizarse con el BCP completo. Esto importa sobre todo para los
+   `SIN_MATCH_CORTE_BCP`.
+
+Si un registro cerrado ya no está en el reporte, cambió de monto o su `Nro Oper.` no
+existe en el extracto nuevo, **no se reasigna**: se conserva la asignación histórica,
+se marca `ALERTA - CIERRE HISTORICO INCONSISTENTE` en su observación y el resumen lo
+reporta para revisión humana.
+
+> El cierre anterior debe ser el archivo **tal como Excel lo guardó** después de tomar
+> las decisiones. Las confirmaciones manuales viven en fórmulas, y Excel solo guarda su
+> resultado al abrir y guardar el libro.
+
+## Pendiente: hoja de trabajo SAP
+
+Todavía **no implementado**. Los datos quedan preparados para construir después una
+tabla QR compatible con la hoja histórica:
+
+| Columna | Contenido | Regla |
+|---|---|---|
+| A:J | Base normalizada | Ya disponible en `INGRESOS_NORMALIZADOS` |
+| K | MONTO BANCO | |
+| L | ASIGNACION / Nro Oper BCP | Ya disponible en `INGRESOS_NORMALIZADOS!K` |
+| M | DIFERENCIA | `Monto ingreso - Monto banco` |
+| N | GLOSA | `"F-" + Número Factura + " " + Nombre Estudiante`, máximo 50 caracteres |
+| O | CUENTA CONTABLE | QR = `110103042` |
+
+No se toca el VBA ni la hoja SAP.

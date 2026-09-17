@@ -22,7 +22,7 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-NOMBRE_SALIDA = "MATCH_CBB.xlsx"
+NOMBRE_SALIDA = "QUICKVALLE.xlsx"
 
 # Encabezados que deben aparecer SIMULTANEAMENTE para identificar cada tabla.
 REQUERIDOS_CBB = ("Fecha", "Numero Factura", "Monto", "Nombre Estudiante")
@@ -337,16 +337,37 @@ class TablaDetectada:
     columnas: dict[str, int]
 
 
-def identificar_tablas(rutas: Sequence[str]) -> tuple[TablaDetectada, TablaDetectada]:
-    """Identifica cual archivo es Cochabamba y cual es BCP por estructura, no por nombre.
+def identificar_tablas(
+    rutas: Sequence[str],
+) -> tuple[TablaDetectada, TablaDetectada, TablaDetectada | None]:
+    """Identifica cual archivo es Cochabamba, cual BCP y cual un cierre anterior.
 
-    Revisa todas las hojas de todos los libros entregados, en cualquier orden.
+    Revisa todas las hojas de todos los libros entregados, en cualquier orden, y
+    siempre por estructura: nunca por el nombre del archivo ni de la hoja.
     """
+    import cierre as C
+
     candidatos_cbb: list[TablaDetectada] = []
     candidatos_bcp: list[TablaDetectada] = []
+    candidatos_cierre: list[TablaDetectada] = []
 
-    for ruta in rutas:
-        for hoja, filas in leer_libro(ruta):
+    # Un QUICKVALLE anterior lleva dentro su propia copia normalizada del reporte
+    # de ingresos, asi que ese libro entero se excluye del resto de la busqueda.
+    libros = {ruta: leer_libro(ruta) for ruta in rutas}
+    for ruta, hojas in libros.items():
+        for hoja, filas in hojas:
+            fila = detectar_fila_encabezado(filas, C.REQUERIDOS_CIERRE)
+            if fila is None:
+                continue
+            cols = mapear_columnas(filas[fila], C.COLUMNAS_CIERRE)
+            if all(c in cols for c in C.OBLIGATORIAS_CIERRE):
+                candidatos_cierre.append(TablaDetectada(ruta, hoja, fila, filas, cols))
+    rutas_cierre = {c.ruta for c in candidatos_cierre}
+
+    for ruta, hojas in libros.items():
+        if ruta in rutas_cierre:
+            continue
+        for hoja, filas in hojas:
             fila_cbb = detectar_fila_encabezado(filas, REQUERIDOS_CBB)
             if fila_cbb is not None:
                 cols = mapear_columnas(filas[fila_cbb], COLUMNAS_CBB)
@@ -376,7 +397,9 @@ def identificar_tablas(rutas: Sequence[str]) -> tuple[TablaDetectada, TablaDetec
         )
     if candidatos_cbb[0].ruta == candidatos_bcp[0].ruta and candidatos_cbb[0].hoja == candidatos_bcp[0].hoja:
         raise ValueError("La misma hoja califica como Cochabamba y como BCP; no puedo continuar.")
-    return candidatos_cbb[0], candidatos_bcp[0]
+    if len(rutas_cierre) > 1:
+        raise ValueError(f"Se entrego mas de un cierre anterior: {sorted(rutas_cierre)}")
+    return candidatos_cbb[0], candidatos_bcp[0], (candidatos_cierre[0] if candidatos_cierre else None)
 
 
 # --------------------------------------------------------------------------- #
@@ -915,19 +938,36 @@ def exportar(
 # --------------------------------------------------------------------------- #
 
 def ejecutar(rutas: Sequence[str], salida: str = NOMBRE_SALIDA, cfg: Config = Config()) -> dict[str, Any]:
-    tabla_cbb, tabla_bcp = identificar_tablas(rutas)
+    import cierre as C
+
+    tabla_cbb, tabla_bcp, tabla_cierre = identificar_tablas(rutas)
     registros = cargar_cochabamba(tabla_cbb, cfg)
     movimientos = cargar_bcp(tabla_bcp, cfg)
-    resultados = emparejar(registros, movimientos, cfg)
-    alertas = validar(registros, movimientos, resultados, cfg)
+
+    # Lo cerrado en una corrida anterior sale del universo ANTES de cruzar: el
+    # algoritmo no lo vuelve a decidir y su Nro Oper queda fuera del alcance.
+    congelado = C.Congelado([], set(), set(), [])
+    if tabla_cierre is not None:
+        congelado = C.aplicar(registros, movimientos, C.leer_cierre(tabla_cierre))
+
+    por_cruzar = [r for r in registros
+                  if norm_id(r.crudo.get("Numero Factura")) not in congelado.facturas]
+    disponibles = [m for m in movimientos if m.nro_oper_norm not in congelado.opers_reservados]
+
+    resultados = congelado.resultados + emparejar(por_cruzar, disponibles, cfg)
+    resultados.sort(key=lambda r: r.registro.fila_excel)
+
+    alertas = list(congelado.alertas) + validar(registros, movimientos, resultados, cfg)
     ruta = exportar(resultados, registros, movimientos, alertas, cfg, salida)
     return {
         "tabla_cbb": tabla_cbb,
         "tabla_bcp": tabla_bcp,
+        "tabla_cierre": tabla_cierre,
         "registros": registros,
         "movimientos": movimientos,
         "resultados": resultados,
         "alertas": alertas,
+        "congelado": congelado,
         "salida": ruta,
     }
 

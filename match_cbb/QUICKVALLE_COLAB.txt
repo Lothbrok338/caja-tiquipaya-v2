@@ -1,14 +1,18 @@
+#@title ▶ EJECUTAR QUICKVALLE { display-mode: "form" }
 # =============================================================================
-# MATCH_CBB - Cruce del reporte de Ingresos Cochabamba contra el extracto BCP.
+# QUICKVALLE - Cruce del reporte de Ingresos Cochabamba contra el extracto BCP.
 #
 # COMO SE USA: copiar TODO este contenido en UNA sola celda de Google Colab y
-# ejecutarla. Pide los dos archivos, genera MATCH_CBB.xlsx y lo descarga.
+# ejecutarla. Queda plegada como formulario; basta pulsar el boton de ejecutar.
+#
+# Sube 2 archivos (Ingresos + BCP) o 3 (ademas el QUICKVALLE de un cierre
+# anterior, cuyos matches quedan congelados). Genera QUICKVALLE.xlsx y lo baja.
 #
 # Los archivos subidos son solo lectura: nunca se escribe sobre ellos.
 # No necesita IA, tokens, cuentas ni conexion a ningun servicio externo.
 #
-# Este archivo se genera desde matcher.py y reporte.py con construir_colab.py:
-# el codigo del motor y del reporte va empotrado tal cual, sin modificaciones.
+# Este archivo se genera desde matcher.py, reporte.py y cierre.py con
+# construir_colab.py: el codigo va empotrado tal cual, sin modificaciones.
 # =============================================================================
 
 !pip install -q openpyxl xlrd scipy numpy
@@ -16,6 +20,7 @@
 import os
 import pathlib
 import sys
+import traceback
 
 _MATCHER_PY = r'''
 """Matcher entre el reporte de ingresos de Cochabamba y el extracto BCP nacional.
@@ -42,7 +47,7 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-NOMBRE_SALIDA = "MATCH_CBB.xlsx"
+NOMBRE_SALIDA = "QUICKVALLE.xlsx"
 
 # Encabezados que deben aparecer SIMULTANEAMENTE para identificar cada tabla.
 REQUERIDOS_CBB = ("Fecha", "Numero Factura", "Monto", "Nombre Estudiante")
@@ -357,16 +362,37 @@ class TablaDetectada:
     columnas: dict[str, int]
 
 
-def identificar_tablas(rutas: Sequence[str]) -> tuple[TablaDetectada, TablaDetectada]:
-    """Identifica cual archivo es Cochabamba y cual es BCP por estructura, no por nombre.
+def identificar_tablas(
+    rutas: Sequence[str],
+) -> tuple[TablaDetectada, TablaDetectada, TablaDetectada | None]:
+    """Identifica cual archivo es Cochabamba, cual BCP y cual un cierre anterior.
 
-    Revisa todas las hojas de todos los libros entregados, en cualquier orden.
+    Revisa todas las hojas de todos los libros entregados, en cualquier orden, y
+    siempre por estructura: nunca por el nombre del archivo ni de la hoja.
     """
+    import cierre as C
+
     candidatos_cbb: list[TablaDetectada] = []
     candidatos_bcp: list[TablaDetectada] = []
+    candidatos_cierre: list[TablaDetectada] = []
 
-    for ruta in rutas:
-        for hoja, filas in leer_libro(ruta):
+    # Un QUICKVALLE anterior lleva dentro su propia copia normalizada del reporte
+    # de ingresos, asi que ese libro entero se excluye del resto de la busqueda.
+    libros = {ruta: leer_libro(ruta) for ruta in rutas}
+    for ruta, hojas in libros.items():
+        for hoja, filas in hojas:
+            fila = detectar_fila_encabezado(filas, C.REQUERIDOS_CIERRE)
+            if fila is None:
+                continue
+            cols = mapear_columnas(filas[fila], C.COLUMNAS_CIERRE)
+            if all(c in cols for c in C.OBLIGATORIAS_CIERRE):
+                candidatos_cierre.append(TablaDetectada(ruta, hoja, fila, filas, cols))
+    rutas_cierre = {c.ruta for c in candidatos_cierre}
+
+    for ruta, hojas in libros.items():
+        if ruta in rutas_cierre:
+            continue
+        for hoja, filas in hojas:
             fila_cbb = detectar_fila_encabezado(filas, REQUERIDOS_CBB)
             if fila_cbb is not None:
                 cols = mapear_columnas(filas[fila_cbb], COLUMNAS_CBB)
@@ -396,7 +422,9 @@ def identificar_tablas(rutas: Sequence[str]) -> tuple[TablaDetectada, TablaDetec
         )
     if candidatos_cbb[0].ruta == candidatos_bcp[0].ruta and candidatos_cbb[0].hoja == candidatos_bcp[0].hoja:
         raise ValueError("La misma hoja califica como Cochabamba y como BCP; no puedo continuar.")
-    return candidatos_cbb[0], candidatos_bcp[0]
+    if len(rutas_cierre) > 1:
+        raise ValueError(f"Se entrego mas de un cierre anterior: {sorted(rutas_cierre)}")
+    return candidatos_cbb[0], candidatos_bcp[0], (candidatos_cierre[0] if candidatos_cierre else None)
 
 
 # --------------------------------------------------------------------------- #
@@ -935,19 +963,36 @@ def exportar(
 # --------------------------------------------------------------------------- #
 
 def ejecutar(rutas: Sequence[str], salida: str = NOMBRE_SALIDA, cfg: Config = Config()) -> dict[str, Any]:
-    tabla_cbb, tabla_bcp = identificar_tablas(rutas)
+    import cierre as C
+
+    tabla_cbb, tabla_bcp, tabla_cierre = identificar_tablas(rutas)
     registros = cargar_cochabamba(tabla_cbb, cfg)
     movimientos = cargar_bcp(tabla_bcp, cfg)
-    resultados = emparejar(registros, movimientos, cfg)
-    alertas = validar(registros, movimientos, resultados, cfg)
+
+    # Lo cerrado en una corrida anterior sale del universo ANTES de cruzar: el
+    # algoritmo no lo vuelve a decidir y su Nro Oper queda fuera del alcance.
+    congelado = C.Congelado([], set(), set(), [])
+    if tabla_cierre is not None:
+        congelado = C.aplicar(registros, movimientos, C.leer_cierre(tabla_cierre))
+
+    por_cruzar = [r for r in registros
+                  if norm_id(r.crudo.get("Numero Factura")) not in congelado.facturas]
+    disponibles = [m for m in movimientos if m.nro_oper_norm not in congelado.opers_reservados]
+
+    resultados = congelado.resultados + emparejar(por_cruzar, disponibles, cfg)
+    resultados.sort(key=lambda r: r.registro.fila_excel)
+
+    alertas = list(congelado.alertas) + validar(registros, movimientos, resultados, cfg)
     ruta = exportar(resultados, registros, movimientos, alertas, cfg, salida)
     return {
         "tabla_cbb": tabla_cbb,
         "tabla_bcp": tabla_bcp,
+        "tabla_cierre": tabla_cierre,
         "registros": registros,
         "movimientos": movimientos,
         "resultados": resultados,
         "alertas": alertas,
+        "congelado": congelado,
         "salida": ruta,
     }
 
@@ -1021,7 +1066,7 @@ if __name__ == "__main__":
 '''
 
 _REPORTE_PY = r'''
-"""Presentacion de MATCH_CBB.xlsx: la misma informacion, legible para una persona.
+"""Presentacion de QUICKVALLE.xlsx: la misma informacion, legible para una persona.
 
 Este modulo solo da formato. No decide ningun match ni altera ningun resultado.
 """
@@ -1029,6 +1074,7 @@ Este modulo solo da formato. No decide ningun match ni altera ningun resultado.
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import dataclass
 from typing import Any, Callable, Sequence
 
 from openpyxl import Workbook
@@ -1037,6 +1083,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
+import cierre as C
 import matcher as M
 
 # Paleta suave y consistente: (encabezado, relleno de fila)
@@ -1049,6 +1096,7 @@ GRIS = ("616161", "F5F5F5")
 AZUL_OSCURO = ("1F4E79", "FFFFFF")
 AZUL_OSCURO_TARJETA = ("1F4E79", "DCE6F1")
 INDIGO = ("283593", "E8EAF6")
+TEAL = ("00695C", "E0F2F1")
 INDIGO_EDITABLE = "C5CAE9"
 ROJO_TEXTO = "C62828"
 
@@ -1059,6 +1107,7 @@ COLOR_POR_ESTADO = {
     M.ESTADO_SIN_MATCH: ROJO[1],
     M.ESTADO_INCOMPLETO: ROJO[1],
     M.ESTADO_NO_QR: GRIS[1],
+    C.ESTADO_HISTORICO: TEAL[1],
 }
 
 OBSERVACION_TARJETA = "Pago con tarjeta - fuera del cruce QR"
@@ -1078,14 +1127,21 @@ DECISIONES = (DECISION_CONFIRMAR, "DESCARTAR", "PENDIENTE")
 DECISION_POR_DEFECTO = "PENDIENTE"
 
 ORIGEN_AUTOMATICO = "AUTOMÁTICO"
+ORIGEN_HISTORICO = "CIERRE ANTERIOR"
 ORIGEN_MANUAL = "CONFIRMADO MANUALMENTE"
 ESTADO_MANUAL = "MATCH_MANUAL_CONFIRMADO"
-OBSERVACION_MANUAL = "Confirmado manualmente en REVISAR_MANUAL"
+OBSERVACION_MANUAL = "Confirmado manualmente"
+OBSERVACION_HISTORICO = "Congelado del cierre anterior"
 ALERTA_DUPLICADO = "NRO OPER YA UTILIZADO"
+ALERTA_SIN_CANDIDATO = "SIN CANDIDATO: no se puede confirmar"
 VERDE_MANUAL = "F1F8E9"
 
 # En _MANUALES, la primera columna que PARA_PEGAR_CBB copia en sus ranuras.
 PRIMERA_COLUMNA_SALIDA_MANUAL = 6
+
+# Columna "Candidato elegido" en cada hoja con zona de decision.
+COLUMNA_CANDIDATO_REVISAR = 10   # J
+COLUMNA_CANDIDATO_SIN_MATCH = 14  # N
 
 ETIQUETAS_ESTADISTICA = {
     "minimo": "Mínimo (seg)", "mediana": "Mediana (seg)", "p90": "Percentil 90 (seg)",
@@ -1125,7 +1181,13 @@ def _bs(valor: float | None) -> str:
     return f"{valor:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
 
 
+def _origen(res: M.Resultado) -> str:
+    return ORIGEN_HISTORICO if res.estado == C.ESTADO_HISTORICO else ORIGEN_AUTOMATICO
+
+
 def _observacion_pegar(res: M.Resultado) -> str:
+    if res.estado == C.ESTADO_HISTORICO:
+        return res.motivo or OBSERVACION_HISTORICO
     cd = str(_cd(res)).strip() if _cd(res) not in (None, "") else ""
     base = "Listo para usar" if res.estado == M.ESTADO_SEGURO else "Probable, conviene revisar"
     if cd:
@@ -1213,14 +1275,14 @@ def _columnas_comunes() -> list[Columna]:
 
 
 def _hoja_para_pegar(ws, resultados: Sequence[M.Resultado], n_manuales: int) -> None:
-    """Automaticos fijos, mas una ranura por cada caso de REVISAR_MANUAL.
+    """Historicos y automaticos fijos, mas una ranura por cada caso a decidir.
 
-    Las ranuras se llenan solas cuando se marca CONFIRMAR MATCH y quedan vacias
-    en cualquier otro caso, asi que no hay que tocar esta hoja a mano.
+    Las ranuras se llenan solas cuando se marca CONFIRMAR MATCH en REVISAR_MANUAL
+    o en SIN_MATCH, y quedan vacias en cualquier otro caso.
     """
     columnas = [
         Columna("Estado", lambda r: r.estado, ancho=24),
-        Columna("Origen del match", lambda r: ORIGEN_AUTOMATICO, ancho=22),
+        Columna("Origen del match", _origen, ancho=22),
         *_columnas_comunes(),
         Columna("Tipo Pago", lambda r: r.registro.crudo.get("Tipo Pago"), ancho=12),
         Columna("Canal de Pago", lambda r: r.registro.crudo.get("Canal de Pago"), ancho=15),
@@ -1256,43 +1318,60 @@ def _ranuras_manuales(ws, columnas: Sequence[Columna], primera_fila: int, cantid
     ws.auto_filter.ref = f"A1:{get_column_letter(len(columnas))}{ultima}"
 
 
-def _hoja_manuales(ws, revisar: Sequence[M.Resultado], filas_automaticas: int) -> None:
+@dataclass
+class CasoManual:
+    """Un caso que la persona puede confirmar, venga de REVISAR_MANUAL o de SIN_MATCH."""
+
+    resultado: M.Resultado
+    hoja: str
+    fila: int
+    columna_candidato: int
+
+
+def _hoja_manuales(ws, casos: Sequence[CasoManual], filas_automaticas: int) -> None:
     """Puente entre la decision humana y PARA_PEGAR_CBB.
 
-    Una fila por caso de REVISAR_MANUAL. Lee la decision y el candidato elegido,
-    descarta los duplicados de Nro Oper y numera los validos para que las ranuras
-    de PARA_PEGAR_CBB los tomen en orden, sin dejar huecos.
+    Una fila por caso. Lee la decision y el candidato elegido, descarta los
+    duplicados de Nro Oper y numera los validos para que las ranuras de
+    PARA_PEGAR_CBB los tomen en orden, sin dejar huecos.
     """
     ws.append(["Decision", "NroOperElegido", "Duplicados", "Valido", "Orden",
                "Estado", "Origen", "Factura", "Nombre", "FechaHoraCBB", "Monto",
                "TipoPago", "Canal", "FechaHoraBCP", "DifSeg", "NroOper", "Glosa",
                "CdConfirmacion", "Observacion"])
-    revisar_hoja = "REVISAR_MANUAL"
     opers_automaticos = f"PARA_PEGAR_CBB!$K$2:$K${filas_automaticas + 1}"
 
-    for i, res in enumerate(revisar, start=2):
-        origen = i  # misma posicion de fila en REVISAR_MANUAL
+    for i, caso in enumerate(casos, start=2):
+        hoja, fila = caso.hoja, caso.fila
+        col = caso.columna_candidato  # columna "Candidato elegido" en la hoja de origen
+        col_oper = get_column_letter(col + 1)
+        fecha_bcp = get_column_letter(col + 2)
+        glosa = get_column_letter(col + 4)
+        cd = get_column_letter(col + 5)
+        dif = get_column_letter(col + 6)
+        decision = get_column_letter(col + 7)
         previos = (f'+COUNTIFS($A$2:$A{i - 1},"{DECISION_CONFIRMAR}",$B$2:$B{i - 1},$B{i})'
                    if i > 2 else "")
         ws.append([
-            f"={revisar_hoja}!Q{origen}",
-            f"={revisar_hoja}!K{origen}",
+            f"='{hoja}'!{decision}{fila}",
+            f"='{hoja}'!{col_oper}{fila}",
             f'=IF($B{i}="",0,COUNTIF({opers_automaticos},$B{i}){previos})',
-            f'=IF(AND($A{i}="{DECISION_CONFIRMAR}",$C{i}=0),1,0)',
+            # Sin candidato elegido no hay match posible, aunque se marque confirmar.
+            f'=IF(AND($A{i}="{DECISION_CONFIRMAR}",$B{i}<>"",$C{i}=0),1,0)',
             f'=IF($D{i}=1,SUM($D$2:$D{i}),"")',
             ESTADO_MANUAL,
             ORIGEN_MANUAL,
-            f"={revisar_hoja}!A{origen}",
-            f"={revisar_hoja}!B{origen}",
-            f"={revisar_hoja}!C{origen}",
-            f"={revisar_hoja}!D{origen}",
-            res.registro.crudo.get("Tipo Pago"),
-            res.registro.crudo.get("Canal de Pago"),
-            f"={revisar_hoja}!L{origen}",
-            f"={revisar_hoja}!P{origen}",
-            f"={revisar_hoja}!K{origen}",
-            f"={revisar_hoja}!N{origen}",
-            f"={revisar_hoja}!O{origen}",
+            f"='{hoja}'!A{fila}",
+            f"='{hoja}'!B{fila}",
+            f"='{hoja}'!C{fila}",
+            f"='{hoja}'!D{fila}",
+            caso.resultado.registro.crudo.get("Tipo Pago"),
+            caso.resultado.registro.crudo.get("Canal de Pago"),
+            f"='{hoja}'!{fecha_bcp}{fila}",
+            f"='{hoja}'!{dif}{fila}",
+            f"='{hoja}'!{col_oper}{fila}",
+            f"='{hoja}'!{glosa}{fila}",
+            f"='{hoja}'!{cd}{fila}",
             OBSERVACION_MANUAL,
         ])
         ws.cell(row=i, column=10).number_format = FECHA_HORA
@@ -1356,41 +1435,10 @@ def _hoja_candidatos(ws, candidatos: dict[int, list[tuple[M.MovimientoBCP, float
     return rangos
 
 
-def _hoja_revisar(
-    ws,
-    resultados: Sequence[M.Resultado],
-    candidatos: dict[int, list[tuple[M.MovimientoBCP, float]]],
-    rangos: dict[int, tuple[int, int]],
-) -> None:
-    def lista(res: M.Resultado) -> list[tuple[M.MovimientoBCP, float]]:
-        return candidatos.get(res.registro.fila_excel, [])
-
-    def observacion(res: M.Resultado) -> str:
-        cantidad = len(lista(res))
-        if cantidad == 0:
-            return "Sin candidatos del mismo día y monto"
-        if cantidad == 1:
-            return "Candidato único"
-        return f"Existen {cantidad} candidatos - revisar selección"
-
-    def etiqueta_automatica(res: M.Resultado) -> str | None:
-        if res.movimiento is None:
-            return None
-        for mov, delta in lista(res):
-            if mov.fila_excel == res.movimiento.fila_excel:
-                return _etiqueta_candidato(mov, delta)
-        return None
-
-    analisis = [
-        *_columnas_comunes(),
-        Columna("Candidato automático BCP", etiqueta_automatica, ancho=52),
-        Columna("Dif. seg automática", lambda r: r.diferencia_seg, "0", ancho=11),
-        Columna("Delta con signo", _delta_con_signo, "+0;-0;0", ancho=15),
-        Columna("Cantidad candidatos", lambda r: len(lista(r)), "0", ancho=12),
-        Columna("Observación", observacion, ancho=34),
-    ]
-    decision = [
-        Columna("Candidato elegido", etiqueta_automatica, ancho=52),
+def _columnas_decision(preseleccion: Callable[[Any], Any]) -> list[Columna]:
+    """El mismo bloque de decision en REVISAR_MANUAL y en SIN_MATCH."""
+    return [
+        Columna("Candidato elegido", preseleccion, ancho=52),
         Columna("Nro Oper elegido", lambda r: None, ancho=16),
         Columna("Fecha/hora BCP elegida", lambda r: None, FECHA_HORA, ancho=21),
         Columna("Importe BCP elegido", lambda r: None, MONEDA, ancho=15),
@@ -1401,9 +1449,48 @@ def _hoja_revisar(
         Columna("Control", lambda r: None, ancho=30),
     ]
 
+
+def _etiqueta_asignada(res: M.Resultado, lista: Sequence[tuple[M.MovimientoBCP, float]]) -> str | None:
+    if res.movimiento is None:
+        return None
+    for mov, delta in lista:
+        if mov.fila_excel == res.movimiento.fila_excel:
+            return _etiqueta_candidato(mov, delta)
+    return None
+
+
+def _observacion_candidatos(cantidad: int) -> str:
+    if cantidad == 0:
+        return "Sin candidatos del mismo día y monto"
+    if cantidad == 1:
+        return "Candidato único"
+    return f"Existen {cantidad} candidatos - revisar selección"
+
+
+def _hoja_revisar(
+    ws,
+    resultados: Sequence[M.Resultado],
+    candidatos: dict[int, list[tuple[M.MovimientoBCP, float]]],
+    rangos: dict[int, tuple[int, int]],
+    fila_manuales: int,
+) -> None:
+    def lista(res):
+        return candidatos.get(res.registro.fila_excel, [])
+
+    analisis = [
+        *_columnas_comunes(),
+        Columna("Candidato automático BCP", lambda r: _etiqueta_asignada(r, lista(r)), ancho=52),
+        Columna("Dif. seg automática", lambda r: r.diferencia_seg, "0", ancho=11),
+        Columna("Delta con signo", _delta_con_signo, "+0;-0;0", ancho=15),
+        Columna("Cantidad candidatos", lambda r: len(lista(r)), "0", ancho=12),
+        Columna("Observación", lambda r: _observacion_candidatos(len(lista(r))), ancho=34),
+    ]
+    # El candidato que propuso el algoritmo viene preseleccionado.
+    decision = _columnas_decision(lambda r: _etiqueta_asignada(r, lista(r)))
+
     _escribir_tabla(ws, analisis + decision, resultados, encabezado=NARANJA, relleno=lambda r: NARANJA[1])
     _pintar_zona_decision(ws, len(analisis), len(decision), len(resultados))
-    _formulas_decision(ws, resultados, rangos, primera_columna=len(analisis) + 1)
+    _formulas_decision(ws, resultados, rangos, len(analisis) + 1, fila_manuales)
 
     col_dif = next(i for i, c in enumerate(analisis, start=1) if c.titulo == "Dif. seg automática")
     for i, res in enumerate(resultados, start=2):
@@ -1413,12 +1500,47 @@ def _hoja_revisar(
             celda.fill = PatternFill("solid", fgColor=ROJO_INTENSO)
 
 
+def _hoja_sin_match(
+    ws,
+    resultados: Sequence[M.Resultado],
+    tipos: dict[int, str],
+    candidatos: dict[int, list[tuple[M.MovimientoBCP, float]]],
+    rangos: dict[int, tuple[int, int]],
+    fila_manuales: int,
+) -> None:
+    def lista(res):
+        return candidatos.get(res.registro.fila_excel, [])
+
+    analisis = [
+        *_columnas_comunes(),
+        Columna("Tipo Pago", lambda r: r.registro.crudo.get("Tipo Pago"), ancho=12),
+        Columna("Canal de Pago", lambda r: r.registro.crudo.get("Canal de Pago"), ancho=15),
+        Columna("Tipo sin match", lambda r: tipos[r.registro.fila_excel], ancho=22),
+        Columna("Candidato más cercano — fecha y hora",
+                lambda r: r.candidato_cercano.fecha_hora if r.candidato_cercano else None, FECHA_HORA, ancho=21),
+        Columna("Candidato más cercano — Nro Oper",
+                lambda r: r.candidato_cercano.nro_oper if r.candidato_cercano else None, ancho=16),
+        Columna("Candidato más cercano — Glosa",
+                lambda r: r.candidato_cercano.glosa.strip() if r.candidato_cercano else None, ancho=24),
+        Columna("Candidato más cercano — Dif. seg", lambda r: r.candidato_cercano_delta, "0", ancho=16),
+        Columna("Cantidad candidatos", lambda r: len(lista(r)), "0", ancho=12),
+        Columna("Motivo", lambda r: r.motivo, ancho=42),
+    ]
+    # El motor lo dejo SIN_MATCH: aqui no se preselecciona nada, la persona elige.
+    decision = _columnas_decision(lambda r: None)
+
+    _escribir_tabla(ws, analisis + decision, resultados, encabezado=ROJO,
+                    relleno=lambda r: ROJO_INTENSO if tipos[r.registro.fila_excel] == SIN_MATCH_REAL else ROJO[1])
+    _pintar_zona_decision(ws, len(analisis), len(decision), len(resultados))
+    _formulas_decision(ws, resultados, rangos, len(analisis) + 1, fila_manuales)
+
+
 def _pintar_zona_decision(ws, n_analisis: int, n_decision: int, n_filas: int) -> None:
-    """J:Q se distingue del analisis; J y Q son los dos campos que se manipulan."""
-    editables = (n_analisis + 1, n_analisis + n_decision)
+    """La zona de decision se distingue del analisis; el candidato y la decision
+    son los dos campos que se manipulan."""
+    editables = (n_analisis + 1, n_analisis + n_decision - 1)
     for columna in range(n_analisis + 1, n_analisis + n_decision + 1):
-        encabezado = ws.cell(row=1, column=columna)
-        encabezado.fill = PatternFill("solid", fgColor=INDIGO[0])
+        ws.cell(row=1, column=columna).fill = PatternFill("solid", fgColor=INDIGO[0])
         for fila in range(2, n_filas + 2):
             celda = ws.cell(row=fila, column=columna)
             celda.fill = PatternFill("solid", fgColor=
@@ -1428,9 +1550,11 @@ def _pintar_zona_decision(ws, n_analisis: int, n_decision: int, n_filas: int) ->
 
 
 def _formulas_decision(ws, resultados: Sequence[M.Resultado], rangos: dict[int, tuple[int, int]],
-                       primera_columna: int) -> None:
-    """K:P se resuelven con INDEX/MATCH sobre la tabla auxiliar segun lo elegido en J."""
+                       primera_columna: int, fila_manuales: int) -> None:
+    """Las columnas del candidato elegido se resuelven con INDEX/MATCH sobre la
+    tabla auxiliar, segun lo que se elija en el desplegable."""
     col_elegido = get_column_letter(primera_columna)
+    col_decision = get_column_letter(primera_columna + 7)
     aux = f"'{HOJA_CANDIDATOS}'"
     validacion_decision = DataValidation(
         type="list", formula1='"' + ",".join(DECISIONES) + '"', allow_blank=False
@@ -1454,11 +1578,16 @@ def _formulas_decision(ws, resultados: Sequence[M.Resultado], rangos: dict[int, 
                 ws.cell(row=i, column=primera_columna + desplazamiento).value = (
                     f'=IFERROR(IF(ISBLANK({indice}),"",{indice}),"")'
                 )
+        else:
+            # Sin candidatos no hay nada que elegir. Se deja cadena vacia y no celda
+            # vacia: Excel lee una celda vacia como 0, y ese 0 valdria como Nro Oper.
+            for desplazamiento in range(1, 7):
+                ws.cell(row=i, column=primera_columna + desplazamiento).value = '=""'
         validacion_decision.add(ws.cell(row=i, column=primera_columna + 7))
-        col_decision = get_column_letter(primera_columna + 7)
         ws.cell(row=i, column=primera_columna + 8).value = (
-            f"=IF('{HOJA_MANUALES}'!$C{i}>0,\"{ALERTA_DUPLICADO}\","
-            f'IF({col_decision}{i}="{DECISION_CONFIRMAR}","Incorporado a PARA_PEGAR_CBB",'
+            f"=IF('{HOJA_MANUALES}'!$C{fila_manuales + i - 2}>0,\"{ALERTA_DUPLICADO}\","
+            f'IF({col_decision}{i}="{DECISION_CONFIRMAR}",'
+            f'IF({col_elegido}{i}="","{ALERTA_SIN_CANDIDATO}","Incorporado a PARA_PEGAR_CBB"),'
             f'IF({col_decision}{i}="DESCARTAR","Descartado","")))'
         )
 
@@ -1468,30 +1597,11 @@ def _formulas_decision(ws, resultados: Sequence[M.Resultado], rangos: dict[int, 
     ws.conditional_formatting.add(
         f"{columna_control}2:{columna_control}{len(resultados) + 1}",
         FormulaRule(
-            formula=[f'${columna_control}2="{ALERTA_DUPLICADO}"'],
+            formula=[f'OR(${columna_control}2="{ALERTA_DUPLICADO}",${columna_control}2="{ALERTA_SIN_CANDIDATO}")'],
             fill=PatternFill("solid", fgColor=ROJO_INTENSO),
             font=Font(bold=True, color=ROJO_TEXTO),
         ),
     )
-
-
-def _hoja_sin_match(ws, resultados: Sequence[M.Resultado], tipos: dict[int, str]) -> None:
-    columnas = [
-        *_columnas_comunes(),
-        Columna("Tipo Pago", lambda r: r.registro.crudo.get("Tipo Pago"), ancho=12),
-        Columna("Canal de Pago", lambda r: r.registro.crudo.get("Canal de Pago"), ancho=15),
-        Columna("Tipo sin match", lambda r: tipos[r.registro.fila_excel], ancho=22),
-        Columna("Candidato más cercano — fecha y hora",
-                lambda r: r.candidato_cercano.fecha_hora if r.candidato_cercano else None, FECHA_HORA, ancho=21),
-        Columna("Candidato más cercano — Nro Oper",
-                lambda r: r.candidato_cercano.nro_oper if r.candidato_cercano else None, ancho=16),
-        Columna("Candidato más cercano — Glosa",
-                lambda r: r.candidato_cercano.glosa.strip() if r.candidato_cercano else None, ancho=24),
-        Columna("Candidato más cercano — Dif. seg", lambda r: r.candidato_cercano_delta, "0", ancho=16),
-        Columna("Motivo", lambda r: r.motivo, ancho=42),
-    ]
-    _escribir_tabla(ws, columnas, resultados, encabezado=ROJO,
-                    relleno=lambda r: ROJO_INTENSO if tipos[r.registro.fila_excel] == SIN_MATCH_REAL else ROJO[1])
 
 
 def _hoja_tarjeta(ws, resultados: Sequence[M.Resultado]) -> None:
@@ -1505,8 +1615,13 @@ def _hoja_tarjeta(ws, resultados: Sequence[M.Resultado]) -> None:
     _escribir_tabla(ws, columnas, resultados, encabezado=GRIS, relleno=lambda r: GRIS[1])
 
 
-def _hoja_ingresos(ws, registros: Sequence[M.RegistroCBB]) -> None:
-    """El reporte original de Cochabamba ya normalizado. Sin nada del cruce."""
+def _hoja_ingresos(ws, registros: Sequence[M.RegistroCBB], ultima_fila_pegar: int) -> None:
+    """El reporte original de Cochabamba ya normalizado, mas el Nro Oper asignado.
+
+    La columna K se resuelve buscando la factura en PARA_PEGAR_CBB, asi que refleja
+    tanto los matches automaticos e historicos como las confirmaciones manuales, y
+    queda vacia para lo pendiente, lo descartado y las tarjetas.
+    """
     columnas = [
         Columna("Nro", lambda r: r.crudo.get("Nro"), "0", ancho=8),
         Columna("Fecha", lambda r: r.fecha_hora, "DD/MM/YYYY", ancho=13),
@@ -1518,8 +1633,16 @@ def _hoja_ingresos(ws, registros: Sequence[M.RegistroCBB]) -> None:
         Columna("Monto", lambda r: M.centavos_a_float(r.centavos), MONEDA, ancho=13),
         Columna("Canal de Pago", lambda r: r.crudo.get("Canal de Pago"), ancho=16),
         Columna("Estado", lambda r: r.crudo.get("Estado"), ancho=11),
+        Columna("Nro Oper BCP", lambda r: None, ancho=14),
     ]
     _escribir_tabla(ws, columnas, registros, encabezado=AZUL_OSCURO)
+
+    facturas = f"PARA_PEGAR_CBB!$C$2:$C${ultima_fila_pegar}"
+    opers = f"PARA_PEGAR_CBB!$K$2:$K${ultima_fila_pegar}"
+    for i in range(2, len(registros) + 2):
+        ws.cell(row=i, column=len(columnas)).value = (
+            f'=IFERROR(INDEX({opers},MATCH($C{i},{facturas},0)),"")'
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -1557,13 +1680,14 @@ def _hoja_resumen(ws, datos: dict[str, Any]) -> None:
     _tarjetas(ws, fila, [("% ENCONTRADO SOBRE QR COCHABAMBA", datos["pct"], VERDE, "0.00%")], ancho_tarjeta=8)
     fila += 3
 
-    # Se recalculan solas con las decisiones que se tomen en REVISAR_MANUAL.
-    validos = f"'{HOJA_MANUALES}'!$D$2:$D${datos['n_revisar_casos'] + 1}"
+    # Se recalcula solo con las decisiones que se tomen en REVISAR_MANUAL y SIN_MATCH.
+    validos = f"'{HOJA_MANUALES}'!$D$2:$D${max(datos['n_casos_manuales'], 1) + 1}"
     _seccion(ws, fila, "LISTO PARA PEGAR")
     fila = _tarjetas(ws, fila + 1, [
+        ("CONFIRMADOS HISTÓRICOS", datos["n_historicos"], TEAL),
         ("AUTOMÁTICOS", datos["n_automaticos"], AZUL_OSCURO_TARJETA),
         ("CONFIRMADOS MANUALMENTE", f"=SUM({validos})", VERDE),
-        ("TOTAL LISTO PARA PEGAR", f"={datos['n_automaticos']}+SUM({validos})", VERDE),
+        ("TOTAL LISTO PARA PEGAR", f"={datos['n_fijos']}+SUM({validos})", VERDE),
     ], ancho_tarjeta=2)
     fila += 1
 
@@ -1700,7 +1824,8 @@ def escribir(
     salida: str,
 ) -> str:
     por_estado = {e: [r for r in resultados if r.estado == e] for e in
-                  (M.ESTADO_SEGURO, M.ESTADO_PROBABLE, M.ESTADO_REVISAR, M.ESTADO_NO_QR)}
+                  (C.ESTADO_HISTORICO, M.ESTADO_SEGURO, M.ESTADO_PROBABLE,
+                   M.ESTADO_REVISAR, M.ESTADO_NO_QR)}
     sin_match = [r for r in resultados if r.estado in (M.ESTADO_SIN_MATCH, M.ESTADO_INCOMPLETO)]
     qr = [r for r in resultados if r.estado != M.ESTADO_NO_QR]
 
@@ -1714,10 +1839,22 @@ def escribir(
         return round(sum(M.centavos_a_float(r.registro.centavos) or 0.0 for r in items), 2)
 
     fechas_cbb = [r.fecha for r in registros if r.fecha is not None]
-    encontrados = sum(len(por_estado[e]) for e in (M.ESTADO_SEGURO, M.ESTADO_PROBABLE, M.ESTADO_REVISAR))
-
+    historicos = por_estado[C.ESTADO_HISTORICO]
     automaticos = por_estado[M.ESTADO_SEGURO] + por_estado[M.ESTADO_PROBABLE]
     revisar = por_estado[M.ESTADO_REVISAR]
+    encontrados = len(historicos) + len(automaticos) + len(revisar)
+
+    # Lo que ya no se decide: historicos congelados y matches automaticos.
+    fijos = sorted(historicos + automaticos, key=lambda r: r.registro.fila_excel)
+    # Lo que la persona puede confirmar: primero REVISAR, luego SIN_MATCH.
+    casos = (
+        [CasoManual(r, "REVISAR_MANUAL", i, COLUMNA_CANDIDATO_REVISAR)
+         for i, r in enumerate(revisar, start=2)]
+        + [CasoManual(r, "SIN_MATCH", i, COLUMNA_CANDIDATO_SIN_MATCH)
+           for i, r in enumerate(sin_match, start=2)]
+    )
+    candidatos = {r.registro.fila_excel: candidatos_mismo_dia_monto(r, movimientos)
+                  for r in revisar + sin_match}
 
     wb = Workbook()
     wb.remove(wb.active)
@@ -1730,31 +1867,35 @@ def escribir(
         "total_bcp": len(movimientos),
         "n_seguro": len(por_estado[M.ESTADO_SEGURO]),
         "n_probable": len(por_estado[M.ESTADO_PROBABLE]),
-        "n_revisar": len(por_estado[M.ESTADO_REVISAR]),
+        "n_revisar": len(revisar),
         "n_sin_match": len(sin_match),
         "pct": (encontrados / len(qr)) if qr else 0.0,
         "bs_qr": bs(qr),
         "bs_seguro": bs(por_estado[M.ESTADO_SEGURO]),
         "bs_probable": bs(por_estado[M.ESTADO_PROBABLE]),
-        "bs_revisar": bs(por_estado[M.ESTADO_REVISAR]),
+        "bs_revisar": bs(revisar),
         "bs_sin_match": bs(sin_match),
         "distribucion": conteo,
         "estadisticas": stats,
         "alertas": alertas,
+        "n_historicos": len(historicos),
         "n_automaticos": len(automaticos),
-        "n_revisar_casos": len(revisar),
+        "n_fijos": len(fijos),
+        "n_casos_manuales": len(casos),
     })
 
-    _hoja_para_pegar(wb.create_sheet("PARA_PEGAR_CBB"), automaticos, len(revisar))
+    _hoja_para_pegar(wb.create_sheet("PARA_PEGAR_CBB"), fijos, len(casos))
 
-    candidatos = {r.registro.fila_excel: candidatos_mismo_dia_monto(r, movimientos) for r in revisar}
     rangos = _hoja_candidatos(wb.create_sheet(HOJA_CANDIDATOS), candidatos)
-    _hoja_revisar(wb.create_sheet("REVISAR_MANUAL"), revisar, candidatos, rangos)
-    _hoja_manuales(wb.create_sheet(HOJA_MANUALES), revisar, len(automaticos))
+    _hoja_revisar(wb.create_sheet("REVISAR_MANUAL"), revisar, candidatos, rangos, fila_manuales=2)
+    _hoja_sin_match(wb.create_sheet("SIN_MATCH"), sin_match, tipos, candidatos, rangos,
+                    fila_manuales=2 + len(revisar))
+    _hoja_manuales(wb.create_sheet(HOJA_MANUALES), casos, len(fijos))
 
-    _hoja_sin_match(wb.create_sheet("SIN_MATCH"), sin_match, tipos)
     _hoja_tarjeta(wb.create_sheet("TARJETA"), por_estado[M.ESTADO_NO_QR])
-    _hoja_ingresos(wb.create_sheet("INGRESOS_NORMALIZADOS"), registros)
+    _hoja_ingresos(wb.create_sheet("INGRESOS_NORMALIZADOS"), registros,
+                   ultima_fila_pegar=len(fijos) + len(casos) + 1)
+
     for oculta in (HOJA_CANDIDATOS, HOJA_MANUALES):
         wb.move_sheet(oculta, offset=len(wb.sheetnames))
 
@@ -1762,40 +1903,254 @@ def escribir(
     return salida
 '''
 
+_CIERRE_PY = r'''
+"""Cierre historico: congela los matches ya aceptados en una corrida anterior.
 
-# --- Escribir los dos modulos y cargarlos -----------------------------------
+Subir el QUICKVALLE de un cierre anterior significa que sus matches son
+definitivos. Este modulo los saca del universo ANTES de cruzar y reserva sus
+Nro Oper, de modo que el motor de matching no vuelve a decidir sobre ellos ni
+puede reutilizar su movimiento bancario. El algoritmo de `matcher.emparejar`
+no se toca: solo se le entrega menos entrada.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+from dataclasses import dataclass
+from typing import Any, Sequence
+
+import matcher as M
+
+ESTADO_HISTORICO = "MATCH_HISTORICO"
+ALERTA_INCONSISTENTE = "ALERTA - CIERRE HISTORICO INCONSISTENTE"
+
+# Encabezados que identifican el PARA_PEGAR_CBB de un QUICKVALLE anterior.
+REQUERIDOS_CIERRE = ("Estado", "Origen del match", "Factura", "Nro Oper BCP")
+
+COLUMNAS_CIERRE = {
+    "Estado": ("Estado",),
+    "Origen": ("Origen del match", "Origen"),
+    "Factura": ("Factura", "Numero Factura"),
+    "FechaHora CBB": ("Fecha y hora CBB",),
+    "Monto": ("Monto Bs", "Monto"),
+    "FechaHora BCP": ("Fecha y hora BCP",),
+    "Nro Oper": ("Nro Oper BCP", "Nro Oper"),
+    "Glosa": ("Glosa BCP", "Glosa"),
+    "Cd Confirmacion": ("Cd. Confirmación BCP", "Cd Confirmacion"),
+}
+
+OBLIGATORIAS_CIERRE = ("Estado", "Factura", "Nro Oper")
+
+
+@dataclass(frozen=True)
+class RegistroCerrado:
+    """Una linea de PARA_PEGAR_CBB de la corrida anterior, ya aceptada."""
+
+    factura: str
+    fecha: dt.date | None
+    centavos: int | None
+    nro_oper: Any
+    nro_oper_norm: str
+    fecha_hora_bcp: dt.datetime | None
+    importe_centavos: int | None
+    glosa: str
+    cd_confirmacion: Any
+    estado_previo: str
+
+
+def leer_cierre(tabla) -> list[RegistroCerrado]:
+    """Lee los matches finales del QUICKVALLE anterior.
+
+    Solo cuentan las filas con Nro Oper: un pendiente o un descartado del cierre
+    anterior nunca llega aqui, asi que vuelve a analizarse con normalidad.
+    """
+    cols = tabla.columnas
+    cerrados: list[RegistroCerrado] = []
+    for i in range(tabla.fila_encabezado + 1, len(tabla.filas)):
+        fila = tabla.filas[i]
+        crudo = {c: (fila[idx] if idx < len(fila) else None) for c, idx in cols.items()}
+        factura = M.norm_id(crudo.get("Factura"))
+        oper = M.norm_id(crudo.get("Nro Oper"))
+        if not factura or not oper:
+            continue
+        fecha_hora = M.redondear_a_segundo(M.a_datetime(crudo.get("FechaHora CBB")))
+        cerrados.append(
+            RegistroCerrado(
+                factura=factura,
+                fecha=fecha_hora.date() if fecha_hora else None,
+                centavos=M.a_centavos(crudo.get("Monto")),
+                nro_oper=crudo.get("Nro Oper"),
+                nro_oper_norm=oper,
+                fecha_hora_bcp=M.redondear_a_segundo(M.a_datetime(crudo.get("FechaHora BCP"))),
+                importe_centavos=M.a_centavos(crudo.get("Monto")),
+                glosa="" if crudo.get("Glosa") is None else str(crudo["Glosa"]),
+                cd_confirmacion=crudo.get("Cd Confirmacion"),
+                estado_previo=str(crudo.get("Estado") or ""),
+            )
+        )
+    return cerrados
+
+
+@dataclass
+class Congelado:
+    resultados: list[M.Resultado]
+    facturas: set[str]
+    opers_reservados: set[str]
+    alertas: list[tuple[str, str, int]]
+
+
+def aplicar(
+    registros: Sequence[M.RegistroCBB],
+    movimientos: Sequence[M.MovimientoBCP],
+    cerrados: Sequence[RegistroCerrado],
+) -> Congelado:
+    """Convierte el cierre anterior en resultados fijos y reserva sus Nro Oper."""
+    por_factura = {M.norm_id(r.crudo.get("Numero Factura")): r for r in registros}
+    por_oper: dict[str, M.MovimientoBCP] = {}
+    for mov in movimientos:
+        por_oper.setdefault(mov.nro_oper_norm, mov)
+
+    resultados: list[M.Resultado] = []
+    facturas: set[str] = set()
+    opers: set[str] = set()
+    problemas: dict[str, int] = {}
+
+    def anotar(detalle: str) -> None:
+        problemas[detalle] = problemas.get(detalle, 0) + 1
+
+    for cerrado in cerrados:
+        # El Nro Oper queda reservado aunque el pago ya no aparezca: nunca puede
+        # volver a usarse para otro match.
+        opers.add(cerrado.nro_oper_norm)
+        registro = por_factura.get(cerrado.factura)
+        if registro is None:
+            anotar("el pago cerrado ya no aparece en el reporte de ingresos")
+            continue
+
+        facturas.add(cerrado.factura)
+        movimiento = por_oper.get(cerrado.nro_oper_norm)
+        motivos = []
+        if movimiento is None:
+            motivos.append("el Nro Oper no existe en el extracto BCP actual")
+            movimiento = _movimiento_del_cierre(cerrado)
+        elif cerrado.centavos is not None and movimiento.centavos != cerrado.centavos:
+            motivos.append("el importe del movimiento BCP cambio")
+        if (cerrado.centavos is not None and registro.centavos is not None
+                and registro.centavos != cerrado.centavos):
+            motivos.append("el monto del pago cambio en el reporte de ingresos")
+
+        motivo = "Congelado del cierre anterior"
+        if motivos:
+            motivo = f"{ALERTA_INCONSISTENTE}: {'; '.join(motivos)}. Se conserva la asignacion."
+            for detalle in motivos:
+                anotar(detalle)
+
+        diferencia = None
+        if registro.fecha_hora is not None and movimiento.fecha_hora is not None:
+            diferencia = round(abs((registro.fecha_hora - movimiento.fecha_hora).total_seconds()), 3)
+
+        resultados.append(
+            M.Resultado(registro, movimiento, diferencia, ESTADO_HISTORICO, 0, None, None, False, motivo)
+        )
+
+    alertas = [(("CRITICO" if "ya no aparece" in detalle or "no existe" in detalle else "ALERTA"),
+                f"Cierre anterior: {detalle}", cantidad)
+               for detalle, cantidad in sorted(problemas.items())]
+    return Congelado(resultados, facturas, opers, alertas)
+
+
+def _movimiento_del_cierre(cerrado: RegistroCerrado) -> M.MovimientoBCP:
+    """Reconstruye el movimiento aceptado cuando ya no esta en el extracto nuevo.
+
+    No inventa un match: repite el que el usuario ya cerro, para no perderlo.
+    """
+    return M.MovimientoBCP(
+        fila_excel=0,
+        crudo={},
+        fecha_hora=cerrado.fecha_hora_bcp,
+        centavos=cerrado.importe_centavos,
+        nro_oper=cerrado.nro_oper,
+        nro_oper_norm=cerrado.nro_oper_norm,
+        glosa=cerrado.glosa,
+        cd_confirmacion=cerrado.cd_confirmacion,
+        es_qr=True,
+    )
+'''
+
+
+# --- Escribir los modulos y cargarlos ----------------------------------------
 _CARPETA = pathlib.Path.cwd()
-(_CARPETA / "matcher.py").write_text(_MATCHER_PY, encoding="utf-8")
-(_CARPETA / "reporte.py").write_text(_REPORTE_PY, encoding="utf-8")
+for _nombre, _fuente in (("matcher", _MATCHER_PY), ("reporte", _REPORTE_PY), ("cierre", _CIERRE_PY)):
+    (_CARPETA / f"{_nombre}.py").write_text(_fuente, encoding="utf-8")
+    sys.modules.pop(_nombre, None)
 if str(_CARPETA) not in sys.path:
     sys.path.insert(0, str(_CARPETA))
-for _nombre in ("matcher", "reporte"):
-    sys.modules.pop(_nombre, None)
 
+import cierre
 import matcher
+import reporte
 
-# --- Subir los dos archivos --------------------------------------------------
+# --- Subir los archivos ------------------------------------------------------
 from google.colab import files
 
-print("Sube los DOS archivos:")
-print("   1) Ingresos Cochabamba  (.xls o .xlsx)")
-print("   2) Extracto BCP         (.xlsx)")
-print("El orden no importa: se identifican por su estructura, no por el nombre.")
+print("Suba Ingresos y BCP.")
+print("Opcional: QUICKVALLE anterior si desea conservar un cierre previo.")
 print()
 
 _subidos = files.upload()
 _rutas = [n for n in _subidos if os.path.splitext(n)[1].lower() in (".xls", ".xlsx", ".xlsm")]
-if len(_rutas) != 2:
+if len(_rutas) not in (2, 3):
     raise SystemExit(
-        f"Debes subir exactamente 2 archivos Excel. Recibidos: {sorted(_subidos)}"
+        f"Suba 2 archivos (Ingresos y BCP) o 3 (ademas el QUICKVALLE anterior). "
+        f"Recibidos: {sorted(_subidos)}"
     )
 
-# --- Cruzar y generar el reporte --------------------------------------------
-_cfg = matcher.Config()
-_datos = matcher.ejecutar(_rutas, matcher.NOMBRE_SALIDA, _cfg)
+# --- Cruzar y generar el reporte ---------------------------------------------
+try:
+    _cfg = matcher.Config()
+    _datos = matcher.ejecutar(_rutas, matcher.NOMBRE_SALIDA, _cfg)
+except Exception:
+    print()
+    print("ERROR: no se pudo procesar. Detalle:")
+    traceback.print_exc()
+    raise
+
+_res = _datos["resultados"]
+
+
+def _contar(*estados):
+    return sum(1 for r in _res if r.estado in estados)
+
+
+_historicos = _contar(cierre.ESTADO_HISTORICO)
+_automaticos = _contar(matcher.ESTADO_SEGURO, matcher.ESTADO_PROBABLE)
+_pendientes = _contar(matcher.ESTADO_REVISAR)
+_sin_match = _contar(matcher.ESTADO_SIN_MATCH, matcher.ESTADO_INCOMPLETO)
+_tarjetas = _contar(matcher.ESTADO_NO_QR)
 
 print()
-matcher.imprimir_reporte(_datos, _cfg)
+print("=" * 46)
+print("  PROCESO TERMINADO")
+print("=" * 46)
+if _datos["tabla_cierre"] is not None:
+    print(f"  Cierre anterior aplicado: {os.path.basename(_datos['tabla_cierre'].ruta)}")
+print(f"  Automaticos             : {_automaticos}")
+print(f"  Confirmados historicos  : {_historicos}")
+print(f"  Pendientes de revision  : {_pendientes}")
+print(f"  Sin match               : {_sin_match}")
+print(f"  Tarjetas                : {_tarjetas}")
+print(f"  Total listo para pegar  : {_automaticos + _historicos}")
+print("=" * 46)
+
+_avisos = [(n, d, c) for n, d, c in _datos["alertas"] if n == "CRITICO"]
+if _avisos:
+    print()
+    print("  REVISAR:")
+    for _, _detalle, _cantidad in _avisos:
+        print(f"   - {_detalle}: {_cantidad}")
+
+print()
+print(f"Archivo generado: {matcher.NOMBRE_SALIDA}")
 
 # --- Descargar el resultado --------------------------------------------------
 files.download(matcher.NOMBRE_SALIDA)
