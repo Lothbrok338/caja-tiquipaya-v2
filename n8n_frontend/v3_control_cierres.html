@@ -758,8 +758,8 @@
       mostrarResultadoMensual("Indica un año y un mes válidos (1-12) antes de " + etiqueta + ".", "error");
       return;
     }
-    mostrarResultadoMensual(etiqueta + " en curso…", "cargando");
-    apiPost(endpoint, { anio: anio, mes: mes })
+    mostrarResultadoMensual(etiqueta + " en curso… (modo " + state.publicationMode + ")", "cargando");
+    apiPost(endpoint, { anio: anio, mes: mes, modo: state.publicationMode })
       .then(function (resp) {
         mostrarResultadoMensual(formatearOk(resp), "ok");
       })
@@ -768,23 +768,28 @@
       });
   }
 
+  function sufijoPublicacionOficial(r) {
+    if (!r.publicacion_oficial) return "";
+    return r.publicacion_oficial.publicado ? " Publicado en Drive oficial." : "";
+  }
+
   function generarGlobalMensual() {
     ejecutarAccionMensual(ENDPOINTS.global, "GENERAR GLOBAL", function (r) {
       var faltantes = (r.fechas_faltantes || []).length;
       return "GLOBAL generado (" + (r.cantidad_sap_incluidos || 0) + " SAP incluidos, "
-        + faltantes + " fecha(s) sin cierre). Estado: " + r.estado + ".";
+        + faltantes + " fecha(s) sin cierre). Estado: " + r.estado + "." + sufijoPublicacionOficial(r);
     });
   }
 
   function ejecutarControl1Mensual() {
     ejecutarAccionMensual(ENDPOINTS.control1, "CONTROL 1", function (r) {
-      return "CONTROL 1: " + r.estado + ".";
+      return "CONTROL 1: " + r.estado + "." + sufijoPublicacionOficial(r);
     });
   }
 
   function ejecutarControl3Mensual() {
     ejecutarAccionMensual(ENDPOINTS.control3, "CONTROL 3", function (r) {
-      return "CONTROL 3: " + r.estado + ".";
+      return "CONTROL 3: " + r.estado + "." + sufijoPublicacionOficial(r);
     });
   }
 

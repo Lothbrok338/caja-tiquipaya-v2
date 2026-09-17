@@ -469,6 +469,14 @@ def _ruta_global(base_dir_dev, anio, mes):
     return os.path.join(base_dir_dev, "global", consolidador_mensual.nombre_sap_global(anio, mes))
 
 
+def _periodo(anio, mes):
+    """PERIODO canonico (p.ej. 'SEPTIEMBRE_2026'), derivado del mismo nombre
+    que consolidador_mensual.nombre_sap_global() ya produce — nunca una
+    tabla de meses duplicada aparte."""
+    nombre = consolidador_mensual.nombre_sap_global(anio, mes)
+    return nombre[len("SAP_GLOBAL_TIQ_"):-len(".xlsx")]
+
+
 def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None, force=False):
     """Cierre MENSUAL — paso 1 (GENERAR GLOBAL). `sap_dir` por defecto es
     `base_dir_dev/publicacion/sap/`, exactamente donde el Módulo 06 ya deja
@@ -501,13 +509,21 @@ def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=
 
 def ejecutar_control3(anio, mes, base_dir_dev, ruta_observaciones_json=None, dry_run=False):
     """Cierre MENSUAL — paso 3 (CONTROL 3). Lee el MISMO GLOBAL del año/mes
-    (ya corregido por CONTROL 1 si aplicó). Reporte e histórico técnico
-    quedan en `base_dir_dev/global/`."""
+    (ya corregido por CONTROL 1 si aplicó). Reporte (CONTROL3_CXC_CXP_
+    <PERIODO>.xlsx/.json) e histórico técnico quedan en
+    `base_dir_dev/global/` — antes de FASE 12D `ruta_salida_xlsx`/
+    `ruta_salida_json` no se pasaban y control_cxc_cxp.ejecutar_control()
+    nunca escribia el reporte (solo el histórico); esta es la única
+    diferencia con el comportamiento previo, sin tocar control_cxc_cxp.py."""
     global_dir = os.path.join(base_dir_dev, "global")
     ruta_global = _ruta_global(base_dir_dev, anio, mes)
     ruta_historico = os.path.join(global_dir, "HISTORICO_CXC_CXP.csv")
+    periodo = _periodo(anio, mes)
+    ruta_salida_xlsx = os.path.join(global_dir, f"CONTROL3_CXC_CXP_{periodo}.xlsx")
+    ruta_salida_json = os.path.join(global_dir, f"CONTROL3_CXC_CXP_{periodo}.json")
     return ejecutar_control3_mensual(
         ruta_global, ruta_historico,
+        ruta_salida_xlsx=ruta_salida_xlsx, ruta_salida_json=ruta_salida_json,
         ruta_observaciones_json=ruta_observaciones_json, dry_run=dry_run,
     )
 

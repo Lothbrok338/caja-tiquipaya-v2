@@ -381,6 +381,12 @@ def test_dev_api_generar_global_y_controles_usan_base_dir_dev(tmp_path):
 
     r_c3 = dev_api.ejecutar_control3(2026, 9, str(base_dir_dev))
     assert r_c3["estado"] not in ("ERROR_TECNICO", None)
+    # FASE 12D: antes de este fix, ejecutar_control3() no pasaba
+    # ruta_salida_xlsx/json y CONTROL 3 nunca escribia su reporte mensual
+    # (solo el HISTORICO). Ahora si debe quedar, listo para publicarse.
+    ruta_reporte_xlsx = os.path.join(str(base_dir_dev), "global", "CONTROL3_CXC_CXP_SEPTIEMBRE_2026.xlsx")
+    assert os.path.isfile(ruta_reporte_xlsx)
+    assert r_c3["archivo_control_xlsx"] == ruta_reporte_xlsx
 
 
 def test_cli_main_generar_global_y_controles_produce_json_valido(tmp_path):

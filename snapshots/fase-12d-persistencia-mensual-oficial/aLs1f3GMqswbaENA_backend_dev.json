@@ -1,0 +1,1619 @@
+{
+  "id": "aLs1f3GMqswbaENA",
+  "name": "TIQ V3 · BACKEND DEV (webhooks)",
+  "active": false,
+  "isArchived": false,
+  "versionId": "b7a2372b-7f2f-49d8-9df6-14c5aff50529",
+  "activeVersionId": null,
+  "triggerCount": 6,
+  "nodeCount": 112,
+  "createdAt": "2026-09-14T04:52:50.018Z",
+  "updatedAt": "2026-09-17T19:03:25.943Z",
+  "description": "FASE 9 -- backend DEV bajo /webhook/tiq-v3-dev/{estado,procesar,datos,revisar,corregir,publicar,preflight,global,control1,control3} que conecta v3_control_cierres.html con los modulos v3.* via v3/dev_api.py. FASE 12D: /global,/control1,/control3 ahora publican en Drive oficial (05_CONTROLES/) cuando body.modo=='official', via los subworkflows 07C/07D/07E. Inactivo, sin credenciales propias (las usan los subworkflows referenciados).",
+  "connections": {
+    "WEBHOOK procesar": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload crear_lote_pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload crear_lote_pendiente": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input crear_lote_pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input crear_lote_pendiente": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR crear_lote_pendiente (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR crear_lote_pendiente (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado crear_lote_pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado crear_lote_pendiente": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado crear_lote_pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado crear_lote_pendiente": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER procesar (lote_id)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "EJECUTAR - 01 INGESTA (Drive real)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload procesar_lote": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input procesar_lote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input procesar_lote": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR procesar_lote (Python, background)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK estado": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload estado": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input estado": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR estado (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR estado (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado estado": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK datos": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload datos": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input datos": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR datos (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR datos (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado datos": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado datos": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK revisar": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload revisar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload revisar": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input revisar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input revisar": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR revisar (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR revisar (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado revisar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado revisar": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado revisar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado revisar": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER revisar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK corregir": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload corregir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload corregir": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input corregir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input corregir": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR corregir (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR corregir (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado corregir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado corregir": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado corregir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado corregir": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER corregir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK publicar": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload publicar": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input publicar": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR publicar (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR publicar (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado publicar": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado publicar": {
+      "main": [
+        [
+          {
+            "node": "PREPARAR - Cierres elegibles para Drive oficial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PREPARAR - Cierres elegibles para Drive oficial": {
+      "main": [
+        [
+          {
+            "node": "IF - Hay cierres para Drive oficial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Hay cierres para Drive oficial": {
+      "main": [
+        [
+          {
+            "node": "EXPANDIR - Un item por cierre",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CONSTRUIR - Respuesta sin Drive oficial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EXPANDIR - Un item por cierre": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR - 06B Publicacion Oficial Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR - 06B Publicacion Oficial Drive": {
+      "main": [
+        [
+          {
+            "node": "COMBINAR - Resultado local + Drive oficial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "COMBINAR - Resultado local + Drive oficial": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR - Respuesta sin Drive oficial": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR - 01 INGESTA (Drive real)": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload procesar_lote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado estado": {
+      "main": [
+        [
+          {
+            "node": "AGREGAR - publication_mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AGREGAR - publication_mode": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK preflight": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload preflight",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload preflight": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR - Preflight Oficial (solo lectura)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR - Preflight Oficial (solo lectura)": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER preflight",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK global": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload global": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input global": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR global (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR global (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado global": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload control1": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input control1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input control1": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR control1 (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR control1 (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado control1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado control1": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado control1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload control3": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input control3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input control3": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR control3 (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR control3 (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado control3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado control3": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado control3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado global": {
+      "main": [
+        [
+          {
+            "node": "DECIDIR - Publicar GLOBAL oficial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DECIDIR - Publicar GLOBAL oficial": {
+      "main": [
+        [
+          {
+            "node": "IF - Debe publicar GLOBAL oficial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Debe publicar GLOBAL oficial": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR 07E crear carpeta GLOBAL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "COMBINAR - Resultado GLOBAL sin Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR 07E crear carpeta GLOBAL": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Lista publicaciones GLOBAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR - Lista publicaciones GLOBAL": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR 07D subir GLOBAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR 07D subir GLOBAL": {
+      "main": [
+        [
+          {
+            "node": "COMBINAR - Resultado GLOBAL con Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "COMBINAR - Resultado GLOBAL con Drive": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "COMBINAR - Resultado GLOBAL sin Drive": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK control1": {
+      "main": [
+        [
+          {
+            "node": "DECIDIR - Descargar historico CONTROL1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DECIDIR - Descargar historico CONTROL1": {
+      "main": [
+        [
+          {
+            "node": "IF - Debe descargar historico CONTROL1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Debe descargar historico CONTROL1": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Descarga historico CONTROL1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CONSTRUIR payload control1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR - Descarga historico CONTROL1": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR 07C descargar historico CONTROL1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR 07C descargar historico CONTROL1": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload control1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado control1": {
+      "main": [
+        [
+          {
+            "node": "DECIDIR - Publicar CONTROL1 oficial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DECIDIR - Publicar CONTROL1 oficial": {
+      "main": [
+        [
+          {
+            "node": "IF - Debe publicar CONTROL1 oficial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Debe publicar CONTROL1 oficial": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Lista publicaciones CONTROL1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "COMBINAR - Resultado CONTROL1 sin Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR - Lista publicaciones CONTROL1": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR 07D publicar CONTROL1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR 07D publicar CONTROL1": {
+      "main": [
+        [
+          {
+            "node": "COMBINAR - Resultado CONTROL1 con Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "COMBINAR - Resultado CONTROL1 con Drive": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER control1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "COMBINAR - Resultado CONTROL1 sin Drive": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER control1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK control3": {
+      "main": [
+        [
+          {
+            "node": "DECIDIR - Descargar historico CONTROL3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DECIDIR - Descargar historico CONTROL3": {
+      "main": [
+        [
+          {
+            "node": "IF - Debe descargar historico CONTROL3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Debe descargar historico CONTROL3": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Descarga historico CONTROL3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CONSTRUIR payload control3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR - Descarga historico CONTROL3": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR 07C descargar historico CONTROL3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR 07C descargar historico CONTROL3": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload control3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado control3": {
+      "main": [
+        [
+          {
+            "node": "DECIDIR - Publicar CONTROL3 oficial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DECIDIR - Publicar CONTROL3 oficial": {
+      "main": [
+        [
+          {
+            "node": "IF - Debe publicar CONTROL3 oficial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Debe publicar CONTROL3 oficial": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Lista publicaciones CONTROL3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "COMBINAR - Resultado CONTROL3 sin Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR - Lista publicaciones CONTROL3": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR 07D publicar CONTROL3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR 07D publicar CONTROL3": {
+      "main": [
+        [
+          {
+            "node": "COMBINAR - Resultado CONTROL3 con Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "COMBINAR - Resultado CONTROL3 con Drive": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER control3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "COMBINAR - Resultado CONTROL3 sin Drive": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER control3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeSummary": [
+    {
+      "name": "Sticky Note Overview",
+      "type": "n8n-nodes-base.stickyNote"
+    },
+    {
+      "name": "WEBHOOK procesar",
+      "type": "n8n-nodes-base.webhook",
+      "path": "tiq-v3-dev/procesar",
+      "method": "POST"
+    },
+    {
+      "name": "CONSTRUIR payload crear_lote_pendiente",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "ESCRIBIR input crear_lote_pendiente",
+      "type": "n8n-nodes-base.executeCommand"
+    },
+    {
+      "name": "EJECUTAR crear_lote_pendiente (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "command": "python3 -m v3.dev_api --accion crear_lote_pendiente"
+    },
+    {
+      "name": "LEER resultado crear_lote_pendiente",
+      "type": "n8n-nodes-base.readWriteFile"
+    },
+    {
+      "name": "INTERPRETAR resultado crear_lote_pendiente",
+      "type": "n8n-nodes-base.extractFromFile"
+    },
+    {
+      "name": "RESPONDER procesar (lote_id)",
+      "type": "n8n-nodes-base.respondToWebhook"
+    },
+    {
+      "name": "CONSTRUIR payload procesar_lote",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "ESCRIBIR input procesar_lote",
+      "type": "n8n-nodes-base.executeCommand"
+    },
+    {
+      "name": "EJECUTAR procesar_lote (Python, background)",
+      "type": "n8n-nodes-base.executeCommand",
+      "command": "python3 -m v3.dev_api --accion procesar_lote"
+    },
+    {
+      "name": "Sticky Note procesar",
+      "type": "n8n-nodes-base.stickyNote"
+    },
+    {
+      "name": "WEBHOOK estado",
+      "type": "n8n-nodes-base.webhook",
+      "path": "tiq-v3-dev/estado",
+      "method": "GET"
+    },
+    {
+      "name": "CONSTRUIR payload estado",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "ESCRIBIR input estado",
+      "type": "n8n-nodes-base.executeCommand"
+    },
+    {
+      "name": "EJECUTAR estado (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "command": "python3 -m v3.dev_api --accion estado"
+    },
+    {
+      "name": "LEER resultado estado",
+      "type": "n8n-nodes-base.readWriteFile"
+    },
+    {
+      "name": "INTERPRETAR resultado estado",
+      "type": "n8n-nodes-base.extractFromFile"
+    },
+    {
+      "name": "RESPONDER estado",
+      "type": "n8n-nodes-base.respondToWebhook"
+    },
+    {
+      "name": "Sticky Note estado",
+      "type": "n8n-nodes-base.stickyNote"
+    },
+    {
+      "name": "WEBHOOK datos",
+      "type": "n8n-nodes-base.webhook",
+      "path": "tiq-v3-dev/datos",
+      "method": "GET"
+    },
+    {
+      "name": "CONSTRUIR payload datos",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "ESCRIBIR input datos",
+      "type": "n8n-nodes-base.executeCommand"
+    },
+    {
+      "name": "EJECUTAR datos (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "command": "python3 -m v3.dev_api --accion datos"
+    },
+    {
+      "name": "LEER resultado datos",
+      "type": "n8n-nodes-base.readWriteFile"
+    },
+    {
+      "name": "INTERPRETAR resultado datos",
+      "type": "n8n-nodes-base.extractFromFile"
+    },
+    {
+      "name": "RESPONDER datos",
+      "type": "n8n-nodes-base.respondToWebhook"
+    },
+    {
+      "name": "Sticky Note datos",
+      "type": "n8n-nodes-base.stickyNote"
+    },
+    {
+      "name": "WEBHOOK revisar",
+      "type": "n8n-nodes-base.webhook",
+      "path": "tiq-v3-dev/revisar",
+      "method": "POST"
+    },
+    {
+      "name": "CONSTRUIR payload revisar",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "ESCRIBIR input revisar",
+      "type": "n8n-nodes-base.executeCommand"
+    },
+    {
+      "name": "EJECUTAR revisar (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "command": "python3 -m v3.dev_api --accion revisar"
+    },
+    {
+      "name": "LEER resultado revisar",
+      "type": "n8n-nodes-base.readWriteFile"
+    },
+    {
+      "name": "INTERPRETAR resultado revisar",
+      "type": "n8n-nodes-base.extractFromFile"
+    },
+    {
+      "name": "RESPONDER revisar",
+      "type": "n8n-nodes-base.respondToWebhook"
+    },
+    {
+      "name": "Sticky Note revisar",
+      "type": "n8n-nodes-base.stickyNote"
+    },
+    {
+      "name": "WEBHOOK corregir",
+      "type": "n8n-nodes-base.webhook",
+      "path": "tiq-v3-dev/corregir",
+      "method": "POST"
+    },
+    {
+      "name": "CONSTRUIR payload corregir",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "ESCRIBIR input corregir",
+      "type": "n8n-nodes-base.executeCommand"
+    },
+    {
+      "name": "EJECUTAR corregir (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "command": "python3 -m v3.dev_api --accion corregir"
+    },
+    {
+      "name": "LEER resultado corregir",
+      "type": "n8n-nodes-base.readWriteFile"
+    },
+    {
+      "name": "INTERPRETAR resultado corregir",
+      "type": "n8n-nodes-base.extractFromFile"
+    },
+    {
+      "name": "RESPONDER corregir",
+      "type": "n8n-nodes-base.respondToWebhook"
+    },
+    {
+      "name": "Sticky Note corregir",
+      "type": "n8n-nodes-base.stickyNote"
+    },
+    {
+      "name": "WEBHOOK publicar",
+      "type": "n8n-nodes-base.webhook",
+      "path": "tiq-v3-dev/publicar",
+      "method": "POST"
+    },
+    {
+      "name": "CONSTRUIR payload publicar",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "ESCRIBIR input publicar",
+      "type": "n8n-nodes-base.executeCommand"
+    },
+    {
+      "name": "EJECUTAR publicar (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "command": "python3 -m v3.dev_api --accion publicar"
+    },
+    {
+      "name": "LEER resultado publicar",
+      "type": "n8n-nodes-base.readWriteFile"
+    },
+    {
+      "name": "INTERPRETAR resultado publicar",
+      "type": "n8n-nodes-base.extractFromFile"
+    },
+    {
+      "name": "RESPONDER publicar",
+      "type": "n8n-nodes-base.respondToWebhook"
+    },
+    {
+      "name": "Sticky Note publicar",
+      "type": "n8n-nodes-base.stickyNote"
+    },
+    {
+      "name": "PREPARAR - Cierres elegibles para Drive oficial",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "IF - Hay cierres para Drive oficial",
+      "type": "n8n-nodes-base.if"
+    },
+    {
+      "name": "EXPANDIR - Un item por cierre",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "EJECUTAR - 06B Publicacion Oficial Drive",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "targetWorkflowId": "wcgxNei3duWfMDp1",
+      "mode": "each"
+    },
+    {
+      "name": "COMBINAR - Resultado local + Drive oficial",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "CONSTRUIR - Respuesta sin Drive oficial",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "EJECUTAR - 01 INGESTA (Drive real)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "targetWorkflowId": "CanZtkmnm0ukAC8c",
+      "mode": "once"
+    },
+    {
+      "name": "AGREGAR - publication_mode",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "WEBHOOK preflight",
+      "type": "n8n-nodes-base.webhook",
+      "path": "tiq-v3-dev/preflight",
+      "method": "GET"
+    },
+    {
+      "name": "CONSTRUIR payload preflight",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "EJECUTAR - Preflight Oficial (solo lectura)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "targetWorkflowId": "sJVgoBRpBntc96vf",
+      "mode": "once"
+    },
+    {
+      "name": "RESPONDER preflight",
+      "type": "n8n-nodes-base.respondToWebhook"
+    },
+    {
+      "name": "WEBHOOK global",
+      "type": "n8n-nodes-base.webhook",
+      "path": "tiq-v3-dev/global",
+      "method": "POST"
+    },
+    {
+      "name": "CONSTRUIR payload global",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "ESCRIBIR input global",
+      "type": "n8n-nodes-base.executeCommand"
+    },
+    {
+      "name": "EJECUTAR global (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "command": "python3 -m v3.dev_api --accion generar_global"
+    },
+    {
+      "name": "LEER resultado global",
+      "type": "n8n-nodes-base.readWriteFile"
+    },
+    {
+      "name": "INTERPRETAR resultado global",
+      "type": "n8n-nodes-base.extractFromFile"
+    },
+    {
+      "name": "RESPONDER global",
+      "type": "n8n-nodes-base.respondToWebhook"
+    },
+    {
+      "name": "WEBHOOK control1",
+      "type": "n8n-nodes-base.webhook",
+      "path": "tiq-v3-dev/control1",
+      "method": "POST"
+    },
+    {
+      "name": "CONSTRUIR payload control1",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "ESCRIBIR input control1",
+      "type": "n8n-nodes-base.executeCommand"
+    },
+    {
+      "name": "EJECUTAR control1 (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "command": "python3 -m v3.dev_api --accion ejecutar_control1"
+    },
+    {
+      "name": "LEER resultado control1",
+      "type": "n8n-nodes-base.readWriteFile"
+    },
+    {
+      "name": "INTERPRETAR resultado control1",
+      "type": "n8n-nodes-base.extractFromFile"
+    },
+    {
+      "name": "RESPONDER control1",
+      "type": "n8n-nodes-base.respondToWebhook"
+    },
+    {
+      "name": "WEBHOOK control3",
+      "type": "n8n-nodes-base.webhook",
+      "path": "tiq-v3-dev/control3",
+      "method": "POST"
+    },
+    {
+      "name": "CONSTRUIR payload control3",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "ESCRIBIR input control3",
+      "type": "n8n-nodes-base.executeCommand"
+    },
+    {
+      "name": "EJECUTAR control3 (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "command": "python3 -m v3.dev_api --accion ejecutar_control3"
+    },
+    {
+      "name": "LEER resultado control3",
+      "type": "n8n-nodes-base.readWriteFile"
+    },
+    {
+      "name": "INTERPRETAR resultado control3",
+      "type": "n8n-nodes-base.extractFromFile"
+    },
+    {
+      "name": "RESPONDER control3",
+      "type": "n8n-nodes-base.respondToWebhook"
+    },
+    {
+      "name": "DECIDIR - Publicar GLOBAL oficial",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "IF - Debe publicar GLOBAL oficial",
+      "type": "n8n-nodes-base.if"
+    },
+    {
+      "name": "EJECUTAR 07E crear carpeta GLOBAL",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "targetWorkflowId": "Lht5xRinJ9nJpHCW",
+      "mode": "once"
+    },
+    {
+      "name": "CONSTRUIR - Lista publicaciones GLOBAL",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "EJECUTAR 07D subir GLOBAL",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "targetWorkflowId": "HhuQCVP2oCubavzY",
+      "mode": "each"
+    },
+    {
+      "name": "COMBINAR - Resultado GLOBAL con Drive",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "COMBINAR - Resultado GLOBAL sin Drive",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "DECIDIR - Descargar historico CONTROL1",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "IF - Debe descargar historico CONTROL1",
+      "type": "n8n-nodes-base.if"
+    },
+    {
+      "name": "CONSTRUIR - Descarga historico CONTROL1",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "EJECUTAR 07C descargar historico CONTROL1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "targetWorkflowId": "fn7lLjHsiMd48DGK",
+      "mode": "once"
+    },
+    {
+      "name": "DECIDIR - Publicar CONTROL1 oficial",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "IF - Debe publicar CONTROL1 oficial",
+      "type": "n8n-nodes-base.if"
+    },
+    {
+      "name": "CONSTRUIR - Lista publicaciones CONTROL1",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "EJECUTAR 07D publicar CONTROL1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "targetWorkflowId": "HhuQCVP2oCubavzY",
+      "mode": "each"
+    },
+    {
+      "name": "COMBINAR - Resultado CONTROL1 con Drive",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "COMBINAR - Resultado CONTROL1 sin Drive",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "DECIDIR - Descargar historico CONTROL3",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "IF - Debe descargar historico CONTROL3",
+      "type": "n8n-nodes-base.if"
+    },
+    {
+      "name": "CONSTRUIR - Descarga historico CONTROL3",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "EJECUTAR 07C descargar historico CONTROL3",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "targetWorkflowId": "fn7lLjHsiMd48DGK",
+      "mode": "each"
+    },
+    {
+      "name": "DECIDIR - Publicar CONTROL3 oficial",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "IF - Debe publicar CONTROL3 oficial",
+      "type": "n8n-nodes-base.if"
+    },
+    {
+      "name": "CONSTRUIR - Lista publicaciones CONTROL3",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "EJECUTAR 07D publicar CONTROL3",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "targetWorkflowId": "HhuQCVP2oCubavzY",
+      "mode": "each"
+    },
+    {
+      "name": "COMBINAR - Resultado CONTROL3 con Drive",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "name": "COMBINAR - Resultado CONTROL3 sin Drive",
+      "type": "n8n-nodes-base.code"
+    }
+  ],
+  "credentialsUsadas": [],
+  "subworkflowsReferenciados": [
+    {
+      "id": "fn7lLjHsiMd48DGK",
+      "name": "TIQ V3 · 07C DESCARGAR ARCHIVO OFICIAL SI EXISTE · DRIVE",
+      "proposito": "Busca por nombre exacto en una carpeta Drive; 0->nada, 1->descarga a ruta local, >1->ERROR_AMBIGUO_DESCARGA."
+    },
+    {
+      "id": "HhuQCVP2oCubavzY",
+      "name": "TIQ V3 · 07D PUBLICAR ARCHIVO OFICIAL (crear o actualizar) · DRIVE",
+      "proposito": "Busca por nombre exacto; 0->sube, 1->actualiza contenido (modo_si_existe=actualizar) o reutiliza sin tocar (modo_si_existe=mantener), >1->ERROR_AMBIGUO_PUBLICACION."
+    },
+    {
+      "id": "Lht5xRinJ9nJpHCW",
+      "name": "TIQ V3 · 07E BUSCAR O CREAR CARPETA OFICIAL · DRIVE",
+      "proposito": "Busca subcarpeta por nombre exacto; 0->crea, 1->reutiliza, >1->ERROR_AMBIGUO_CARPETA. Usado para crear 05_CONTROLES/GLOBAL/ la primera vez."
+    }
+  ],
+  "nodeGroups": [],
+  "activeVersion": null,
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  },
+  "notaExportacion": "Resumen estructural (metadatos + conexiones completas + resumen de cada nodo) en vez del JSON crudo completo, por el mismo motivo documentado en snapshots anteriores. Los 3 subworkflows nuevos (07C/07D/07E) no se exportan aqui completos: su logica de idempotencia (busqueda por nombre exacto, 0/1/>1) esta descrita en SNAPSHOT_MANIFEST.md y espejada en tests_v3/n8n_publicacion_mensual/logic_reference.js. Para el JSON crudo de cualquiera, usar get_workflow_details(workflowId=...) via MCP n8n."
+}
