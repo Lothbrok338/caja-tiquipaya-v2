@@ -109,6 +109,20 @@
     border-radius: 20px;
     letter-spacing: .06em;
   }
+  /* FASE 11A.1: variante discreta pero distinta (rojo institucional) para
+     cuando PUBLICAR ya escribe en Drive real -- nunca debe verse igual al
+     badge de DEV, para que nadie confunda un entorno con otro. */
+  .badge-oficial {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    color: #fff;
+    background: #A4322B;
+    border: 1px solid #7A211B;
+    padding: 3px 8px;
+    border-radius: 20px;
+    letter-spacing: .06em;
+  }
   header .sub {
     font-size: 11.5px;
     color: var(--muted2);
@@ -444,7 +458,7 @@
 <header>
   <div class="brand">
     <h1>CAJA TIQUIPAYA <span class="v3">V3</span></h1>
-    <span class="badge-dev">ENTORNO: DEV</span>
+    <span id="badge-entorno" class="badge-dev">ENTORNO: DEV</span>
   </div>
   <div class="sub">Control de Cierres · interfaz de desarrollo, separada del frontend V2</div>
   <div class="spacer"></div>
@@ -557,6 +571,32 @@
 
   var DEMO = new URLSearchParams(window.location.search).get("demo") === "1";
 
+  // FASE 11A.2: el modo de publicacion (dev|official) lo EXPONE el
+  // backend (GET /estado -> campo publication_mode, agregado por el nodo
+  // "AGREGAR - publication_mode" del workflow n8n, justo antes de
+  // responder) -- el frontend NUNCA decide esto por si mismo. Se lee UNA
+  // vez al cargar la pagina (cargarModoPublicacion(), mas abajo) y queda
+  // en state.publicationMode. Mientras no haya respuesta todavia (o si
+  // falla la lectura), el valor por defecto es "official": ante
+  // incertidumbre, se asume el escenario que requiere MAS cuidado
+  // (avisar como oficial de mas, nunca coquetear con "dev" cuando en
+  // realidad ya escribe Drive). Controla UNICAMENTE el indicador visual y
+  // el texto de la confirmacion antes de publicar (ver renderShell() y
+  // confirmarPublicacion()) -- nunca cambia que endpoint se llama ni la
+  // logica de negocio.
+  function esPublicacionOficial() { return state.publicationMode !== "dev"; }
+
+  function cargarModoPublicacion() {
+    return fetch(ENDPOINTS.estado, { headers: { Accept: "application/json" } })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (data) {
+        state.publicationMode = (data && data.publication_mode === "dev") ? "dev" : "official";
+      })
+      .catch(function () {
+        state.publicationMode = "official"; // fail-safe: ante duda, asumir oficial
+      });
+  }
+
   var ESTADOS = {
     LISTO_PARA_PUBLICAR: { label: "Listo", tag: "listo" },
     ERROR_REVISAR:        { label: "Revisión", tag: "revisar" },
@@ -570,7 +610,7 @@
     BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA: { label: "Maestro sin cobertura", tag: "bloqueo-maestro" },
   };
 
-  var state = { cierres: [], seleccion: null, loteId: null };
+  var state = { cierres: [], seleccion: null, loteId: null, publicationMode: "official" };
 
   // -----------------------------------------------------------------------
   // Cliente HTTP minimo hacia /webhook/tiq-v3-dev/*. NUNCA contiene una
@@ -1143,8 +1183,31 @@
     return fila;
   }
 
+  // FASE 11A.1/11A.2: confirmacion humana explicita, siempre inmediatamente
+  // antes de POST /publicar -- cancelar significa CERO llamadas al
+  // backend (el guard de esPublicable() de arriba ya se evaluo, pero
+  // ninguna llamada de red ocurre hasta que el usuario confirma). El
+  // texto distingue oficial (Drive real) de DEV (solo local) usando
+  // state.publicationMode, que viene del BACKEND (esPublicacionOficial()),
+  // para que el mensaje nunca contradiga lo que el badge dice.
+  function confirmarPublicacion(fechas) {
+    var listaFechas = fechas.map(fmtFecha).join(", ");
+    var sujeto = fechas.length === 1
+      ? "el cierre " + listaFechas
+      : fechas.length + " cierres (" + listaFechas + ")";
+    var mensaje = esPublicacionOficial()
+      ? "Va a publicar oficialmente " + sujeto + ".\n" +
+        "Se generarán los archivos oficiales en Drive y el cierre será movido a Procesados.\n" +
+        "¿Continuar?"
+      : "Va a publicar (DEV, solo local) " + sujeto + ".\n" +
+        "No se escribe nada en Drive en este modo.\n" +
+        "¿Continuar?";
+    return window.confirm(mensaje);
+  }
+
   function publicarCierre(cierre) {
     if (!esPublicable(cierre)) return;
+    if (!confirmarPublicacion([cierre.fecha])) return;
     var usuarioAuditor = qs("#in-usuario-auditor").value || "auditor.dev";
     apiPost(ENDPOINTS.publicar, { lote_id: state.loteId, fechas: [cierre.fecha], usuario_auditor: usuarioAuditor }).then(function (resp) {
       if (resp.omitidos && resp.omitidos.length) {
@@ -1309,9 +1372,29 @@
     }, 220);
   }
 
+  function renderBadgeEntorno() {
+    var badgeEntorno = qs("#badge-entorno");
+    if (esPublicacionOficial()) {
+      badgeEntorno.textContent = "PUBLICACIÓN: OFICIAL";
+      badgeEntorno.className = "badge-oficial";
+      badgeEntorno.title = "PUBLICAR sube SAP/resultado/marcador reales a Drive y mueve el cierre a Procesados.";
+    } else {
+      badgeEntorno.textContent = "ENTORNO: DEV";
+      badgeEntorno.className = "badge-dev";
+      badgeEntorno.title = "PUBLICAR solo escribe copias locales de desarrollo -- nunca toca Drive.";
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     initFechas();
     qs("#demo-banner").style.display = DEMO ? "block" : "none";
+    // FASE 11A.2: el modo se pinta primero con el valor por defecto
+    // (seguro) y, salvo en modo demo (que NUNCA llama al backend), se
+    // vuelve a pintar en cuanto llega la respuesta real de /estado.
+    renderBadgeEntorno();
+    if (!DEMO) {
+      cargarModoPublicacion().then(renderBadgeEntorno);
+    }
     renderIndicadores([]);
     qs("#tabla-body").innerHTML = '<tr><td colspan="8" class="empty-state">' + textoPlaceholderVacio() + '</td></tr>';
     qs("#btn-procesar").addEventListener("click", procesarCierres);

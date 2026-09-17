@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import xlsx_fixtures as fx  # noqa: E402
 import pipeline_tiquipaya as pipeline  # noqa: E402
+import consolidador_mensual  # noqa: E402  (solo lectura: se usa su regex para verificar compatibilidad, nunca se lo invoca ni modifica)
 from v3.motor import ejecutar_motor_cierre  # noqa: E402
 from v3.clasificacion import (  # noqa: E402
     LISTO_PARA_PUBLICAR, ERROR_REVISAR, SIN_ARCHIVO, YA_PROCESADO, ERROR_TECNICO,
@@ -33,11 +34,14 @@ from v3.publicacion import (  # noqa: E402
 _SFC_VACIO = {"total_movimiento": "0.00", "cobros_atc": "0.00", "dolares": "0.00", "depositos": []}
 
 
-def _cierre_procesado(tmp_path, nombre="a", fecha="2026-09-01"):
+def _cierre_procesado(tmp_path, nombre="a", fecha="2026-09-01", drive_file_id=None):
     """Construye un cierre real, lo corre por el motor V2 real (via el
     adaptador del Módulo 03), y devuelve un item listo para publicar
     (estado_final=LISTO_PARA_PUBLICAR) con rutas reales de cierre/sap/
-    resultado — exactamente lo que entregaría la cadena 01->02->03->04."""
+    resultado — exactamente lo que entregaría la cadena 01->02->03->04.
+    `drive_file_id`: simula el fileId que v3.ingesta ya calcula (FASE 10A)
+    y que v3.materializacion ahora SÍ propaga (FASE 11A.1, ver
+    _propagar de v3.motor: carry-forward genérico de todo el item)."""
     carpeta = tmp_path / nombre
     carpeta.mkdir()
     ruta_cierre = carpeta / f"CIERRE {fecha[8:10]}-{fecha[5:7]}-{fecha[0:4]}.xlsm"
@@ -49,7 +53,7 @@ def _cierre_procesado(tmp_path, nombre="a", fecha="2026-09-01"):
 
     item_motor = {
         "fecha": fecha, "archivo_esperado": os.path.basename(str(ruta_cierre)),
-        "estado_ingesta": "ENCONTRADO", "estado_materializacion": "MATERIALIZADO",
+        "estado_ingesta": "ENCONTRADO", "drive_file_id": drive_file_id, "estado_materializacion": "MATERIALIZADO",
         "ruta_cierre_local": str(ruta_cierre), "ruta_maestro_local": str(ruta_maestro),
         "ruta_template_sap_local": str(ruta_plantilla), "ruta_markers_local": None,
     }
@@ -57,9 +61,23 @@ def _cierre_procesado(tmp_path, nombre="a", fecha="2026-09-01"):
     assert r["estado_motor"] == "PROCESADO"
 
     return {
-        "fecha": fecha, "estado_final": LISTO_PARA_PUBLICAR,
+        "fecha": fecha, "estado_final": LISTO_PARA_PUBLICAR, "drive_file_id": r.get("drive_file_id"),
         "ruta_cierre_local": str(ruta_cierre), "ruta_sap": r["ruta_sap"], "ruta_resultado": r["ruta_resultado"],
     }
+
+
+# FASE 11A.1: el drive_file_id detectado en INGESTA (Modulo 01) debe llegar
+# intacto hasta el item que recibe PUBLICACION (Modulo 06) -- v3.motor y
+# v3.publicacion ya hacian carry-forward generico (dict(item)); el UNICO
+# punto que lo descartaba en silencio era v3.materializacion (corregido en
+# esta fase, ver tests_v3/test_materializacion.py).
+def test_drive_file_id_de_ingesta_llega_intacto_a_publicacion(tmp_path):
+    item = _cierre_procesado(tmp_path, drive_file_id="1RealDriveFileIdDeIngesta")
+    assert item["drive_file_id"] == "1RealDriveFileIdDeIngesta"
+
+    r = publicar_cierre_dev(item, str(tmp_path / "dev"))
+    assert r["estado_publicacion"] == PUBLICADO
+    assert r["drive_file_id"] == "1RealDriveFileIdDeIngesta"
 
 
 # 1) LISTO_PARA_PUBLICAR se publica correctamente (DEV): archivos copiados + marker.
@@ -73,6 +91,29 @@ def test_listo_para_publicar_se_publica(tmp_path):
     assert os.path.isfile(r["ruta_cierre_procesado"])
     assert os.path.isfile(r["ruta_marker"])
     assert os.path.basename(r["ruta_marker"]).startswith("PROCESADO_")
+
+
+# 1b) FASE 11A: el SAP oficial se publica como SAP_TIQ_DD-MM-YYYY.xlsx (el
+# patron que consolidador_mensual.py (V2, sin cambios) ya exige via
+# _RE_SAP_DIARIO) -- nunca SAP_DD-MM-YYYY.xlsx (lo que produce el motor V2
+# via run_batch._nombre_sap_esperado, sin 'TIQ'). Verifica el mismatch
+# historico V2 quedo resuelto exclusivamente del lado de la COPIA que este
+# modulo publica, sin tocar el nombre que el motor genero originalmente.
+def test_sap_oficial_usa_convencion_esperada_por_consolidador_mensual(tmp_path):
+    item = _cierre_procesado(tmp_path, fecha="2026-09-05")
+    assert os.path.basename(item["ruta_sap"]) == "SAP_05-09-2026.xlsx"  # nombre ORIGINAL del motor V2, sin cambios
+
+    r = publicar_cierre_dev(item, str(tmp_path / "dev"))
+    nombre_publicado = os.path.basename(r["ruta_sap_publicado"])
+    assert nombre_publicado == "SAP_TIQ_05-09-2026.xlsx"
+    assert consolidador_mensual._RE_SAP_DIARIO.match(nombre_publicado), (
+        f"'{nombre_publicado}' no coincide con el patron que consolidador_mensual.py "
+        "exige para consolidar el GLOBAL mensual"
+    )
+    # El marcador tambien debe referenciar el nombre oficial, no el original del motor.
+    with open(r["ruta_marker"], "r", encoding="utf-8") as f:
+        contenido = json.load(f)
+    assert contenido["ArchivoSAP"] == "SAP_TIQ_05-09-2026.xlsx"
 
 
 # 2) El marcador contiene el contenido REAL de construir_registro_control (mismo que V2).

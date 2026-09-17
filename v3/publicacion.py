@@ -54,6 +54,21 @@ ERROR_PUBLICACION = "ERROR_PUBLICACION"
 _ESTADOS_HABILITADOS = (LISTO_PARA_PUBLICAR,)  # CONTRACT-011: unicamente este estado autoriza publicar
 
 
+def _nombre_sap_oficial(fecha_iso):
+    """Nombre del SAP diario tal como lo espera consolidador_mensual.py
+    para la futura consolidación GLOBAL: `SAP_TIQ_DD-MM-YYYY.xlsx`
+    (`_RE_SAP_DIARIO` en consolidador_mensual.py). run_batch._nombre_sap_esperado()
+    (V2, reutilizado tal cual por v3.motor para generar el SAP) produce
+    `SAP_DD-MM-YYYY.xlsx` — sin 'TIQ' — un mismatch histórico de V2 que
+    consolidador_mensual.py nunca reconcilia (V2 no se toca desde aquí).
+    Esta función SOLO renombra la COPIA que este módulo ya hace al publicar
+    (nunca el archivo original que produjo el motor): el SAP oficial que
+    queda publicado (en DEV y, después, en Drive) ya nace con el nombre
+    que GLOBAL podrá consumir."""
+    anio, mes, dia = fecha_iso.split("-")
+    return f"SAP_TIQ_{dia}-{mes}-{anio}.xlsx"
+
+
 def _directorios_publicacion(base_dir_dev):
     base = os.path.join(base_dir_dev, "publicacion")
     dirs = {
@@ -139,10 +154,12 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None):
         nombre_marker = pipeline.nombre_marcador_procesado(sha256)  # REUTILIZADO tal cual
         ruta_marker = os.path.join(dirs["markers"], nombre_marker)
 
+        nombre_sap_oficial = _nombre_sap_oficial(item.get("fecha"))
+
         if os.path.isfile(ruta_marker):
             # CONTRACT-008/009: idempotencia — el marcador ya existe, NUNCA
             # se duplica SAP/resultado/cierre procesado/marker.
-            ruta_sap_existente = os.path.join(dirs["sap"], os.path.basename(ruta_sap))
+            ruta_sap_existente = os.path.join(dirs["sap"], nombre_sap_oficial)
             ruta_resultado_existente = os.path.join(dirs["resultados"], os.path.basename(ruta_resultado))
             ruta_procesado_existente = os.path.join(dirs["procesados"], os.path.basename(ruta_cierre))
             return _salida(
@@ -159,7 +176,9 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None):
         # Publicación DEV: SIEMPRE copyfile (solo lectura del origen, nunca
         # mover/renombrar/borrar). "procesados/" recibe una COPIA del
         # cierre DEV — el original (fuera de base_dir_dev) nunca se toca.
-        ruta_sap_dest = os.path.join(dirs["sap"], os.path.basename(ruta_sap))
+        # El SAP SÍ cambia de NOMBRE en esta copia (nunca de contenido):
+        # ver _nombre_sap_oficial().
+        ruta_sap_dest = os.path.join(dirs["sap"], nombre_sap_oficial)
         shutil.copyfile(ruta_sap, ruta_sap_dest)
 
         ruta_resultado_dest = os.path.join(dirs["resultados"], os.path.basename(ruta_resultado))

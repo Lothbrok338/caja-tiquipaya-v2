@@ -444,6 +444,7 @@ async function test_publicacion() {
   const dom = makeDom("http://localhost/v3_control_cierres.html");
   const { window } = dom;
   window.alert = function (msg) { window.__lastAlert = msg; };
+  window.confirm = function () { return true; }; // FASE 11A.1: confirma la publicación
   const calls = [];
   let publicarCalls = 0;
   window.fetch = function (url, opts) {
@@ -479,6 +480,7 @@ async function test_publicacion() {
   await waitFor(() => publicarCalls === 1 && window.document.querySelector(".badge-publicado"), 3000);
   ok(!!window.document.querySelector(".badge-publicado"), "tras publicar, la fila muestra el badge 'Publicado'");
   ok(window.document.querySelector("#tabla-body button.publicar") === null, "ya no se ofrece el boton Publicar para un cierre ya publicado");
+  ok(publicarCalls === 1, "confirmar la publicación dispara EXACTAMENTE una llamada a /publicar (" + publicarCalls + ")");
 
   // Segunda publicación (idempotente): se simula reenviando la misma acción
   // directamente contra el backend (no hay boton visible ya) para confirmar
@@ -672,9 +674,15 @@ async function test_ajustes_interfaz_fase_10f() {
 
   // el banner tecnico "MODO REAL" ya no existe en el DOM
   ok(window.document.getElementById("real-banner") === null, "el banner tecnico #real-banner fue eliminado");
-  // indicador pequeño de entorno en cabecera
-  const badge = window.document.querySelector(".badge-dev");
-  ok(!!badge && badge.textContent.indexOf("ENTORNO: DEV") !== -1, "aparece el indicador pequeño 'ENTORNO: DEV' en cabecera");
+  // FASE 11A.1: indicador pequeño de entorno en cabecera -- con 06B ya
+  // enganchado en /publicar (PUBLICACION_OFICIAL=true), debe avisar
+  // "PUBLICACIÓN: OFICIAL", nunca "ENTORNO: DEV" (evita que alguien crea
+  // que sigue en DEV cuando el boton ya escribe Drive). Se actualiza en
+  // DOMContentLoaded: hay que esperarlo antes de leerlo.
+  await waitFor(() => window.document.getElementById("badge-entorno") && window.document.getElementById("badge-entorno").className === "badge-oficial", 3000);
+  const badge = window.document.getElementById("badge-entorno");
+  ok(!!badge && badge.textContent.indexOf("PUBLICACIÓN: OFICIAL") !== -1, "aparece el indicador 'PUBLICACIÓN: OFICIAL' en cabecera");
+  ok(badge.className === "badge-oficial", "el badge de entorno usa el estilo distintivo 'badge-oficial', nunca el de DEV");
 
   await waitFor(() => window.document.getElementById("in-fecha-desde") && window.document.getElementById("in-fecha-desde").value !== "");
   // texto residual sin "(modo demo)" en modo real, desde el primer render
@@ -693,6 +701,105 @@ async function test_ajustes_interfaz_fase_10f() {
   dom.window.close();
 }
 
+// ---------------------------------------------------------------------------
+// FASE 11A.1: cancelar la confirmación de publicación => cero llamadas a
+// /publicar (el guard de confirmación corta ANTES de tocar la red).
+// ---------------------------------------------------------------------------
+async function test_cancelar_confirmacion_publicar_no_llama_backend() {
+  console.log("\n[11A.1] Cancelar confirmación de PUBLICAR => cero llamadas a /publicar");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  let confirmMensaje = null;
+  window.confirm = function (msg) { confirmMensaje = msg; return false; }; // el usuario cancela
+  let publicarCalls = 0;
+  window.fetch = function (url) {
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-11a1", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
+    if (url.indexOf("/datos") !== -1) return Promise.resolve({
+      ok: true, json: () => Promise.resolve({
+        resultado: "OK", cierres: [{ fecha: "2026-09-10", archivo_esperado: "CIERRE 10-09-2026.xlsm", estado_final: "LISTO_PARA_PUBLICAR", requiere_revision: false, publicado: false, mensajes: [] }],
+      }),
+    });
+    if (url.indexOf("/publicar") !== -1) { publicarCalls++; return Promise.reject(new Error("NUNCA debería llamarse /publicar tras cancelar la confirmación")); }
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  await waitFor(() => window.document.getElementById("in-fecha-desde") && window.document.getElementById("in-fecha-desde").value !== "");
+  window.document.getElementById("btn-procesar").click();
+  await waitFor(() => window.document.querySelector("#tabla-body tr[data-hash] button.publicar"), 5000);
+
+  window.document.querySelector("#tabla-body tr[data-hash] button.publicar").click();
+  await sleep(50);
+
+  ok(confirmMensaje !== null, "se mostró una confirmación antes de intentar publicar");
+  ok(confirmMensaje.indexOf("10/09/2026") !== -1, "la confirmación menciona la fecha del cierre en formato DD/MM/AAAA");
+  ok(/continuar/i.test(confirmMensaje), "la confirmación pregunta explícitamente si continuar");
+  ok(publicarCalls === 0, "cancelar la confirmación produce CERO llamadas a /publicar (" + publicarCalls + ")");
+  ok(window.document.querySelector("#tabla-body tr[data-hash] button.publicar") !== null, "el cierre sigue mostrando el botón Publicar (nada cambió)");
+  dom.window.close();
+}
+
+// ---------------------------------------------------------------------------
+// FASE 11A.2: el frontend LEE publication_mode del backend (GET /estado),
+// nunca lo decide con una constante propia. Dos escenarios: backend dice
+// "dev" -> badge ENTORNO: DEV; backend dice "official" -> PUBLICACIÓN: OFICIAL.
+// ---------------------------------------------------------------------------
+async function test_publication_mode_dev_muestra_badge_dev() {
+  console.log("\n[11A.2] Backend publication_mode='dev' => badge 'ENTORNO: DEV'");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  let estadoCalls = 0;
+  window.fetch = function (url) {
+    if (url.indexOf("/estado") !== -1) {
+      estadoCalls++;
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "ERROR", codigo: "LoteNoEncontradoError", mensaje: "sin lote todavia", publication_mode: "dev" }) });
+    }
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  await waitFor(() => estadoCalls >= 1, 3000);
+  await waitFor(() => window.document.getElementById("badge-entorno") && window.document.getElementById("badge-entorno").className === "badge-dev", 3000);
+  const badge = window.document.getElementById("badge-entorno");
+  ok(estadoCalls >= 1, "el frontend llamó a GET /estado al cargar la página para obtener publication_mode");
+  ok(!!badge && badge.textContent.indexOf("ENTORNO: DEV") !== -1, "el badge muestra 'ENTORNO: DEV' cuando el backend responde publication_mode:'dev'");
+  ok(badge.className === "badge-dev", "el badge usa el estilo 'badge-dev'");
+  dom.window.close();
+}
+
+async function test_publication_mode_official_muestra_badge_oficial() {
+  console.log("\n[11A.2] Backend publication_mode='official' => badge 'PUBLICACIÓN: OFICIAL'");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  window.fetch = function (url) {
+    if (url.indexOf("/estado") !== -1) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "ERROR", codigo: "LoteNoEncontradoError", mensaje: "sin lote todavia", publication_mode: "official" }) });
+    }
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  await waitFor(() => window.document.getElementById("badge-entorno") && window.document.getElementById("badge-entorno").className === "badge-oficial", 3000);
+  const badge = window.document.getElementById("badge-entorno");
+  ok(!!badge && badge.textContent.indexOf("PUBLICACIÓN: OFICIAL") !== -1, "el badge muestra 'PUBLICACIÓN: OFICIAL' cuando el backend responde publication_mode:'official'");
+  ok(badge.className === "badge-oficial", "el badge usa el estilo 'badge-oficial'");
+  dom.window.close();
+}
+
+async function test_publication_mode_demo_nunca_llama_backend() {
+  console.log("\n[11A.2] ?demo=1: nunca se consulta publication_mode al backend");
+  const dom = makeDom("http://localhost/v3_control_cierres.html?demo=1");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  let fetchCalls = 0;
+  window.fetch = function () { fetchCalls++; return Promise.reject(new Error("fetch NO debería llamarse en modo demo")); };
+
+  await waitFor(() => window.document.getElementById("in-fecha-desde") && window.document.getElementById("in-fecha-desde").value !== "");
+  ok(fetchCalls === 0, "cero llamadas a fetch (ni siquiera para publication_mode) en modo demo");
+  dom.window.close();
+}
+
 (async () => {
   await test_demo_no_llama_backend();
   await test_procesar_rango_valido();
@@ -703,11 +810,15 @@ async function test_ajustes_interfaz_fase_10f() {
   await test_post_correccion_reproceso_con_nueva_excepcion();
   await test_post_correccion_reproceso_sin_excepciones();
   await test_publicacion();
+  await test_cancelar_confirmacion_publicar_no_llama_backend();
   await test_cierre_ya_publicado_no_ofrece_boton_ni_infla_historial();
   await test_error_backend();
   await test_no_publicar_no_habilitado();
   await test_maestro_sin_cobertura_no_ofrece_correccion_ni_publicacion();
   await test_ajustes_interfaz_fase_10f();
+  await test_publication_mode_dev_muestra_badge_dev();
+  await test_publication_mode_official_muestra_badge_oficial();
+  await test_publication_mode_demo_nunca_llama_backend();
 
   console.log("\n=========================================");
   console.log(passed + " passed, " + failures + " failed");

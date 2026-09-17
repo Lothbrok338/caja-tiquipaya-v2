@@ -20,6 +20,7 @@ import xlsx_fixtures as fx  # noqa: E402
 import run_batch  # noqa: E402
 from v3.clasificacion import LISTO_PARA_PUBLICAR, ERROR_REVISAR, SIN_ARCHIVO  # noqa: E402
 from v3.publicacion import PUBLICADO, YA_PUBLICADO  # noqa: E402
+from v3.ingesta import ejecutar_ingesta, expandir_candidatos_a_rango  # noqa: E402
 from v3 import dev_api  # noqa: E402
 
 
@@ -273,6 +274,134 @@ def test_publicacion_valida(tmp_path):
     assert r["publicados"][0]["estado_publicacion"] == PUBLICADO
     assert r["omitidos"] == []
     assert os.path.isfile(r["ruta_auditoria_lote"])
+
+
+# 6b) FASE 11A.2 — E2E: 01 INGESTA (source_mode=drive_readonly, MISMO
+# Módulo 01, sin reimplementar) → 02 MATERIALIZACION → 03 MOTOR →
+# 04 CLASIFICACION → 06 PUBLICACION. Verifica que el drive_file_id que
+# v3.ingesta resuelve contra un listado crudo de Drive (simulado: nombre+
+# file_id, tal como lo entregaría el nodo "BUSCAR - Listado real
+# 00_ENTRADA_CIERRES" del subworkflow 01 INGESTA) llega INTACTO hasta el
+# item que el backend DEV le pasaría a 06B (el mismo campo drive_file_id
+# que EJECUTAR - 06B Publicacion Oficial Drive mapea en workflowInputs).
+def test_procesar_con_ingesta_drive_real_preserva_drive_file_id_hasta_publicacion(tmp_path):
+    fecha = "2026-09-10"
+    origen_dir, ruta_maestro, ruta_plantilla = _preparar_origen(tmp_path, {fecha: (_SFC_VACIO, _SFC_VACIO)})
+    nombre_cierre = run_batch.nombre_cierre_esperado(fecha)
+
+    # Paso 1 (INGESTA, Drive real simulado): mismo Módulo 01 que ya existe,
+    # nunca reimplementado -- v3.ingesta resuelve REGLA G contra un
+    # listado crudo {name, id} como el que devuelve Google Drive.
+    candidatos_drive_crudo = [{"name": nombre_cierre, "id": "drive-file-id-real-10-09"}]
+    candidatos_por_fecha = expandir_candidatos_a_rango(fecha, fecha, candidatos_drive_crudo)
+    ingesta_precomputada = ejecutar_ingesta(fecha, fecha, candidatos_por_fecha)
+    assert ingesta_precomputada[0]["drive_file_id"] == "drive-file-id-real-10-09"
+
+    # Paso 2-4 (MATERIALIZACION -> MOTOR -> CLASIFICACION): procesar_lote()
+    # recibe la ingesta YA resuelta (tal como la pasaría el backend DEV
+    # cuando el /procesar real está conectado a Drive), en vez de
+    # recalcularla localmente con os.listdir.
+    base_dir_dev = str(tmp_path / "dev")
+    r = dev_api.crear_lote_pendiente(fecha, fecha, "auditor.dev", base_dir_dev)
+    lote = dev_api.procesar_lote(
+        r["lote_id"], base_dir_dev, origen_dir, ruta_maestro, ruta_plantilla,
+        ingesta_precomputada=ingesta_precomputada,
+    )
+    assert lote["estado_lote"] == dev_api.LISTO_LOTE
+    assert lote["cierres"][0]["drive_file_id"] == "drive-file-id-real-10-09"
+    assert lote["cierres"][0]["estado_final"] == LISTO_PARA_PUBLICAR
+
+    # Paso 5 (PUBLICACION): el item que llegaría a 06B conserva el MISMO
+    # drive_file_id detectado en INGESTA -- nunca None, nunca redescubierto.
+    resultado_pub = dev_api.publicar_seleccionados(r["lote_id"], [fecha], base_dir_dev, "auditor.dev")
+    assert len(resultado_pub["publicados"]) == 1
+    publicado = resultado_pub["publicados"][0]
+    assert publicado["estado_publicacion"] == PUBLICADO
+    assert publicado["drive_file_id"] == "drive-file-id-real-10-09"
+
+
+def test_procesar_sin_ingesta_precomputada_mantiene_comportamiento_fixture_drive_file_id_none(tmp_path):
+    """Compatibilidad: cuando NO se pasa ingesta_precomputada (modo DEV/
+    fixture, tal como sigue funcionando /procesar hoy si no se conecta a
+    Drive), el comportamiento es exactamente el de antes -- drive_file_id
+    llega None, nunca inventado."""
+    lote, _ = _procesar(tmp_path, "2026-09-01", "2026-09-01", {"2026-09-01": (_SFC_VACIO, _SFC_VACIO)})
+    assert lote["cierres"][0]["drive_file_id"] is None
+
+
+# FASE 11A.3 — MODO OFICIAL SIN FALLBACK LOCAL: si publication_mode=official
+# (requiere_ingesta_drive=True) y la ingesta Drive falla (no llega, o llega
+# sin drive_file_id para un cierre ENCONTRADO), /procesar debe rechazar el
+# lote entero con un mensaje claro -- NUNCA caer al listado local
+# (os.listdir) ni procesar ese cierre con un origen no verificado.
+# procesar_lote() nunca propaga excepciones (contrato existente desde FASE 9:
+# "nunca deja el lote en un estado indefinido"): el rechazo se ve en
+# estado_lote=ERROR + mensaje_error, exactamente igual que cualquier otro
+# fallo de este metodo -- no un comportamiento nuevo, el mismo de siempre.
+def test_modo_oficial_sin_ingesta_drive_rechaza_sin_procesar_localmente(tmp_path):
+    fecha = "2026-09-10"
+    origen_dir, ruta_maestro, ruta_plantilla = _preparar_origen(tmp_path, {fecha: (_SFC_VACIO, _SFC_VACIO)})
+    base_dir_dev = str(tmp_path / "dev")
+    r = dev_api.crear_lote_pendiente(fecha, fecha, "auditor.dev", base_dir_dev)
+
+    lote = dev_api.procesar_lote(
+        r["lote_id"], base_dir_dev, origen_dir, ruta_maestro, ruta_plantilla,
+        ingesta_precomputada=None, requiere_ingesta_drive=True,
+    )
+    assert lote["estado_lote"] == dev_api.ERROR_LOTE
+    assert "IngestaDriveRequeridaError" in lote["mensaje_error"]
+    assert "No se pudo identificar el cierre original en Google Drive" in lote["mensaje_error"]
+    assert lote["cierres"] == []
+    # El SAP nunca se genero -- no hubo procesamiento local de ningun tipo.
+    salidas_dir = os.path.join(base_dir_dev, "salidas")
+    assert not os.path.isdir(salidas_dir) or os.listdir(salidas_dir) == []
+
+
+def test_modo_oficial_con_ingesta_incompleta_rechaza_sin_procesar_localmente(tmp_path):
+    """Ingesta Drive SI llego, pero un cierre ENCONTRADO no trae
+    drive_file_id (p. ej. Drive respondio parcialmente) -- se rechaza igual,
+    nunca se procesa ese cierre confiando solo en el nombre."""
+    fecha = "2026-09-10"
+    origen_dir, ruta_maestro, ruta_plantilla = _preparar_origen(tmp_path, {fecha: (_SFC_VACIO, _SFC_VACIO)})
+    base_dir_dev = str(tmp_path / "dev")
+    r = dev_api.crear_lote_pendiente(fecha, fecha, "auditor.dev", base_dir_dev)
+
+    nombre_cierre = run_batch.nombre_cierre_esperado(fecha)
+    ingesta_incompleta = ejecutar_ingesta(fecha, fecha, {fecha: [nombre_cierre]})  # sin dicts {file_id}: drive_file_id=None
+    assert ingesta_incompleta[0]["estado_ingesta"] == "ENCONTRADO"
+    assert ingesta_incompleta[0]["drive_file_id"] is None
+
+    lote = dev_api.procesar_lote(
+        r["lote_id"], base_dir_dev, origen_dir, ruta_maestro, ruta_plantilla,
+        ingesta_precomputada=ingesta_incompleta, requiere_ingesta_drive=True,
+    )
+    assert lote["estado_lote"] == dev_api.ERROR_LOTE
+    assert "IngestaDriveRequeridaError" in lote["mensaje_error"]
+    assert "2026-09-10" in lote["mensaje_error"]
+    salidas_dir = os.path.join(base_dir_dev, "salidas")
+    assert not os.path.isdir(salidas_dir) or os.listdir(salidas_dir) == []
+
+
+def test_modo_oficial_falla_ingesta_no_deja_nada_publicable(tmp_path):
+    """E2E del guard: tras el rechazo por ingesta Drive, el lote queda con
+    cierres vacio -- publicar_seleccionados() no tiene nada que publicar
+    (nunca publica un cierre que nunca se proceso)."""
+    fecha = "2026-09-10"
+    origen_dir, ruta_maestro, ruta_plantilla = _preparar_origen(tmp_path, {fecha: (_SFC_VACIO, _SFC_VACIO)})
+    base_dir_dev = str(tmp_path / "dev")
+    r = dev_api.crear_lote_pendiente(fecha, fecha, "auditor.dev", base_dir_dev)
+
+    dev_api.procesar_lote(
+        r["lote_id"], base_dir_dev, origen_dir, ruta_maestro, ruta_plantilla,
+        ingesta_precomputada=None, requiere_ingesta_drive=True,
+    )
+
+    lote_tras_error = dev_api._leer_lote(r["lote_id"], base_dir_dev)
+    assert lote_tras_error["estado_lote"] == dev_api.ERROR_LOTE
+    assert lote_tras_error["cierres"] == []
+
+    resultado_pub = dev_api.publicar_seleccionados(r["lote_id"], [fecha], base_dir_dev, "auditor.dev")
+    assert resultado_pub["publicados"] == []
 
 
 # 7) publicación repetida idempotente

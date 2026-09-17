@@ -1,0 +1,26 @@
+{
+  "id": "sJVgoBRpBntc96vf",
+  "name": "TIQ V3 · PREFLIGHT OFICIAL (solo lectura)",
+  "active": false,
+  "isArchived": false,
+  "versionId": "000214de-f942-4b18-a7fd-295cfd1d393f",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "nodeCount": 12,
+  "createdAt": "2026-09-15T21:38:28.441Z",
+  "updatedAt": "2026-09-15T21:38:28.441Z",
+  "settings": {"executionOrder": "v1", "availableInMCP": true},
+  "tags": [],
+  "parentFolderId": null,
+  "description": "FASE 11A.2 — verificación real de solo lectura antes del primer PUBLICAR oficial: 5 carpetas accesibles, cierre resoluble por fileId/nombre exacto, sin marker/SAP/resultado duplicados. Cero escrituras.",
+  "connections": {"ENTRADA (Execute Workflow Trigger)":{"main":[[{"node":"BUSCAR - Carpeta ENTRADA accesible","type":"main","index":0}]]},"BUSCAR - Carpeta ENTRADA accesible":{"main":[[{"node":"BUSCAR - Carpeta SAP accesible","type":"main","index":0}]]},"BUSCAR - Carpeta SAP accesible":{"main":[[{"node":"BUSCAR - Carpeta RESULTADOS accesible","type":"main","index":0}]]},"BUSCAR - Carpeta RESULTADOS accesible":{"main":[[{"node":"BUSCAR - Carpeta PROCESADOS accesible","type":"main","index":0}]]},"BUSCAR - Carpeta PROCESADOS accesible":{"main":[[{"node":"BUSCAR - Carpeta MARKERS accesible","type":"main","index":0}]]},"BUSCAR - Carpeta MARKERS accesible":{"main":[[{"node":"BUSCAR - Marker existente (preflight)","type":"main","index":0}]]},"BUSCAR - Marker existente (preflight)":{"main":[[{"node":"BUSCAR - Cierre exacto en ENTRADA (preflight)","type":"main","index":0}]]},"BUSCAR - Cierre exacto en ENTRADA (preflight)":{"main":[[{"node":"BUSCAR - SAP oficial existente (preflight)","type":"main","index":0}]]},"BUSCAR - SAP oficial existente (preflight)":{"main":[[{"node":"BUSCAR - Resultado oficial existente (preflight)","type":"main","index":0}]]},"BUSCAR - Resultado oficial existente (preflight)":{"main":[[{"node":"CONSTRUIR - Reporte preflight","type":"main","index":0}]]}},
+  "todosLosNodosSonSoloLectura": true,
+  "tiposDeNodo": ["n8n-nodes-base.executeWorkflowTrigger", "n8n-nodes-base.googleDrive (resource=fileFolder, operation=search)", "n8n-nodes-base.code", "n8n-nodes-base.stickyNote"],
+  "credencial": {"tipo": "googleDriveOAuth2Api", "id": "aoEcEAFQQ38XcwZg", "nombre": "Google Drive account", "nota": "solo referencia {id,name}; n8n nunca expone el secreto via API"},
+  "ultimasEjecucionesReales": [
+    {"fecha": "2026-09-10", "executionId": "272", "resultado": "apto_para_publicar=true", "fechaEjecucion": "2026-09-15"},
+    {"fecha": "2026-09-11", "executionId": "274", "resultado": "apto_para_publicar=true", "fechaEjecucion": "2026-09-15"},
+    {"fecha": "2026-09-10", "executionId": "276", "resultado": "apto_para_publicar=true", "fechaEjecucion": "2026-09-17"}
+  ],
+  "notaExportacion": "Resumen estructural (metadatos + grafo de conexiones completo). Ningun nodo de este workflow escribe/sube/mueve/crea nada en Drive. Para el JSON crudo con el jsCode completo de cada nodo, usar get_workflow_details(workflowId='sJVgoBRpBntc96vf') via MCP n8n."
+}

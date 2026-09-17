@@ -247,6 +247,14 @@ def ejecutar_materializacion(cierres_ingesta, params):
             "fecha": item.get("fecha"),
             "archivo_esperado": item.get("archivo_esperado"),
             "estado_ingesta": item.get("estado_ingesta"),
+            # FASE 11A.1: drive_file_id (y coincidencias) ya los calculaba
+            # v3.ingesta.ejecutar_ingesta() desde FASE 10A, pero este dict
+            # explícito los descartaba en silencio -- el Modulo 06B
+            # necesita el fileId ORIGINAL de ingesta como identificador
+            # primario para mover el cierre en Drive (nunca una busqueda
+            # nueva por nombre como mecanismo principal). None en modo
+            # fixture (sin Drive real), tal como ya lo entrega ingesta.
+            "drive_file_id": item.get("drive_file_id"),
             "estado_materializacion": mat["estado_materializacion"],
             "ruta_cierre_local": mat["ruta_cierre_local"],
             "ruta_maestro_local": maestro["ruta_maestro_local"],

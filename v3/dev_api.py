@@ -42,7 +42,7 @@ import run_batch  # noqa: E402  (reutilizado tal cual: generar_rango_fechas)
 import excel_io  # noqa: E402  (reutilizado tal cual: money_str)
 import correcciones_tiquipaya as correcciones  # noqa: E402  (reutilizado tal cual)
 from v3.materializacion import _verificar_contenido_en_base_dir  # noqa: E402
-from v3.ingesta import ejecutar_ingesta  # noqa: E402
+from v3.ingesta import ejecutar_ingesta, ENCONTRADO as _INGESTA_ENCONTRADO  # noqa: E402
 from v3.materializacion import ejecutar_materializacion  # noqa: E402
 from v3.motor import ejecutar_motor  # noqa: E402
 from v3.precheck_maestro import aplicar_precheck_maestro, filtrar_aptos_para_motor  # noqa: E402
@@ -62,6 +62,15 @@ class LoteNoEncontradoError(ValueError):
 
 
 class CierreNoEnLoteError(ValueError):
+    pass
+
+
+class IngestaDriveRequeridaError(ValueError):
+    """FASE 11A.3 — en modo oficial (`requiere_ingesta_drive=True`), /procesar
+    NUNCA cae al listado local (os.listdir) si la ingesta Drive real no
+    llegó o algún cierre ENCONTRADO no trae drive_file_id: se rechaza el
+    lote entero con un mensaje claro para el auditor, en vez de procesar
+    con un origen no verificado."""
     pass
 
 
@@ -120,30 +129,65 @@ def crear_lote_pendiente(fecha_inicio, fecha_fin, usuario_auditor, base_dir_dev)
 
 
 def procesar_lote(lote_id, base_dir_dev, origen_cierres_dir, ruta_maestro_origen,
-                   ruta_plantilla_origen, markers_origen_dir=None, version_codigo=None):
+                   ruta_plantilla_origen, markers_origen_dir=None, version_codigo=None,
+                   ingesta_precomputada=None, requiere_ingesta_drive=False):
     """Paso 2 (el que puede tardar): ejecuta 01 INGESTA → 02 MATERIALIZACION
     → 03 MOTOR → 04 CLASIFICACION para el rango ya registrado en el lote,
     reutilizando exactamente las mismas funciones que el resto de V3 (sin
-    reimplementar nada). `candidatos_por_fecha` para REGLA G se construye
-    listando el contenido REAL de `origen_cierres_dir` (fixture DEV local,
-    nunca Drive productivo) — el mismo nombre exacto que cada fecha espera
-    decide, vía v3.ingesta, si ese cierre queda ENCONTRADO/SIN_ARCHIVO/
-    AMBIGUO; este módulo no reinterpreta esa decisión.
+    reimplementar nada).
 
-    Nunca publica ni corrige nada: dEja el lote en `LISTO_LOTE`, listo
-    para que el frontend pida /datos, /revisar, /corregir o /publicar."""
+    `ingesta_precomputada`: FASE 11A.2 — si se provee, DEBE ser exactamente
+    la lista que devuelve v3.ingesta.ejecutar_ingesta() (fecha/
+    archivo_esperado/estado_ingesta/drive_file_id/coincidencias/mensaje).
+    En producción la arma el subworkflow n8n "TIQ V3 · 01 INGESTA · DEV"
+    en source_mode=drive_readonly (mismo Módulo 01, nunca reimplementado
+    aquí: este módulo no vuelve a decidir REGLA G ni ENCONTRADO/SIN_ARCHIVO/
+    AMBIGUO, solo recibe lo que ese subworkflow ya decidió) — así
+    drive_file_id llega real desde Drive en vez de None. Si es None
+    (compatibilidad DEV/fixture, sin cambios de comportamiento), este
+    módulo sigue construyendo `candidatos_por_fecha` listando el contenido
+    de `origen_cierres_dir` (fixture DEV local) tal como hacía antes.
+
+    `requiere_ingesta_drive`: FASE 11A.3 — cuando el backend está en modo
+    oficial (publication_mode=official), el llamador (n8n) pasa True aquí.
+    En ese caso el fallback local (os.listdir) queda DESHABILITADO: si
+    `ingesta_precomputada` no llegó, o algún cierre en estado ENCONTRADO no
+    trae `drive_file_id`, se rechaza el lote entero (IngestaDriveRequeridaError)
+    ANTES de tocar materialización/motor — nunca se procesa localmente un
+    cierre cuyo origen en Drive no se pudo verificar. Default False para no
+    alterar el comportamiento ya validado en DEV/tests (fixture local)."""
     lote = _leer_lote(lote_id, base_dir_dev)
     try:
-        candidatos = sorted(os.listdir(origen_cierres_dir)) if os.path.isdir(origen_cierres_dir) else []
         mes_rango = int(lote["fecha_inicio"].split("-")[1])
 
-        # origen_cierres_dir es una carpeta plana DEV (sin indexar por
-        # fecha): se ofrece el MISMO listado completo a cada fecha del
-        # rango — REGLA G decide con coincidencia EXACTA de nombre cuál
-        # corresponde a cuál (nunca "el primero"; ver v3.ingesta).
-        fechas_rango = run_batch.generar_rango_fechas(lote["fecha_inicio"], lote["fecha_fin"])
-        candidatos_por_fecha = {fecha: candidatos for fecha in fechas_rango}
-        ingesta = ejecutar_ingesta(lote["fecha_inicio"], lote["fecha_fin"], candidatos_por_fecha)
+        if ingesta_precomputada is not None:
+            ingesta = ingesta_precomputada
+        elif requiere_ingesta_drive:
+            raise IngestaDriveRequeridaError(
+                "INGESTA_DRIVE_REQUERIDA:No se pudo identificar el cierre original en "
+                "Google Drive. Verifique la conexión y vuelva a procesar."
+            )
+        else:
+            # origen_cierres_dir es una carpeta plana DEV (sin indexar por
+            # fecha): se ofrece el MISMO listado completo a cada fecha del
+            # rango — REGLA G decide con coincidencia EXACTA de nombre cuál
+            # corresponde a cuál (nunca "el primero"; ver v3.ingesta).
+            candidatos = sorted(os.listdir(origen_cierres_dir)) if os.path.isdir(origen_cierres_dir) else []
+            fechas_rango = run_batch.generar_rango_fechas(lote["fecha_inicio"], lote["fecha_fin"])
+            candidatos_por_fecha = {fecha: candidatos for fecha in fechas_rango}
+            ingesta = ejecutar_ingesta(lote["fecha_inicio"], lote["fecha_fin"], candidatos_por_fecha)
+
+        if requiere_ingesta_drive:
+            sin_file_id = [
+                c.get("fecha") for c in ingesta
+                if c.get("estado_ingesta") == _INGESTA_ENCONTRADO and not c.get("drive_file_id")
+            ]
+            if sin_file_id:
+                raise IngestaDriveRequeridaError(
+                    "INGESTA_DRIVE_REQUERIDA:No se pudo identificar el cierre original en "
+                    "Google Drive. Verifique la conexión y vuelva a procesar. "
+                    f"(fechas sin drive_file_id: {', '.join(sin_file_id)})"
+                )
 
         materializados = ejecutar_materializacion(ingesta, {
             "base_dir_dev": base_dir_dev, "origen_cierres_dir": origen_cierres_dir,
@@ -433,6 +477,7 @@ def main(argv=None):
                 datos["lote_id"], datos["base_dir_dev"], datos["origen_cierres_dir"],
                 datos["ruta_maestro_origen"], datos["ruta_plantilla_origen"],
                 datos.get("markers_origen_dir"), datos.get("version_codigo"),
+                datos.get("ingesta_precomputada"), datos.get("requiere_ingesta_drive", False),
             )
             salida = {"resultado": "OK", "lote_id": r["lote_id"], "estado_lote": r["estado_lote"], "total_cierres": len(r["cierres"])}
         elif args.accion == "estado":

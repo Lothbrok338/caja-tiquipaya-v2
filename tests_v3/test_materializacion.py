@@ -293,15 +293,33 @@ def test_preparar_directorio_dev_rechaza_ruta_fuera_de_base_por_diseno():
         _verificar_contenido_en_base_dir("/tmp/otro/lugar", "/tmp/dev_workdir")
 
 
-def test_todas_las_filas_tienen_exactamente_las_9_claves_pedidas(entorno):
+def test_todas_las_filas_tienen_exactamente_las_10_claves_pedidas(entorno):
     item = {"fecha": "2026-09-01", "archivo_esperado": "CIERRE 01-09-2026.xlsm", "estado_ingesta": ENCONTRADO}
     r = ejecutar_materializacion([item], _params(entorno))[0]
     esperado = {
-        "fecha", "archivo_esperado", "estado_ingesta", "estado_materializacion",
+        "fecha", "archivo_esperado", "estado_ingesta", "drive_file_id", "estado_materializacion",
         "ruta_cierre_local", "ruta_maestro_local", "ruta_template_sap_local",
         "ruta_markers_local", "mensaje",
     }
     assert set(r.keys()) == esperado
+
+
+# FASE 11A.1: drive_file_id que ingesta ya calculaba (FASE 10A) ya NO se
+# descarta en silencio -- el Modulo 06B (publicacion oficial Drive) lo
+# necesita como identificador primario para mover el cierre exacto.
+def test_drive_file_id_viaja_desde_ingesta_sin_alterarse(entorno):
+    item = {
+        "fecha": "2026-09-01", "archivo_esperado": "CIERRE 01-09-2026.xlsm",
+        "estado_ingesta": ENCONTRADO, "drive_file_id": "1RealDriveFileIdExample",
+    }
+    r = ejecutar_materializacion([item], _params(entorno))[0]
+    assert r["drive_file_id"] == "1RealDriveFileIdExample"
+
+
+def test_drive_file_id_ausente_queda_none_sin_inventarse(entorno):
+    item = {"fecha": "2026-09-01", "archivo_esperado": "CIERRE 01-09-2026.xlsm", "estado_ingesta": ENCONTRADO}
+    r = ejecutar_materializacion([item], _params(entorno))[0]
+    assert r["drive_file_id"] is None
 
 
 def test_markers_existentes_se_copian_y_se_cuentan(entorno):
