@@ -800,6 +800,153 @@ async function test_publication_mode_demo_nunca_llama_backend() {
   dom.window.close();
 }
 
+// ---------------------------------------------------------------------------
+// FASE 12B — CIERRE MENSUAL (GLOBAL / CONTROL 1 / CONTROL 3). Botones
+// separados del flujo diario: cada uno llama a SU endpoint exactamente una
+// vez, y ninguno de los dos flujos dispara al otro.
+// ---------------------------------------------------------------------------
+
+function _mockFetchMensual(overrides) {
+  const calls = { global: 0, control1: 0, control3: 0, estado: 0, otros: 0 };
+  const fn = function (url) {
+    if (url.indexOf("/global") !== -1) {
+      calls.global++;
+      return (overrides && overrides.global) || Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", estado: "VALIDADO_PENDIENTE_PUBLICACION", cantidad_sap_incluidos: 2, fechas_faltantes: [] }) });
+    }
+    if (url.indexOf("/control1") !== -1) {
+      calls.control1++;
+      return (overrides && overrides.control1) || Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", estado: "OK_SIN_DUPLICADOS" }) });
+    }
+    if (url.indexOf("/control3") !== -1) {
+      calls.control3++;
+      return (overrides && overrides.control3) || Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", estado: "PERIODO_APLICADO" }) });
+    }
+    if (url.indexOf("/estado") !== -1) {
+      calls.estado++;
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "ERROR", codigo: "LoteNoEncontradoError", publication_mode: "official" }) });
+    }
+    calls.otros++;
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+  return { fn, calls };
+}
+
+async function test_boton_global_llama_una_vez_y_muestra_resultado() {
+  console.log("\n[12B] Botón GENERAR GLOBAL llama una vez y muestra resultado claro");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  const { fn, calls } = _mockFetchMensual();
+  window.fetch = fn;
+
+  await waitFor(() => window.document.getElementById("in-mensual-anio") && window.document.getElementById("in-mensual-anio").value !== "");
+  window.document.getElementById("btn-mensual-global").click();
+  await waitFor(() => window.document.getElementById("mensual-resultado").className.indexOf("ok") !== -1
+    || window.document.getElementById("mensual-resultado").className.indexOf("error") !== -1, 3000);
+
+  ok(calls.global === 1, "el botón GENERAR GLOBAL llamó a /global exactamente una vez");
+  ok(calls.control1 === 0 && calls.control3 === 0, "GENERAR GLOBAL no llamó a CONTROL 1 ni CONTROL 3");
+  const texto = window.document.getElementById("mensual-resultado").textContent;
+  ok(texto.indexOf("GLOBAL generado") !== -1, "el área de resultado muestra un mensaje claro (no JSON crudo)");
+  ok(texto.indexOf("{") === -1, "el área de resultado NO muestra JSON técnico");
+  ok(window.document.getElementById("mensual-resultado").className.indexOf("ok") !== -1, "el resultado se marca como 'ok'");
+  dom.window.close();
+}
+
+async function test_boton_control1_llama_una_vez() {
+  console.log("\n[12B] Botón CONTROL 1 llama una vez");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  const { fn, calls } = _mockFetchMensual();
+  window.fetch = fn;
+
+  await waitFor(() => window.document.getElementById("in-mensual-anio") && window.document.getElementById("in-mensual-anio").value !== "");
+  window.document.getElementById("btn-mensual-control1").click();
+  await waitFor(() => window.document.getElementById("mensual-resultado").className.indexOf("ok") !== -1
+    || window.document.getElementById("mensual-resultado").className.indexOf("error") !== -1, 3000);
+
+  ok(calls.control1 === 1, "el botón CONTROL 1 llamó a /control1 exactamente una vez");
+  ok(calls.global === 0 && calls.control3 === 0, "CONTROL 1 no llamó a GLOBAL ni a CONTROL 3");
+  ok(window.document.getElementById("mensual-resultado").textContent.indexOf("OK_SIN_DUPLICADOS") !== -1, "muestra el estado devuelto");
+  dom.window.close();
+}
+
+async function test_boton_control3_llama_una_vez() {
+  console.log("\n[12B] Botón CONTROL 3 llama una vez");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  const { fn, calls } = _mockFetchMensual();
+  window.fetch = fn;
+
+  await waitFor(() => window.document.getElementById("in-mensual-anio") && window.document.getElementById("in-mensual-anio").value !== "");
+  window.document.getElementById("btn-mensual-control3").click();
+  await waitFor(() => window.document.getElementById("mensual-resultado").className.indexOf("ok") !== -1
+    || window.document.getElementById("mensual-resultado").className.indexOf("error") !== -1, 3000);
+
+  ok(calls.control3 === 1, "el botón CONTROL 3 llamó a /control3 exactamente una vez");
+  ok(calls.global === 0 && calls.control1 === 0, "CONTROL 3 no llamó a GLOBAL ni a CONTROL 1");
+  dom.window.close();
+}
+
+async function test_mensual_error_se_muestra_claramente() {
+  console.log("\n[12B] Error en GLOBAL/CONTROL se muestra claro en el área de resultado");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  const { fn, calls } = _mockFetchMensual({
+    global: Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "ERROR", mensaje: "SIN_SAP_PARA_CONSOLIDAR" }) }),
+  });
+  window.fetch = fn;
+
+  await waitFor(() => window.document.getElementById("in-mensual-anio") && window.document.getElementById("in-mensual-anio").value !== "");
+  window.document.getElementById("btn-mensual-global").click();
+  await waitFor(() => calls.global === 1, 3000);
+  await waitFor(() => window.document.getElementById("mensual-resultado").className.indexOf("error") !== -1, 3000);
+
+  const el = window.document.getElementById("mensual-resultado");
+  ok(el.className.indexOf("error") !== -1, "el resultado se marca como 'error'");
+  ok(el.textContent.indexOf("SIN_SAP_PARA_CONSOLIDAR") !== -1, "el mensaje de error del backend es visible");
+  ok(window.__lastAlert === undefined, "el error NO interrumpe con un alert() -- queda en el área de resultado");
+  dom.window.close();
+}
+
+async function test_flujo_diario_nunca_llama_endpoints_mensuales() {
+  console.log("\n[12B] El flujo diario (Procesar/Publicar) nunca dispara GLOBAL/CONTROL 1/CONTROL 3");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  const { fn, calls } = _mockFetchMensual();
+  window.confirm = function () { return true; };
+  let publicarCalls = 0;
+  window.fetch = function (url, opts) {
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-12b", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION", publication_mode: "official" }) });
+    if (url.indexOf("/datos") !== -1) return Promise.resolve({
+      ok: true, json: () => Promise.resolve({
+        resultado: "OK", cierres: [{ fecha: "2026-09-10", archivo_esperado: "CIERRE 10-09-2026.xlsm", estado_final: "LISTO_PARA_PUBLICAR", requiere_revision: false, publicado: false, mensajes: [] }],
+      }),
+    });
+    if (url.indexOf("/publicar") !== -1) {
+      publicarCalls++;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", publicados: [{ fecha: "2026-09-10", estado_publicacion: "PUBLICADO", publicado: true }], omitidos: [] }) });
+    }
+    return fn(url);
+  };
+
+  await waitFor(() => window.document.getElementById("in-fecha-desde") && window.document.getElementById("in-fecha-desde").value !== "");
+  window.document.getElementById("btn-procesar").click();
+  await waitFor(() => window.document.querySelectorAll("#tabla-body tr[data-hash] button.publicar").length === 1, 5000);
+  window.document.querySelector("#tabla-body tr[data-hash] button.publicar").click();
+  await waitFor(() => publicarCalls === 1, 3000);
+
+  ok(calls.global === 0, "Procesar+Publicar nunca llamaron a /global");
+  ok(calls.control1 === 0, "Procesar+Publicar nunca llamaron a /control1");
+  ok(calls.control3 === 0, "Procesar+Publicar nunca llamaron a /control3");
+  dom.window.close();
+}
+
 (async () => {
   await test_demo_no_llama_backend();
   await test_procesar_rango_valido();
@@ -819,6 +966,11 @@ async function test_publication_mode_demo_nunca_llama_backend() {
   await test_publication_mode_dev_muestra_badge_dev();
   await test_publication_mode_official_muestra_badge_oficial();
   await test_publication_mode_demo_nunca_llama_backend();
+  await test_boton_global_llama_una_vez_y_muestra_resultado();
+  await test_boton_control1_llama_una_vez();
+  await test_boton_control3_llama_una_vez();
+  await test_mensual_error_se_muestra_claramente();
+  await test_flujo_diario_nunca_llama_endpoints_mensuales();
 
   console.log("\n=========================================");
   console.log(passed + " passed, " + failures + " failed");

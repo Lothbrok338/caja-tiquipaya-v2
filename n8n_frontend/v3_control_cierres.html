@@ -372,6 +372,17 @@
     text-align: center;
   }
 
+  /* FASE 12B: estado simple del cierre mensual -- sin JSON ni detalle
+     tecnico en pantalla, solo un mensaje corto por color. */
+  .mensual-resultado {
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .mensual-resultado.ok { color: var(--green); font-weight: 600; }
+  .mensual-resultado.error { color: var(--red); font-weight: 600; }
+  .mensual-resultado.cargando { color: var(--amber); font-weight: 600; }
+
   /* ---------------- detail panel ---------------- */
   #detalle-body { padding: 14px 16px; }
   .detalle-section { margin-bottom: 16px; }
@@ -534,11 +545,36 @@
     </div>
   </div>
 
+  <!-- FASE 12B: seccion minima del cierre MENSUAL (GLOBAL -> CONTROL 1 ->
+       CONTROL 3). Separada del flujo DIARIO de arriba a proposito: estos
+       3 botones nunca se disparan solos ni se llaman desde "Procesar"/
+       "Publicar". Mismo estilo (.panel/.toolbar/.field) que el resto de
+       la pagina -- sin detalles tecnicos en pantalla, solo estado. -->
+  <div class="panel">
+    <h2>Cierre mensual</h2>
+    <div class="toolbar">
+      <div class="field">
+        <label>Año</label>
+        <input type="number" id="in-mensual-anio" min="2000" max="2100" style="width:90px">
+      </div>
+      <div class="field">
+        <label>Mes</label>
+        <input type="number" id="in-mensual-mes" min="1" max="12" style="width:70px">
+      </div>
+      <div class="field grow"></div>
+      <button class="primary" id="btn-mensual-global">GENERAR GLOBAL</button>
+      <button class="primary" id="btn-mensual-control1">CONTROL 1</button>
+      <button class="primary" id="btn-mensual-control3">CONTROL 3</button>
+    </div>
+    <div id="mensual-resultado" class="mensual-resultado">Sin ejecutar todavía.</div>
+  </div>
+
 </main>
 
 <footer class="dev-footer">
   BACKEND DEV (FASE 9): /webhook/tiq-v3-dev/{estado,procesar,datos,revisar,corregir,publicar} — workflow "TIQ V3 · BACKEND DEV (webhooks)", inactivo por defecto; cada endpoint invoca v3/dev_api.py (Python, unica autoridad) via el mismo patron Execute-Command+base64 de los 7 subworkflows. Ver constantes ENDPOINTS en el codigo fuente.<br>
-  AUTENTICACION: pendiente, OBLIGATORIA antes de produccion en los endpoints que mutan estado (/procesar,/revisar,/corregir,/publicar). GET /estado y /datos podrian quedar sin auth, igual que el criterio ya usado en V2.<br>
+  CIERRE MENSUAL (FASE 12B): /webhook/tiq-v3-dev/{global,control1,control3} — GLOBAL/CONTROL 1/CONTROL 3, siempre por año/mes, nunca disparados por el flujo diario (Procesar/Publicar) ni viceversa.<br>
+  AUTENTICACION: pendiente, OBLIGATORIA antes de produccion en los endpoints que mutan estado (/procesar,/revisar,/corregir,/publicar,/global,/control1,/control3). GET /estado y /datos podrian quedar sin auth, igual que el criterio ya usado en V2.<br>
   Este archivo es una COPIA nueva e independiente; n8n_frontend/revision_correccion.html (V2) no fue modificado.
 </footer>
 
@@ -563,6 +599,12 @@
     revisar:   NAMESPACE + "/revisar",    // POST — abre/actualiza revision de un cierre
     corregir:  NAMESPACE + "/corregir",   // POST — autoriza correccion + reproceso
     publicar:  NAMESPACE + "/publicar",   // POST — publica 1..N cierres listos
+    // FASE 12B — CIERRE MENSUAL (GLOBAL/CONTROL 1/CONTROL 3). Completamente
+    // separados del namespace diario de arriba: ningun boton de "Procesar"/
+    // "Publicar" los llama, y estos 3 nunca disparan nada del flujo diario.
+    global:    NAMESPACE + "/global",     // POST — genera SAP_GLOBAL_TIQ_<MES>_<AÑO> del periodo
+    control1:  NAMESPACE + "/control1",   // POST — CONTROL 1 (asignaciones) sobre ese GLOBAL
+    control3:  NAMESPACE + "/control3",   // POST — CONTROL 3 (CxC/CxP) sobre el MISMO GLOBAL
   };
   // SEGURIDAD (pendiente, NO implementada aqui): antes de exponer estos
   // endpoints fuera de un entorno de desarrollo controlado, /procesar,
@@ -689,6 +731,61 @@
   function initFechas() {
     qs("#in-fecha-desde").value = hoyIso(-4);
     qs("#in-fecha-hasta").value = hoyIso(0);
+  }
+
+  // -----------------------------------------------------------------------
+  // FASE 12B — CIERRE MENSUAL (GLOBAL / CONTROL 1 / CONTROL 3). Separado a
+  // proposito del flujo DIARIO de arriba: estos 3 botones nunca se llaman
+  // desde procesarCierres()/publicarCierre(), y viceversa. Sin JSON ni
+  // detalle tecnico en pantalla -- un mensaje corto por resultado.
+  // -----------------------------------------------------------------------
+  function initMensual() {
+    var hoy = new Date();
+    qs("#in-mensual-anio").value = hoy.getFullYear();
+    qs("#in-mensual-mes").value = hoy.getMonth() + 1;
+  }
+
+  function mostrarResultadoMensual(mensaje, tipo) {
+    var el = qs("#mensual-resultado");
+    el.textContent = mensaje;
+    el.className = "mensual-resultado" + (tipo ? " " + tipo : "");
+  }
+
+  function ejecutarAccionMensual(endpoint, etiqueta, formatearOk) {
+    var anio = parseInt(qs("#in-mensual-anio").value, 10);
+    var mes = parseInt(qs("#in-mensual-mes").value, 10);
+    if (!anio || !mes || mes < 1 || mes > 12) {
+      mostrarResultadoMensual("Indica un año y un mes válidos (1-12) antes de " + etiqueta + ".", "error");
+      return;
+    }
+    mostrarResultadoMensual(etiqueta + " en curso…", "cargando");
+    apiPost(endpoint, { anio: anio, mes: mes })
+      .then(function (resp) {
+        mostrarResultadoMensual(formatearOk(resp), "ok");
+      })
+      .catch(function (err) {
+        mostrarResultadoMensual(etiqueta + ": " + (err.message || String(err)), "error");
+      });
+  }
+
+  function generarGlobalMensual() {
+    ejecutarAccionMensual(ENDPOINTS.global, "GENERAR GLOBAL", function (r) {
+      var faltantes = (r.fechas_faltantes || []).length;
+      return "GLOBAL generado (" + (r.cantidad_sap_incluidos || 0) + " SAP incluidos, "
+        + faltantes + " fecha(s) sin cierre). Estado: " + r.estado + ".";
+    });
+  }
+
+  function ejecutarControl1Mensual() {
+    ejecutarAccionMensual(ENDPOINTS.control1, "CONTROL 1", function (r) {
+      return "CONTROL 1: " + r.estado + ".";
+    });
+  }
+
+  function ejecutarControl3Mensual() {
+    ejecutarAccionMensual(ENDPOINTS.control3, "CONTROL 3", function (r) {
+      return "CONTROL 3: " + r.estado + ".";
+    });
   }
 
   // -----------------------------------------------------------------------
@@ -1387,6 +1484,10 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     initFechas();
+    initMensual();
+    qs("#btn-mensual-global").addEventListener("click", generarGlobalMensual);
+    qs("#btn-mensual-control1").addEventListener("click", ejecutarControl1Mensual);
+    qs("#btn-mensual-control3").addEventListener("click", ejecutarControl3Mensual);
     qs("#demo-banner").style.display = DEMO ? "block" : "none";
     // FASE 11A.2: el modo se pinta primero con el valor por defecto
     // (seguro) y, salvo en modo demo (que NUNCA llama al backend), se

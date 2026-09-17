@@ -49,7 +49,11 @@ from v3.precheck_maestro import aplicar_precheck_maestro, filtrar_aptos_para_mot
 from v3.clasificacion import ejecutar_clasificacion, LISTO_PARA_PUBLICAR, ERROR_REVISAR  # noqa: E402
 from v3.revision import revisar_y_corregir_cierre  # noqa: E402
 from v3.publicacion import publicar_lote  # noqa: E402
-from v3.auditoria import consolidar_auditoria_lote  # noqa: E402
+from v3.auditoria import (  # noqa: E402
+    consolidar_auditoria_lote,
+    generar_global_mensual, ejecutar_control1_mensual, ejecutar_control3_mensual,
+)
+import consolidador_mensual  # noqa: E402  (reutilizado tal cual — solo para nombre_sap_global)
 
 
 PROCESANDO = "PROCESANDO"
@@ -451,6 +455,64 @@ def publicar_seleccionados(lote_id, fechas, base_dir_dev, usuario_auditor):
 
 
 # ---------------------------------------------------------------------------
+# CIERRE MENSUAL (FASE 12) — GLOBAL / CONTROL 1 / CONTROL 3. Completamente
+# separado del flujo DIARIO de arriba: nada de esto se llama desde
+# procesar_lote()/publicar_seleccionados(). El navegador NUNCA elige rutas
+# de archivo: solo envía año/mes (y, para los controles, el JSON de
+# decisiones/observaciones del auditor cuando corresponda) — las rutas
+# reales (SAP oficiales ya publicados, plantilla, históricos de control)
+# son constantes fijas del lado servidor, mismo criterio que el resto de
+# este archivo.
+# ---------------------------------------------------------------------------
+
+def _ruta_global(base_dir_dev, anio, mes):
+    return os.path.join(base_dir_dev, "global", consolidador_mensual.nombre_sap_global(anio, mes))
+
+
+def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None, force=False):
+    """Cierre MENSUAL — paso 1 (GENERAR GLOBAL). `sap_dir` por defecto es
+    `base_dir_dev/publicacion/sap/`, exactamente donde el Módulo 06 ya deja
+    los SAP_TIQ_DD-MM-YYYY.xlsx de cada cierre diario publicado
+    oficialmente — nunca un directorio elegido por el navegador. Delega en
+    v3.auditoria.generar_global_mensual() (que a su vez delega en
+    consolidador_mensual.py, V2, sin cambios)."""
+    sap_dir = sap_dir or os.path.join(base_dir_dev, "publicacion", "sap")
+    global_dir = os.path.join(base_dir_dev, "global")
+    _verificar_contenido_en_base_dir(os.path.join(global_dir, "_"), base_dir_dev)
+    os.makedirs(global_dir, exist_ok=True)
+    ruta_salida = _ruta_global(base_dir_dev, anio, mes)
+    return generar_global_mensual(anio, mes, sap_dir, ruta_plantilla_origen, ruta_salida, force=force)
+
+
+def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=False):
+    """Cierre MENSUAL — paso 2 (CONTROL 1). Opera sobre el GLOBAL generado
+    en el paso 1 para el MISMO año/mes (misma ruta determinística que
+    `generar_global`, nunca una ruta elegida por el navegador). Historial
+    de asignaciones y REVISION_ASIGNACIONES_<PERIODO>.xlsx quedan en
+    `base_dir_dev/global/`."""
+    global_dir = os.path.join(base_dir_dev, "global")
+    ruta_global = _ruta_global(base_dir_dev, anio, mes)
+    ruta_historico = os.path.join(global_dir, "HISTORICO_ASIGNACIONES.csv")
+    return ejecutar_control1_mensual(
+        ruta_global, ruta_historico,
+        directorio_revision=global_dir, ruta_revision_json=ruta_revision_json, dry_run=dry_run,
+    )
+
+
+def ejecutar_control3(anio, mes, base_dir_dev, ruta_observaciones_json=None, dry_run=False):
+    """Cierre MENSUAL — paso 3 (CONTROL 3). Lee el MISMO GLOBAL del año/mes
+    (ya corregido por CONTROL 1 si aplicó). Reporte e histórico técnico
+    quedan en `base_dir_dev/global/`."""
+    global_dir = os.path.join(base_dir_dev, "global")
+    ruta_global = _ruta_global(base_dir_dev, anio, mes)
+    ruta_historico = os.path.join(global_dir, "HISTORICO_CXC_CXP.csv")
+    return ejecutar_control3_mensual(
+        ruta_global, ruta_historico,
+        ruta_observaciones_json=ruta_observaciones_json, dry_run=dry_run,
+    )
+
+
+# ---------------------------------------------------------------------------
 # CLI — mismo patrón Python-es-la-única-autoridad de los demás módulos.
 # ---------------------------------------------------------------------------
 
@@ -460,6 +522,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Backend DEV (API de lotes) de V3 — FASE 9.")
     parser.add_argument("--accion", required=True, choices=[
         "crear_lote_pendiente", "procesar_lote", "estado", "datos", "revisar", "corregir", "publicar",
+        "generar_global", "ejecutar_control1", "ejecutar_control3",
     ])
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
@@ -490,6 +553,21 @@ def main(argv=None):
             salida = {"resultado": "OK", "cierre": aplicar_correccion(datos["lote_id"], datos["fecha"], datos["correccion"], datos["base_dir_dev"])}
         elif args.accion == "publicar":
             salida = {"resultado": "OK", **publicar_seleccionados(datos["lote_id"], datos["fechas"], datos["base_dir_dev"], datos.get("usuario_auditor"))}
+        elif args.accion == "generar_global":
+            salida = {"resultado": "OK", **generar_global(
+                datos["anio"], datos["mes"], datos["base_dir_dev"], datos["ruta_plantilla_origen"],
+                datos.get("sap_dir"), datos.get("force", False),
+            )}
+        elif args.accion == "ejecutar_control1":
+            salida = {"resultado": "OK", **ejecutar_control1(
+                datos["anio"], datos["mes"], datos["base_dir_dev"],
+                datos.get("ruta_revision_json"), datos.get("dry_run", False),
+            )}
+        elif args.accion == "ejecutar_control3":
+            salida = {"resultado": "OK", **ejecutar_control3(
+                datos["anio"], datos["mes"], datos["base_dir_dev"],
+                datos.get("ruta_observaciones_json"), datos.get("dry_run", False),
+            )}
     except Exception as exc:
         salida = {"resultado": "ERROR", "codigo": type(exc).__name__, "mensaje": str(exc)}
 
@@ -498,8 +576,11 @@ def main(argv=None):
     # archivo de salida truncado a medio escribir — se escribe primero a un
     # buffer en memoria y solo se vuelca al archivo si el JSON completo es
     # valido; si no, se reemplaza por un ERROR limpio y ESE si es serializable.
+    # default=str cubre Decimal/date que las funciones de CONTROL 1/3 (V2,
+    # sin cambios) puedan devolver sin stringificar -- nunca oculta un bug
+    # real, solo evita truncar la salida por un tipo no-JSON nativo.
     try:
-        texto = json.dumps(salida, ensure_ascii=False, indent=2)
+        texto = json.dumps(salida, ensure_ascii=False, indent=2, default=str)
     except TypeError as exc:
         texto = json.dumps({"resultado": "ERROR", "codigo": "SALIDA_NO_SERIALIZABLE", "mensaje": str(exc)}, ensure_ascii=False, indent=2)
 
