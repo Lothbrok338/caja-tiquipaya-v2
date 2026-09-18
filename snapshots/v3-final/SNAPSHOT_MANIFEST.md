@@ -1,9 +1,10 @@
 # SNAPSHOT_MANIFEST.md — V3 FINAL (cierre formal)
 
 Fecha de captura inicial: **2026-09-17T20:55:26Z**
-Última actualización: **2026-09-18T12:10:14Z** — fix real de ingesta oficial
+Última actualización: **2026-09-18T13:05:00Z** — primer cierre oficial V3 publicado
+con éxito (10/09/2026) + fix de los 4 IF booleanos de 06B que lo permitió
 (ver §"Cambios posteriores al cierre formal" al final de este archivo).
-Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`) + `fix: preserve Drive ingesta in official processing`
+Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`) + `fix: preserve Drive ingesta in official processing` + `fix: finalize official V3 publication path`
 
 Este snapshot congela el estado de **los 14 workflows n8n de V3** en el momento
 del cierre formal, tras validar FASE 12E (E2E mensual completo, sandbox
@@ -29,7 +30,7 @@ Verificado con grep sobre los 14 archivos: cero coincidencias de
 | 5 | TIQ V3 · 04 CLASIFICACION · DEV | `NQFcE3VD3PsVUNjW` | `NQFcE3VD3PsVUNjW_04_clasificacion.json` | false | 7 | `e7908795a9a1883daf5ef5808dcf1186e9d715ae75cd34dfd429349a5793a723` |
 | 6 | TIQ V3 · 05 REVISION CORRECCION · DEV | `xrnfWsvC4S54jIIY` | `xrnfWsvC4S54jIIY_05_revision.json` | false | 7 | `6e81a9ebdc6e724ebdba0bbbf66881f94b5f43fc98c0b63e61c62faf62414ba3` |
 | 7 | TIQ V3 · 06 PUBLICACION · DEV | `sI3aQmzD0SZTWahF` | `sI3aQmzD0SZTWahF_06_publicacion.json` | false | 7 | `0e2aaf8eff2488462c52517ffb7f8ee5591689f8c9a4c1601af9c41ade637d2b` |
-| 8 | TIQ V3 · 06B PUBLICACION OFICIAL · DRIVE | `wcgxNei3duWfMDp1` | `wcgxNei3duWfMDp1_06b_publicacion_oficial.json` | false | 31 | `374d8f7aee375a4c94d4e2ecd71881f0696c1a99883858249b7296075d76555c` |
+| 8 | TIQ V3 · 06B PUBLICACION OFICIAL · DRIVE | `wcgxNei3duWfMDp1` | `wcgxNei3duWfMDp1_06b_publicacion_oficial.json` | **true** | 31 | `8c6a63063f6ee4537179bd1c1cdddeb9bc9e3a640ba86406f33f0dfa23c94a4a` |
 | 9 | TIQ V3 · 07 AUDITORIA · DEV | `Q81cDev3QSx5Zowc` | `Q81cDev3QSx5Zowc_07_auditoria.json` | false | 7 | `18ed3c9a516483ec481eba17d829d970dc4bed2e48de401588dc1453d1f095ce` |
 | 10 | TIQ V3 · 07C DESCARGAR ARCHIVO OFICIAL SI EXISTE · DRIVE | `fn7lLjHsiMd48DGK` | `fn7lLjHsiMd48DGK_07c_descargar_oficial.json` | false | 8 | `2dcda703148d885ac1a7070876b595fb1af6c786e197f2289c96ad9c26fd6714` |
 | 11 | TIQ V3 · 07D PUBLICAR ARCHIVO OFICIAL (crear o actualizar) · DRIVE | `HhuQCVP2oCubavzY` | `HhuQCVP2oCubavzY_07d_publicar_oficial.json` | false | 12 | `9f9aab93e4654612e8a1b10005975fac88ecfc793024b51ba0bab9ddbf848f78` |
@@ -44,11 +45,11 @@ Verificado con grep sobre los 14 archivos: cero coincidencias de
 activados para que el auditor pudiera operar el primer cierre oficial real
 (10/09/2026) desde la interfaz. Los otros 7 (línea exploratoria FASE 1-8:
 `principal` + 02/03/04/05/06/07 · DEV) siguen `active=false`, sin cambios.
-**Solo el archivo de BACKEND DEV en este snapshot se re-exportó** (es el
-único cuyo contenido cambió — el fix de esta sección); los otros 6 archivos
-activados conservan el contenido/SHA256 capturado el 2026-09-17 (su lógica
-no cambió, solo su bandera `active` en n8n, que este snapshot no vuelve a
-congelar por no ser parte de lo pedido).
+**Los archivos de BACKEND DEV y 06B en este snapshot se re-exportaron**
+(son los únicos dos cuyo contenido cambió — los fixes de esta sección);
+los otros 5 archivos activados conservan el contenido/SHA256 capturado el
+2026-09-17 (su lógica no cambió, solo su bandera `active` en n8n, que este
+snapshot no vuelve a congelar por no ser parte de lo pedido).
 
 ## Dos líneas de trabajo dentro de V3 (aclaración honesta)
 
@@ -125,3 +126,51 @@ se escribió nada oficial en Drive, nunca se movió el cierre ni se creó
 marker.
 
 Commit de este fix: `fix: preserve Drive ingesta in official processing`.
+
+### Fix de los 4 IF booleanos de 06B (2026-09-18)
+
+**Bug real encontrado en el primer intento de PUBLICAR oficial** (segundo
+bloqueador tras el fix de ingesta, disparado por el auditor desde la
+interfaz sobre el mismo cierre real 10/09/2026): `/publicar` fallaba con
+`Error in workflow` al invocar el subworkflow `TIQ V3 · 06B PUBLICACION
+OFICIAL · DRIVE` (`wcgxNei3duWfMDp1`). Diagnóstico forense (ejecuciones
+376, 382/383) confirmó que 06B sí se invocaba y sí ejecutaba sus primeras
+búsquedas de solo lectura en Drive, pero moría con `NodeOperationError`
+en el primer nodo `IF` booleano que encontraba en su camino — mismo
+defecto de plataforma n8n ya visto y corregido en FASE 12D (`IF` con
+`conditions.options.typeValidation: "strict"` sobre una condición
+`boolean/true` cuya entrada real es un booleano JS genuino, pero que n8n
+evalúa igual como error de tipo).
+
+**Fix (en bloque, no reactivo):** se revisaron los 5 nodos `IF` de 06B y
+se corrigió `typeValidation` de `"strict"` a `"loose"` únicamente en los
+4 que usan el patrón booleano defectuoso: `IF - SAP ya existe en Drive`,
+`IF - Resultado ya existe en Drive`, `IF - Cierre encontrado en ENTRADA`,
+`IF - Cierre ya esta en PROCESADOS`. `IF - Marker ya existe en Drive` se
+dejó intacto (compara `string`/`notEmpty`, no tiene el defecto). Ninguna
+expresión, valor esperado, rama, conexión ni orden de publicación se
+tocó. Workflow re-publicado inmediatamente tras el cambio
+(`activeVersionId` = `versionId` = `88f1df1c-e40e-4d8a-8280-9600a25f864f`).
+
+**Validado estructuralmente antes de publicar de nuevo:** dos ejecuciones
+de prueba (`test_workflow`, pin data sintética, cero escrituras reales en
+Drive) cubrieron las 8 ramas posibles de los 4 IF corregidos (true/false
+en cada uno), ambas `status: success`, sin `NodeOperationError`.
+
+**Validado en producción real** (10/09/2026, mismo cierre, clic real del
+auditor en PUBLICAR vía la interfaz): ejecución backend 388 → subworkflow
+06B ejecución 389, `estado_publicacion: "PUBLICADO_OFICIAL"`,
+`publicado: true`. Resultado real en Drive:
+- `SAP_TIQ_10-09-2026.xlsx` subido a la carpeta SAP oficial.
+- `RESULTADO_TIQ_10-09-2026.json` subido a la carpeta RESULTADOS oficial.
+- `CIERRE 10-09-2026.xlsm` movido de `00_ENTRADA_CIERRES` a `03_PROCESADOS`.
+- Marker `PROCESADO_32a86dca...json` creado en `05_CONTROLES/MARCADORES_PROCESAMIENTO`.
+- Sin duplicados en ninguna de las 4 carpetas (confirmado también con un
+  PREFLIGHT de solo lectura posterior: `sap_duplicado: false`,
+  `resultado_duplicado: false`).
+
+Este es el **primer cierre oficial V3 publicado de punta a punta contra
+Drive real**, cerrando la cadena completa `/procesar` → `/publicar` → 06B
+→ Drive oficial.
+
+Commit de este fix: `fix: finalize official V3 publication path`.

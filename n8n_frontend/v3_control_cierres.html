@@ -563,8 +563,8 @@
       </div>
       <div class="field grow"></div>
       <button class="primary" id="btn-mensual-global">GENERAR GLOBAL</button>
-      <button class="primary" id="btn-mensual-control1">CONTROL 1</button>
-      <button class="primary" id="btn-mensual-control3">CONTROL 3</button>
+      <button class="primary" id="btn-mensual-control1">AUDITORÍA DE ASIGNACIONES</button>
+      <button class="primary" id="btn-mensual-control3">AUDITORÍA CxC / CxP</button>
     </div>
     <div id="mensual-resultado" class="mensual-resultado">Sin ejecutar todavía.</div>
   </div>
@@ -782,14 +782,14 @@
   }
 
   function ejecutarControl1Mensual() {
-    ejecutarAccionMensual(ENDPOINTS.control1, "CONTROL 1", function (r) {
-      return "CONTROL 1: " + r.estado + "." + sufijoPublicacionOficial(r);
+    ejecutarAccionMensual(ENDPOINTS.control1, "AUDITORÍA DE ASIGNACIONES", function (r) {
+      return "AUDITORÍA DE ASIGNACIONES: " + r.estado + "." + sufijoPublicacionOficial(r);
     });
   }
 
   function ejecutarControl3Mensual() {
-    ejecutarAccionMensual(ENDPOINTS.control3, "CONTROL 3", function (r) {
-      return "CONTROL 3: " + r.estado + "." + sufijoPublicacionOficial(r);
+    ejecutarAccionMensual(ENDPOINTS.control3, "AUDITORÍA CxC / CxP", function (r) {
+      return "AUDITORÍA CxC / CxP: " + r.estado + "." + sufijoPublicacionOficial(r);
     });
   }
 
