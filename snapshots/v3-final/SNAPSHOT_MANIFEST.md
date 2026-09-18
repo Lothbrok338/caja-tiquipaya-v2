@@ -1,11 +1,9 @@
 # SNAPSHOT_MANIFEST.md — V3 FINAL (cierre formal)
 
 Fecha de captura inicial: **2026-09-17T20:55:26Z**
-Última actualización: **2026-09-18T14:10:00Z** — GLOBAL mensual V3 ya
-consolida los 9 SAP reales de septiembre 2026 de punta a punta (bug C10
-resuelto exclusivamente en V3, sin tocar V2)
-(ver §"Cambios posteriores al cierre formal" al final de este archivo).
-Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`) + `fix: preserve Drive ingesta in official processing` + `fix: finalize official V3 publication path` + `feat: allow monthly GLOBAL regeneration in V3` + `fix: consolidate all monthly SAP files in V3` + `fix: validate daily SA entries in V3 monthly consolidation`
+Última actualización: **2026-09-18T19:00:00Z** — la fuente real de GLOBAL ahora es la carpeta SAP oficial de Drive,
+materializada en `global_entrada/<periodo>/` (ver §"Cambios posteriores al cierre formal" al final de este archivo).
+Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`) + `fix: preserve Drive ingesta in official processing` + `fix: finalize official V3 publication path` + `feat: allow monthly GLOBAL regeneration in V3` + `fix: consolidate all monthly SAP files in V3` + `fix: validate daily SA entries in V3 monthly consolidation` + `fix: materialize monthly SAP source from Drive`
 
 Este snapshot congela el estado de **los 14 workflows n8n de V3** en el momento
 del cierre formal, tras validar FASE 12E (E2E mensual completo, sandbox
@@ -37,7 +35,7 @@ Verificado con grep sobre los 14 archivos: cero coincidencias de
 | 11 | TIQ V3 · 07D PUBLICAR ARCHIVO OFICIAL (crear o actualizar) · DRIVE | `HhuQCVP2oCubavzY` | `HhuQCVP2oCubavzY_07d_publicar_oficial.json` | false | 12 | `9f9aab93e4654612e8a1b10005975fac88ecfc793024b51ba0bab9ddbf848f78` |
 | 12 | TIQ V3 · 07E BUSCAR O CREAR CARPETA OFICIAL · DRIVE | `Lht5xRinJ9nJpHCW` | `Lht5xRinJ9nJpHCW_07e_buscar_crear_carpeta.json` | false | 7 | `2b331e13b50c40d69eb46c06817b6f5aecdeca8d4a25af408274e11bd74cc15f` |
 | 13 | TIQ V3 · PREFLIGHT OFICIAL (solo lectura) | `sJVgoBRpBntc96vf` | `sJVgoBRpBntc96vf_preflight_oficial.json` | false | 12 | `dccdfb3711e06518bce4d73c73acbfaa4a687457212e946d5b85321cb1f782de` |
-| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 112 | `bad138256de28b2518f7bb5ed9be117756be8becfffe3c8a2c000997d896bb82` |
+| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 120 | `71bda439359c4312df748c1e9aefbadfab5df2d5a6fa9a402ae47e25fd3b46fa` |
 
 **Estado `active` real en n8n al momento de esta actualización (2026-09-18):**
 7 workflows están activos — `aLs1f3GMqswbaENA` (BACKEND DEV), `CanZtkmnm0ukAC8c`
@@ -315,3 +313,55 @@ C10 del GLOBAL generado: DB
 ```
 
 Commit de este fix: `fix: validate daily SA entries in V3 monthly consolidation`.
+
+
+### GLOBAL: fuente real = carpeta SAP oficial de Drive, materializada en `global_entrada/<periodo>/` (2026-09-18)
+
+**Disparador:** el primer GLOBAL real de septiembre 2026 (ejecución 398) salió
+con `2 SAP incluidos` en vez de 9: `SAP_TIQ_10-09-2026.xlsx` (oficial) y
+`SAP_11-09-2026.xlsx` (residuo local de pruebas DEV del 15/09, que NO está en
+Drive), y omitió los 8 SAP legacy oficiales (01–05, 07–09). El GLOBAL salió
+publicado en `05_CONTROLES/GLOBAL/` con esa composición incorrecta.
+
+**Causa raíz:** la cadena `WEBHOOK global → Python → 07E → 07D` no tenía ningún
+nodo que leyera Drive antes de consolidar; Python escaneaba
+`dev_workdir/publicacion/sap/`, que son artefactos locales del flujo diario, no
+la carpeta oficial. (El commit 98fe4a2 había probado la lógica de
+descubrimiento con fixtures colocados a mano en ese directorio; el pipeline real
+nunca los ponía allí.)
+
+**Corrección:**
+- `v3/dev_api.py`: `global_entrada_dir()`, `preparar_global_entrada()` (limpia
+  SOLO `global_entrada/<periodo>/`, nunca `publicacion/sap`, otros periodos ni
+  Drive) y nueva acción CLI `preparar_global_entrada`. `generar_global()` lee
+  únicamente de `global_entrada/<periodo>/`; si no existe, falla con
+  `GLOBAL_ENTRADA_NO_MATERIALIZADA` (nunca cae a `publicacion/sap`). Año/mes
+  se validan como enteros acotados antes de construir cualquier ruta.
+- BACKEND DEV (`aLs1f3GMqswbaENA`, versión `83d4d373`, 120 nodos): 8 nodos
+  nuevos entre `WEBHOOK global` y `CONSTRUIR payload global` — `RESOLVER
+  carpeta SAP oficial` → `PREPARAR global_entrada limpio (Python)` → `BUSCAR -
+  SAP oficiales del mes (Drive)` → `FILTRAR - SAP diarios validos del periodo`
+  → `IF - Hay SAP oficiales para GLOBAL` → `DESCARGAR - SAP oficial (Drive)` →
+  `ESCRIBIR - SAP a global_entrada` → `RESTAURAR - Item del webhook global`.
+  Cada SAP conserva nombre, fileId y fecha inferida (sin `$input.first()`);
+  dos archivos con el mismo nombre exacto en Drive → `ERROR_AMBIGUO_SAP_DRIVE`.
+  El resto (Python, 07E, 07D con `modo_si_existe='actualizar'`) no cambió.
+- `v3/consolidador_mensual_v3.py`: `blockers_previos`. Un `DUPLICADO_FECHA_AMBIGUA`
+  ya no permite escribir un GLOBAL parcial con las demás fechas (bug hallado por
+  los tests de esta fase: antes se escribía un GLOBAL sin la fecha ambigua).
+- Limitación conocida (igual que 06B): la carpeta SAP oficial de Drive por
+  periodo es configuración (`CARPETAS_SAP_OFICIALES` en el nodo `RESOLVER`);
+  solo `2026-09` está configurado. Otro periodo falla explícito con
+  `CARPETA_SAP_OFICIAL_NO_CONFIGURADA`.
+
+**Validado (sin publicar nada):** workflow temporal (creado, ejecutado y
+archivado) con los mismos nodos, sin generar ni publicar: leyó Drive real y
+materializó 9 SAP (01–05, 07–09 legacy + `SAP_TIQ_10-09-2026`, sha idéntico al
+oficial) en `global_entrada/2026-09/`. Consolidación V3 sobre esos 9 reales, a un
+directorio temporal: `VALIDADO_PENDIENTE_PUBLICACION`, 257 partidas,
+1,199,527.12 = 1,199,527.12, C10 del GLOBAL `DB`, 21 fechas faltantes
+informativas; el residuo `SAP_11-09-2026.xlsx` (solo en `publicacion/sap/`)
+queda ignorado. El GLOBAL ya publicado en Drive NO se tocó (07D lo actualiza en
+la siguiente ejecución).
+
+Commit de este fix: `fix: materialize monthly SAP source from Drive`.

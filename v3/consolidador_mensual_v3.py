@@ -227,7 +227,7 @@ def _reinterpretar_problemas_entrada_v3(problemas):
 #    funciones públicas sin cambios salvo el paso 2 de arriba.
 # ---------------------------------------------------------------------------
 
-def ejecutar_consolidacion_v3(anio, mes, plantilla, salida, archivos_lista, force):
+def ejecutar_consolidacion_v3(anio, mes, plantilla, salida, archivos_lista, force, blockers_previos=None):
     """Igual que consolidador_mensual.ejecutar_consolidacion(), mismo
     formato de resultado JSON, mismas garantías (nunca abre un SAP diario
     ni la plantilla en modo escritura, nunca duplica partidas, nunca
@@ -236,7 +236,12 @@ def ejecutar_consolidacion_v3(anio, mes, plantilla, salida, archivos_lista, forc
     `_reinterpretar_problemas_entrada_v3()` antes de convertirse en
     blocker. `archivos_lista` viene siempre resuelto por
     `descubrir_sap_oficiales_del_mes()` (o pasado explícito por el
-    llamador); este orquestador no vuelve a escanear `sap_dir`."""
+    llamador); este orquestador no vuelve a escanear `sap_dir`.
+
+    `blockers_previos`: blockers ya detectados aguas arriba (p.ej.
+    DUPLICADO_FECHA_AMBIGUA del descubrimiento). Cuentan como cualquier
+    otro blocker: NO se escribe el SAP GLOBAL — un mes con una fecha
+    ambigua nunca produce un GLOBAL parcial que parezca completo."""
     if not os.path.isfile(plantilla):
         raise RuntimeError(f"PLANTILLA_NO_ENCONTRADA: {plantilla}")
 
@@ -250,7 +255,7 @@ def ejecutar_consolidacion_v3(anio, mes, plantilla, salida, archivos_lista, forc
     rutas_unicas, sha256_por_archivo, duplicados_identicos, duplicados_diferentes = \
         cm.detectar_duplicados(rutas_candidatas)
 
-    blockers = []
+    blockers = list(blockers_previos or [])
     for dup in duplicados_diferentes:
         blockers.append(f"DUPLICADO_SAP_DIFERENTE:{dup['nombre']}")
 

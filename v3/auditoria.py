@@ -139,9 +139,9 @@ def generar_global_mensual(anio, mes, sap_dir, plantilla, salida,
         SAP_TIQ_DD-MM-YYYY.xlsx (V3) de la carpeta SAP oficial.
 
     Los blockers de ambigüedad de fecha que detecte el descubrimiento
-    (DUPLICADO_FECHA_AMBIGUA) se agregan a los que calcule el consolidador
-    y fuerzan `estado=ERROR_REVISAR` igual que cualquier otro blocker —
-    nunca se elige un SAP arbitrariamente.
+    (DUPLICADO_FECHA_AMBIGUA) entran al consolidador como `blockers_previos`:
+    fuerzan `estado=ERROR_REVISAR` y NO se escribe ningún GLOBAL (ni parcial)
+    — nunca se elige un SAP arbitrariamente.
 
     Otro agregado de V3 (el consolidador no lo calculaba):
     `fechas_faltantes` — compara, por FECHA (no por nombre de archivo, ya
@@ -161,16 +161,16 @@ def generar_global_mensual(anio, mes, sap_dir, plantilla, salida,
         descubrimiento = descubrir_sap_oficiales_del_mes(sap_dir, anio, mes)
         archivos_lista = descubrimiento["archivos"]
 
-    resultado = ejecutar_consolidacion_v3(anio, mes, plantilla, salida, archivos_lista, force)
+    resultado = ejecutar_consolidacion_v3(
+        anio, mes, plantilla, salida, archivos_lista, force,
+        blockers_previos=(descubrimiento["blockers"] if descubrimiento is not None else None),
+    )
 
     fechas_con_sap = set()
     if descubrimiento is not None:
         resultado["sap_incluidos_detalle"] = descubrimiento["sap_incluidos"]
         resultado["duplicados_identicos_omitidos"] = descubrimiento["duplicados_identicos_omitidos"]
         fechas_con_sap = {item["fecha"] for item in descubrimiento["sap_incluidos"]}
-        if descubrimiento["blockers"]:
-            resultado["blockers"] = list(resultado.get("blockers") or []) + descubrimiento["blockers"]
-            resultado["estado"] = "ERROR_REVISAR"
     else:
         for nombre in resultado.get("sap_incluidos") or []:
             fecha, _origen = _fecha_y_origen_desde_nombre_sap(nombre)

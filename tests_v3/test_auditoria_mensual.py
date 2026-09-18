@@ -365,7 +365,7 @@ def test_flujo_diario_nunca_ejecuta_control1_ni_control3(tmp_path):
 
 def test_dev_api_generar_global_y_controles_usan_base_dir_dev(tmp_path):
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
     os.makedirs(sap_dir, exist_ok=True)
     _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00", cuenta="110201002", asignacion="3P66536982")
     plantilla = tmp_path / "Plantilla.xlsx"
@@ -393,7 +393,7 @@ def test_cli_main_generar_global_y_controles_produce_json_valido(tmp_path):
     import json as jsonlib
 
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
     os.makedirs(sap_dir, exist_ok=True)
     _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00", cuenta="110201002", asignacion="3P66536982")
     plantilla = tmp_path / "Plantilla.xlsx"
@@ -430,7 +430,7 @@ def test_cli_main_generar_global_y_controles_produce_json_valido(tmp_path):
 
 def test_dev_api_generar_global_inexistente_crea(tmp_path):
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
     os.makedirs(sap_dir, exist_ok=True)
     _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00")
     plantilla = tmp_path / "Plantilla.xlsx"
@@ -449,7 +449,7 @@ def test_dev_api_generar_global_existente_se_regenera_sin_bloquear(tmp_path):
     fallaba con SALIDA_YA_EXISTE_SIN_FORCE. Ahora debe regenerar sin pedir
     ningún flag adicional."""
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
     os.makedirs(sap_dir, exist_ok=True)
     _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00")
     plantilla = tmp_path / "Plantilla.xlsx"
@@ -465,7 +465,7 @@ def test_dev_api_generar_global_segunda_regeneracion_sigue_siendo_uno_solo(tmp_p
     import glob
 
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
     os.makedirs(sap_dir, exist_ok=True)
     _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00")
     plantilla = tmp_path / "Plantilla.xlsx"
@@ -481,7 +481,7 @@ def test_dev_api_generar_global_segunda_regeneracion_sigue_siendo_uno_solo(tmp_p
 
 def test_dev_api_generar_global_regenerado_incorpora_sap_nuevos(tmp_path):
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
     os.makedirs(sap_dir, exist_ok=True)
     _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00")
     plantilla = tmp_path / "Plantilla.xlsx"
@@ -497,11 +497,13 @@ def test_dev_api_generar_global_regenerado_incorpora_sap_nuevos(tmp_path):
 
 def test_dev_api_generar_global_no_toca_otro_mes(tmp_path):
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
+    sap_dir_oct = base_dir_dev / "global_entrada" / "2026-10"
     os.makedirs(sap_dir, exist_ok=True)
+    os.makedirs(sap_dir_oct, exist_ok=True)
     _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00",
                        fecha_valor=datetime.date(2026, 9, 5))
-    _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-10-2026.xlsx"), cargo="75.00",
+    _crear_sap_diario(str(sap_dir_oct / "SAP_TIQ_01-10-2026.xlsx"), cargo="75.00",
                        fecha_valor=datetime.date(2026, 10, 5))
     plantilla = tmp_path / "Plantilla.xlsx"
     crear_plantilla_sap(str(plantilla))
@@ -522,7 +524,7 @@ def test_dev_api_regenerar_global_no_afecta_historicos_de_controles(tmp_path):
     persistentes de CONTROL 1/CONTROL 3 -- viven en archivos separados que
     solo ejecutar_control1()/ejecutar_control3() escriben, nunca generar_global()."""
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
     os.makedirs(sap_dir, exist_ok=True)
     _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00",
                        cuenta="110201002", asignacion="3P66536982")
@@ -579,7 +581,7 @@ def test_ambiguedad_multiple_global_solo_es_posible_a_nivel_drive_no_local(tmp_p
     ERROR_AMBIGUO_PUBLICACION en 07D, con cobertura de test propia en
     tests_v3/n8n_publicacion_mensual/test_logic_reference.js."""
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
     os.makedirs(sap_dir, exist_ok=True)
     _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00")
     plantilla = tmp_path / "Plantilla.xlsx"
@@ -655,7 +657,7 @@ def test_sap_diario_real_c10_sa_es_aceptado_por_global(tmp_path):
     (el valor real de run_batch.py::_TIPO_ASIENTO) en la ENTRADA, sin
     tocar consolidador_mensual.py V2."""
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
     os.makedirs(sap_dir, exist_ok=True)
     _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_10-09-2026.xlsx"), cuenta="110201002")
     plantilla = tmp_path / "Plantilla.xlsx"
@@ -670,7 +672,7 @@ def test_sap_diario_con_c10_inesperado_sigue_siendo_blocker(tmp_path):
     debe seguir bloqueando con claridad -- V3 amplía la entrada válida,
     nunca la relaja a "cualquier cosa"."""
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
     os.makedirs(sap_dir, exist_ok=True)
     ruta = str(sap_dir / "SAP_TIQ_10-09-2026.xlsx")
     _crear_sap_diario_real(ruta, cuenta="110201002")
@@ -691,7 +693,7 @@ def test_global_generado_usa_c10_db_en_la_salida(tmp_path):
     (_TIPO_ASIENTO_GLOBAL, sin cambios) -- esto es independiente de qué
     acepte como ENTRADA."""
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
     os.makedirs(sap_dir, exist_ok=True)
     _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_10-09-2026.xlsx"), cuenta="110201002")
     plantilla = tmp_path / "Plantilla.xlsx"
@@ -785,7 +787,7 @@ def test_global_mensual_propaga_blocker_de_ambiguedad_de_fecha(tmp_path):
     final de generar_global_mensual y forzar ERROR_REVISAR -- nunca se
     resuelve la ambigüedad eligiendo un archivo por su cuenta."""
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
     os.makedirs(sap_dir, exist_ok=True)
     _crear_sap_diario_real(str(sap_dir / "SAP_10-09-2026.xlsx"), cargo="100.00", fecha_valor=datetime.date(2026, 9, 10))
     _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_10-09-2026.xlsx"), cargo="999.00", fecha_valor=datetime.date(2026, 9, 10))
@@ -858,7 +860,7 @@ def test_nueve_sap_reales_legacy_y_v3_consolidan_global_valido(tmp_path):
     en Drive (8 legacy + 1 V3, fechas 01-05,07-09,10, sin el 06): con el
     fix de C10, GLOBAL debe consolidar los 9 sin bloquear."""
     base_dir_dev = tmp_path / "dev"
-    sap_dir = base_dir_dev / "publicacion" / "sap"
+    sap_dir = base_dir_dev / "global_entrada" / "2026-09"
     os.makedirs(sap_dir, exist_ok=True)
 
     dias_legacy = [1, 2, 3, 4, 5, 7, 8, 9]
@@ -890,3 +892,179 @@ def test_nueve_sap_reales_legacy_y_v3_consolidan_global_valido(tmp_path):
 
     wb = openpyxl.load_workbook(r["ruta_global_generado"], data_only=True)
     assert wb["1"]["C10"].value == "DB"
+
+
+# ---------------------------------------------------------------------------
+# FASE 12E.3 (2026-09-18) — la fuente de GLOBAL es EXCLUSIVAMENTE un snapshot
+# de la carpeta SAP oficial de Drive materializado en
+# dev_workdir/global_entrada/<YYYY-MM>/. publicacion/sap/ (artefactos locales
+# del flujo diario, con residuos DEV) NUNCA se usa como entrada. Caso real que
+# lo motivó: GLOBAL de septiembre tomó solo 2 SAP (10/09 oficial + un
+# SAP_11-09-2026.xlsx residual de pruebas DEV) y omitió 8 SAP legacy oficiales.
+# ---------------------------------------------------------------------------
+
+_DIAS_LEGACY_SEP_2026 = [1, 2, 3, 4, 5, 7, 8, 9]
+
+
+def _sandbox_septiembre_drive(tmp_path, extra_11_oficial=False):
+    """Simula lo que el backend materializa desde Drive: 8 SAP legacy + el
+    SAP_TIQ del 10/09 en global_entrada/2026-09/ (C10='SA', como los reales),
+    y, APARTE, un residuo local DEV SAP_11-09-2026.xlsx en publicacion/sap/."""
+    base_dir_dev = tmp_path / "dev"
+    entrada = base_dir_dev / "global_entrada" / "2026-09"
+    pub_local = base_dir_dev / "publicacion" / "sap"
+    os.makedirs(entrada, exist_ok=True)
+    os.makedirs(pub_local, exist_ok=True)
+    for dia in _DIAS_LEGACY_SEP_2026:
+        _crear_sap_diario_real(str(entrada / f"SAP_{dia:02d}-09-2026.xlsx"), cargo="100.00",
+                                cuenta="110201002", fecha_valor=datetime.date(2026, 9, dia))
+    _crear_sap_diario_real(str(entrada / "SAP_TIQ_10-09-2026.xlsx"), cargo="100.00",
+                            cuenta="110201002", fecha_valor=datetime.date(2026, 9, 10))
+    _crear_sap_diario_real(str(pub_local / "SAP_11-09-2026.xlsx"), cargo="555.00",
+                            cuenta="110201002", fecha_valor=datetime.date(2026, 9, 11))
+    _crear_sap_diario_real(str(pub_local / "SAP_TIQ_10-09-2026.xlsx"), cargo="100.00",
+                            cuenta="110201002", fecha_valor=datetime.date(2026, 9, 10))
+    if extra_11_oficial:
+        _crear_sap_diario_real(str(entrada / "SAP_TIQ_11-09-2026.xlsx"), cargo="100.00",
+                                cuenta="110201002", fecha_valor=datetime.date(2026, 9, 11))
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+    return base_dir_dev, entrada, pub_local, plantilla
+
+
+def test_caso_a_drive_9_sap_mas_residuo_local_11_incluye_solo_los_9(tmp_path):
+    base_dir_dev, _entrada, _pub, plantilla = _sandbox_septiembre_drive(tmp_path)
+    r = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r["estado"] == "VALIDADO_PENDIENTE_PUBLICACION", r.get("blockers")
+    assert r["cantidad_sap_incluidos"] == 9
+    assert "SAP_11-09-2026.xlsx" not in r["sap_incluidos"]
+    fechas = sorted(i["fecha"] for i in r["sap_incluidos_detalle"])
+    assert fechas == ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05",
+                      "2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10"]
+    assert r["cargo_global"] == "900.00"  # 9 x 100.00; el residuo (555.00) NO suma
+    wb = openpyxl.load_workbook(r["ruta_global_generado"], data_only=True)
+    assert wb["1"]["C10"].value == "DB"
+
+
+def test_caso_b_nuevo_sap_oficial_11_en_drive_regenera_con_10(tmp_path):
+    base_dir_dev, entrada, _pub, plantilla = _sandbox_septiembre_drive(tmp_path)
+    r1 = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r1["cantidad_sap_incluidos"] == 9
+
+    _crear_sap_diario_real(str(entrada / "SAP_TIQ_11-09-2026.xlsx"), cargo="100.00",
+                            cuenta="110201002", fecha_valor=datetime.date(2026, 9, 11))
+    r2 = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r2["cantidad_sap_incluidos"] == 10
+    assert "SAP_TIQ_11-09-2026.xlsx" in r2["sap_incluidos"]
+
+
+def test_caso_c_archivos_locales_no_oficiales_se_ignoran(tmp_path):
+    base_dir_dev, entrada, pub_local, plantilla = _sandbox_septiembre_drive(tmp_path)
+    (entrada / "notas_locales.txt").write_text("no oficial")
+    (entrada / "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx").write_bytes(b"global viejo")
+    (entrada / "SAP_TIQ_01-08-2026.xlsx").write_bytes(b"otro mes")
+    _crear_sap_diario_real(str(pub_local / "SAP_12-09-2026.xlsx"), fecha_valor=datetime.date(2026, 9, 12))
+
+    r = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r["estado"] == "VALIDADO_PENDIENTE_PUBLICACION", r.get("blockers")
+    assert r["cantidad_sap_incluidos"] == 9
+
+
+def test_caso_d_dos_sap_distintos_misma_fecha_en_drive_es_ambiguo(tmp_path):
+    base_dir_dev, entrada, _pub, plantilla = _sandbox_septiembre_drive(tmp_path)
+    _crear_sap_diario_real(str(entrada / "SAP_10-09-2026.xlsx"), cargo="999.00",
+                            cuenta="110201002", fecha_valor=datetime.date(2026, 9, 10))
+    r = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r["estado"] == "ERROR_REVISAR"
+    assert any(b.startswith("DUPLICADO_FECHA_AMBIGUA:2026-09-10:") for b in r["blockers"])
+    assert r["ruta_global_generado"] is None
+
+
+def test_caso_e_global_previo_existente_se_actualiza_sin_duplicar(tmp_path):
+    import glob
+    base_dir_dev, entrada, _pub, plantilla = _sandbox_septiembre_drive(tmp_path)
+    dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    _crear_sap_diario_real(str(entrada / "SAP_TIQ_11-09-2026.xlsx"), cargo="100.00",
+                            cuenta="110201002", fecha_valor=datetime.date(2026, 9, 11))
+    r = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r["cantidad_sap_incluidos"] == 10
+    assert len(glob.glob(str(base_dir_dev / "global" / "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx"))) == 1
+    assert len(glob.glob(str(base_dir_dev / "global" / "RESULTADO_GLOBAL_TIQ_SEPTIEMBRE_2026.json"))) == 1
+
+
+def test_caso_f_legacy_y_v3_en_fechas_distintas_ambos_validos(tmp_path):
+    base_dir_dev, _entrada, _pub, plantilla = _sandbox_septiembre_drive(tmp_path)
+    r = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    origenes = {i["nombre"]: i["origen"] for i in r["sap_incluidos_detalle"]}
+    assert origenes["SAP_01-09-2026.xlsx"] == "legacy"
+    assert origenes["SAP_TIQ_10-09-2026.xlsx"] == "v3"
+
+
+def test_fechas_faltantes_de_septiembre_con_9_sap_son_informativas(tmp_path):
+    base_dir_dev, _entrada, _pub, plantilla = _sandbox_septiembre_drive(tmp_path)
+    r = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r["estado"] == "VALIDADO_PENDIENTE_PUBLICACION"
+    assert len(r["fechas_faltantes"]) == 21 and "2026-09-06" in r["fechas_faltantes"]
+    assert not any("fecha" in b.lower() for b in r["blockers"])
+
+
+def test_global_nunca_usa_publicacion_sap_como_entrada(tmp_path):
+    """Con global_entrada vacía y SAP válidos SOLO en publicacion/sap, GLOBAL
+    no los toma: bloquea con SIN_SAP_PARA_CONSOLIDAR."""
+    base_dir_dev, entrada, pub_local, plantilla = _sandbox_septiembre_drive(tmp_path)
+    for f in entrada.iterdir():
+        f.unlink()
+    r = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r["estado"] == "ERROR_REVISAR"
+    assert "SIN_SAP_PARA_CONSOLIDAR" in r["blockers"]
+    assert r["cantidad_sap_incluidos"] == 0
+
+
+def test_generar_global_sin_materializacion_falla_claro(tmp_path):
+    base_dir_dev = tmp_path / "dev"
+    os.makedirs(base_dir_dev / "publicacion" / "sap", exist_ok=True)
+    _crear_sap_diario_real(str(base_dir_dev / "publicacion" / "sap" / "SAP_TIQ_10-09-2026.xlsx"))
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+    with pytest.raises(RuntimeError, match="GLOBAL_ENTRADA_NO_MATERIALIZADA"):
+        dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+
+
+def test_preparar_global_entrada_limpia_solo_el_periodo(tmp_path):
+    base_dir_dev, entrada, pub_local, _plantilla = _sandbox_septiembre_drive(tmp_path)
+    otro_periodo = base_dir_dev / "global_entrada" / "2026-10"
+    os.makedirs(otro_periodo)
+    (otro_periodo / "SAP_TIQ_01-10-2026.xlsx").write_bytes(b"octubre")
+    otro_tmp = base_dir_dev / "otro_temporal.txt"
+    otro_tmp.write_text("no tocar")
+    residuos_pub = sorted(os.listdir(pub_local))
+
+    r = dev_api.preparar_global_entrada(2026, 9, str(base_dir_dev))
+
+    assert r["periodo"] == "2026-09"
+    assert os.path.isdir(entrada) and os.listdir(entrada) == []
+    assert sorted(os.listdir(pub_local)) == residuos_pub              # publicacion/sap intacto
+    assert os.listdir(otro_periodo) == ["SAP_TIQ_01-10-2026.xlsx"]    # otro periodo intacto
+    assert otro_tmp.read_text() == "no tocar"
+
+
+def test_preparar_global_entrada_crea_si_no_existe_y_valida_periodo(tmp_path):
+    base_dir_dev = tmp_path / "dev"
+    os.makedirs(base_dir_dev)
+    r = dev_api.preparar_global_entrada(2026, 9, str(base_dir_dev))
+    assert os.path.isdir(r["dir_entrada"])
+    for anio, mes in ((2026, 13), (2026, 0), ("2026", 9), (1999, 9), (True, 9)):
+        with pytest.raises(ValueError, match="PERIODO_INVALIDO"):
+            dev_api.preparar_global_entrada(anio, mes, str(base_dir_dev))
+
+
+def test_cli_preparar_global_entrada_y_generar_global(tmp_path):
+    import json as jsonlib
+    base_dir_dev, entrada, _pub, plantilla = _sandbox_septiembre_drive(tmp_path)
+    salida = tmp_path / "out.json"
+    entrada_json = tmp_path / "in.json"
+    entrada_json.write_text(jsonlib.dumps({"anio": 2026, "mes": 9, "base_dir_dev": str(base_dir_dev)}))
+    dev_api.main(["--accion", "preparar_global_entrada", "--input", str(entrada_json), "--output", str(salida)])
+    r = jsonlib.loads(salida.read_text(encoding="utf-8"))
+    assert r["resultado"] == "OK" and os.listdir(entrada) == []
+    assert '"resultado": "OK"' in salida.read_text(encoding="utf-8")  # el nodo n8n lo verifica con grep -q

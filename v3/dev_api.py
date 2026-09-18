@@ -31,6 +31,7 @@ fecha pedida que no lo esté se reporta en `omitidos`, nunca se publica.
 
 import json
 import os
+import shutil
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -477,29 +478,65 @@ def _periodo(anio, mes):
     return nombre[len("SAP_GLOBAL_TIQ_"):-len(".xlsx")]
 
 
+def _validar_anio_mes(anio, mes):
+    """El navegador solo manda año/mes; nunca una ruta. Se validan como
+    enteros acotados antes de usarlos para construir cualquier ruta."""
+    if isinstance(anio, bool) or isinstance(mes, bool) or not isinstance(anio, int) or not isinstance(mes, int):
+        raise ValueError(f"PERIODO_INVALIDO: anio/mes deben ser enteros (recibido anio={anio!r}, mes={mes!r})")
+    if not (2000 <= anio <= 2100) or not (1 <= mes <= 12):
+        raise ValueError(f"PERIODO_INVALIDO: anio={anio}, mes={mes} fuera de rango")
+
+
+def global_entrada_dir(base_dir_dev, anio, mes):
+    """Snapshot temporal, AISLADO, de la carpeta SAP oficial del periodo en
+    Drive: `base_dir_dev/global_entrada/<YYYY-MM>/`. Es la ÚNICA fuente de
+    entrada de GLOBAL. `publicacion/sap/` (artefactos locales del flujo
+    diario, con residuos de pruebas DEV) nunca se usa como entrada."""
+    _validar_anio_mes(anio, mes)
+    return os.path.join(base_dir_dev, "global_entrada", f"{anio:04d}-{mes:02d}")
+
+
+def preparar_global_entrada(anio, mes, base_dir_dev):
+    """Deja `global_entrada/<periodo>/` VACÍO y listo para materializar la
+    carpeta SAP oficial desde Drive. Borra únicamente esa carpeta del
+    periodo (nunca `publicacion/sap`, nunca otros periodos, nunca Drive):
+    así ningún archivo de una corrida anterior puede contaminar GLOBAL."""
+    destino = global_entrada_dir(base_dir_dev, anio, mes)
+    _verificar_contenido_en_base_dir(os.path.join(destino, "_"), base_dir_dev)
+    if os.path.lexists(destino):
+        if os.path.islink(destino) or not os.path.isdir(destino):
+            raise RuntimeError(f"GLOBAL_ENTRADA_INVALIDA: {destino} no es un directorio normal")
+        shutil.rmtree(destino)
+    os.makedirs(destino)
+    return {"dir_entrada": os.path.abspath(destino), "periodo": f"{anio:04d}-{mes:02d}"}
+
+
 def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None):
     """Cierre MENSUAL — paso 1 (GENERAR GLOBAL). `sap_dir` por defecto es
-    `base_dir_dev/publicacion/sap/`, exactamente donde el Módulo 06 ya deja
-    los SAP_TIQ_DD-MM-YYYY.xlsx de cada cierre diario publicado
-    oficialmente — nunca un directorio elegido por el navegador. Delega en
+    `base_dir_dev/global_entrada/<YYYY-MM>/` (ver global_entrada_dir): el
+    snapshot que el backend materializó desde la carpeta SAP OFICIAL de
+    Drive justo antes de esta llamada. NUNCA `publicacion/sap/`: ese
+    directorio son artefactos locales del flujo diario y no representa la
+    carpeta oficial (FASE 12E.3). Delega en
     v3.auditoria.generar_global_mensual() (que a su vez delega en
-    consolidador_mensual.py, V2, sin cambios).
+    v3.consolidador_mensual_v3, sobre consolidador_mensual.py V2 sin
+    cambios).
 
     REGENERABLE mientras el mes esté abierto (decisión del auditor,
     2026-09-18): a diferencia de CONTROL 1/CONTROL 3 (persistentes, ver
     ejecutar_control1()/ejecutar_control3()), GLOBAL no tiene histórico
-    propio que proteger — es un resumen recalculable de los SAP diarios ya
-    publicados. Por eso esta capa V3 siempre pasa `force=True` hacia
-    consolidador_mensual.py (vía generar_global_mensual): una segunda
+    propio que proteger — es un resumen recalculable de los SAP diarios
+    oficiales. Por eso esta capa V3 siempre pasa `force=True`: una segunda
     llamada para el mismo año/mes reemplaza `SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx`
-    (y su JSON) con una versión recalculada a partir de los SAP oficiales
-    disponibles en ese momento, en vez de bloquear con
-    SALIDA_YA_EXISTE_SIN_FORCE. `--force` en consolidador_mensual.py (V2,
-    sin cambios) solo afecta esa única ruta de salida determinística —
-    nunca un SAP diario ni la plantilla — así que nunca puede crear un
-    duplicado: en disco solo puede existir, como mucho, un archivo con ese
-    nombre exacto."""
-    sap_dir = sap_dir or os.path.join(base_dir_dev, "publicacion", "sap")
+    (y su JSON) con una versión recalculada, en vez de bloquear con
+    SALIDA_YA_EXISTE_SIN_FORCE. La ruta de salida es determinística por
+    periodo, así que nunca puede crear un duplicado."""
+    sap_dir = sap_dir or global_entrada_dir(base_dir_dev, anio, mes)
+    if not os.path.isdir(sap_dir):
+        raise RuntimeError(
+            f"GLOBAL_ENTRADA_NO_MATERIALIZADA: {sap_dir} no existe; el backend debe "
+            f"materializar la carpeta SAP oficial de Drive antes de generar GLOBAL."
+        )
     global_dir = os.path.join(base_dir_dev, "global")
     _verificar_contenido_en_base_dir(os.path.join(global_dir, "_"), base_dir_dev)
     os.makedirs(global_dir, exist_ok=True)
@@ -553,7 +590,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Backend DEV (API de lotes) de V3 — FASE 9.")
     parser.add_argument("--accion", required=True, choices=[
         "crear_lote_pendiente", "procesar_lote", "estado", "datos", "revisar", "corregir", "publicar",
-        "generar_global", "ejecutar_control1", "ejecutar_control3",
+        "generar_global", "preparar_global_entrada", "ejecutar_control1", "ejecutar_control3",
     ])
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
@@ -588,6 +625,10 @@ def main(argv=None):
             salida = {"resultado": "OK", **generar_global(
                 datos["anio"], datos["mes"], datos["base_dir_dev"], datos["ruta_plantilla_origen"],
                 datos.get("sap_dir"),
+            )}
+        elif args.accion == "preparar_global_entrada":
+            salida = {"resultado": "OK", **preparar_global_entrada(
+                datos["anio"], datos["mes"], datos["base_dir_dev"],
             )}
         elif args.accion == "ejecutar_control1":
             salida = {"resultado": "OK", **ejecutar_control1(

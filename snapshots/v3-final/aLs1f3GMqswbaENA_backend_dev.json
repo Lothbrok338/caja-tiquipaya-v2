@@ -3,12 +3,12 @@
   "name": "TIQ V3 · BACKEND DEV (webhooks)",
   "active": true,
   "isArchived": false,
-  "versionId": "78ab08f3-1bad-4e8b-a849-271835dc90d2",
-  "activeVersionId": "78ab08f3-1bad-4e8b-a849-271835dc90d2",
+  "versionId": "83d4d373-8b68-45a1-81be-d6a660d9fa1e",
+  "activeVersionId": "83d4d373-8b68-45a1-81be-d6a660d9fa1e",
   "triggerCount": 10,
-  "nodeCount": 112,
+  "nodeCount": 120,
   "createdAt": "2026-09-14T04:52:50.018Z",
-  "updatedAt": "2026-09-18T13:53:44.401Z",
+  "updatedAt": "2026-09-18T18:38:59.990Z",
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": true
@@ -588,17 +588,6 @@
         ]
       ]
     },
-    "WEBHOOK global": {
-      "main": [
-        [
-          {
-            "node": "CONSTRUIR payload global",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "CONSTRUIR payload global": {
       "main": [
         [
@@ -1112,6 +1101,112 @@
         [
           {
             "node": "RESPONDER control3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK global": {
+      "main": [
+        [
+          {
+            "node": "RESOLVER carpeta SAP oficial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RESOLVER carpeta SAP oficial": {
+      "main": [
+        [
+          {
+            "node": "PREPARAR global_entrada limpio (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PREPARAR global_entrada limpio (Python)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - SAP oficiales del mes (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - SAP oficiales del mes (Drive)": {
+      "main": [
+        [
+          {
+            "node": "FILTRAR - SAP diarios validos del periodo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FILTRAR - SAP diarios validos del periodo": {
+      "main": [
+        [
+          {
+            "node": "IF - Hay SAP oficiales para GLOBAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Hay SAP oficiales para GLOBAL": {
+      "main": [
+        [
+          {
+            "node": "DESCARGAR - SAP oficial (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RESTAURAR - Item del webhook global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - SAP oficial (Drive)": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR - SAP a global_entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR - SAP a global_entrada": {
+      "main": [
+        [
+          {
+            "node": "RESTAURAR - Item del webhook global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RESTAURAR - Item del webhook global": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload global",
             "type": "main",
             "index": 0
           }
@@ -3133,6 +3228,171 @@
         "mode": "runOnceForAllItems",
         "language": "javaScript",
         "jsCode": "const base = $('INTERPRETAR resultado control3').item.json.data;\nreturn [{ json: { data: Object.assign({}, base, { publicacion_oficial: { publicado: false } }) } }];"
+      }
+    },
+    {
+      "id": "5a5deb89-475e-456d-b5d4-cf1db6e8756e",
+      "name": "RESOLVER carpeta SAP oficial",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        3450
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// FASE 12E.3 -- fuente real de GLOBAL = carpeta SAP oficial del periodo en Drive.\nconst t = $('WEBHOOK global').first().json;\nconst body = t.body || {};\nconst anio = body.anio;\nconst mes = body.mes;\nif (!Number.isInteger(anio) || anio < 2000 || anio > 2100 || !Number.isInteger(mes) || mes < 1 || mes > 12) {\n  throw new Error('PERIODO_INVALIDO: anio/mes deben ser enteros validos (recibido anio=' + anio + ', mes=' + mes + ').');\n}\nconst periodo = anio + '-' + String(mes).padStart(2, '0');\n\n// Carpeta SAP oficial (04_SALIDAS/<anio>/<periodo>/SAP) por periodo. Es configuracion,\n// no logica: cada mes nuevo agrega aqui su carpeta. Un periodo sin carpeta configurada\n// falla explicito (nunca se cae a estado local).\nconst CARPETAS_SAP_OFICIALES = { '2026-09': '1mid4gUHnCmZbISlsAYMwWta3RudTSE13' };\nconst carpetaSapId = CARPETAS_SAP_OFICIALES[periodo];\nif (!carpetaSapId) {\n  throw new Error('CARPETA_SAP_OFICIAL_NO_CONFIGURADA: no hay carpeta SAP oficial de Drive configurada para el periodo ' + periodo + '.');\n}\n\nconst baseDirDev = '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir';\nconst dirEntrada = baseDirDev + '/global_entrada/' + periodo;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst payloadPrep = { anio: anio, mes: mes, base_dir_dev: baseDirDev };\n\nreturn [{\n  json: {\n    anio: anio, mes: mes, periodo: periodo,\n    carpeta_sap_id: carpetaSapId, dir_entrada: dirEntrada,\n    input_b64: Buffer.from(JSON.stringify(payloadPrep), 'utf8').toString('base64'),\n    ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_global_input_' + executionId + '.json',\n    ruta_output_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_global_output_' + executionId + '.json',\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "1a247d60-7777-404f-9263-a87a2653d83c",
+      "name": "PREPARAR global_entrada limpio (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        440,
+        3450
+      ],
+      "parameters": {
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\" && cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion preparar_global_entrada --input \"{{ $json.ruta_input_tmp }}\" --output \"{{ $json.ruta_output_tmp }}\" && grep -q '\"resultado\": \"OK\"' \"{{ $json.ruta_output_tmp }}\" && cat \"{{ $json.ruta_output_tmp }}\""
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "acb44b54-7e03-45fc-b42e-03e3bd50dd16",
+      "name": "BUSCAR - SAP oficiales del mes (Drive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        660,
+        3450
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER carpeta SAP oficial').first().json.carpeta_sap_id }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "dbc27555-ef5d-45c1-be85-54bdbd4e3bac",
+      "name": "FILTRAR - SAP diarios validos del periodo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        3450
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Universo de GLOBAL = SAP diarios validos del periodo en la carpeta SAP oficial de Drive.\n// Cada SAP conserva nombre, fileId, fecha inferida e identidad propia (nunca se elige por posicion).\nconst r = $('RESOLVER carpeta SAP oficial').first().json;\nconst RE_V3 = /^SAP_TIQ_(\\d{2})-(\\d{2})-(\\d{4})\\.xlsx$/i;\nconst RE_LEGACY = /^SAP_(\\d{2})-(\\d{2})-(\\d{4})\\.xlsx$/i;\n\nconst validos = [];\nconst veces = {};\nfor (const it of $input.all()) {\n  const f = it.json || {};\n  if (!f.id || !f.name) continue;\n  const nombre = String(f.name);\n  if (nombre.startsWith('~$') || nombre.startsWith('.') || nombre.toLowerCase().endsWith('.tmp')) continue;\n  let m = RE_V3.exec(nombre);\n  let origen = 'v3';\n  if (!m) { m = RE_LEGACY.exec(nombre); origen = 'legacy'; }\n  if (!m) continue;\n  const dia = Number(m[1]);\n  const mesN = Number(m[2]);\n  const anioN = Number(m[3]);\n  if (anioN !== r.anio || mesN !== r.mes) continue;\n  const d = new Date(Date.UTC(anioN, mesN - 1, dia));\n  if (d.getUTCDate() !== dia || d.getUTCMonth() !== mesN - 1) continue;\n  veces[nombre] = (veces[nombre] || 0) + 1;\n  validos.push({\n    id: String(f.id), name: nombre, origen: origen,\n    fecha: anioN + '-' + String(mesN).padStart(2, '0') + '-' + String(dia).padStart(2, '0'),\n    ruta_destino: r.dir_entrada + '/' + nombre,\n  });\n}\n\nconst repetidos = Object.keys(veces).filter(function (n) { return veces[n] > 1; });\nif (repetidos.length) {\n  throw new Error('ERROR_AMBIGUO_SAP_DRIVE: hay mas de un archivo con el mismo nombre exacto en la carpeta SAP oficial (' + repetidos.join(', ') + '). No se materializa nada hasta resolver el duplicado manualmente.');\n}\n\nvalidos.sort(function (a, b) { return a.fecha < b.fecha ? -1 : (a.fecha > b.fecha ? 1 : (a.name < b.name ? -1 : 1)); });\nif (!validos.length) {\n  return [{ json: { hay_sap: false, cantidad: 0 } }];\n}\nreturn validos.map(function (v) {\n  return { json: Object.assign({ hay_sap: true, cantidad: validos.length }, v) };\n});\n"
+      }
+    },
+    {
+      "id": "6aaa551d-af0c-414f-9dbb-c0f01b9df409",
+      "name": "IF - Hay SAP oficiales para GLOBAL",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1100,
+        3450
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hay_sap }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "3ff81bb7-5c16-4f98-96ca-3a1cb025d960",
+      "name": "DESCARGAR - SAP oficial (Drive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1320,
+        3350
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "5e399432-bcf6-4154-9c90-34f926aff892",
+      "name": "ESCRIBIR - SAP a global_entrada",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        3350
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('FILTRAR - SAP diarios validos del periodo').item.json.ruta_destino }}",
+        "dataPropertyName": "data",
+        "options": {}
+      }
+    },
+    {
+      "id": "9d664d52-a930-4546-8c97-c6ad467d7bfc",
+      "name": "RESTAURAR - Item del webhook global",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        3450
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Devuelve el item original del webhook: CONSTRUIR payload global sigue leyendo t.body.anio/mes sin cambios.\nreturn [{ json: $('WEBHOOK global').first().json }];\n"
       }
     }
   ],
