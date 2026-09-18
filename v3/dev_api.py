@@ -477,19 +477,34 @@ def _periodo(anio, mes):
     return nombre[len("SAP_GLOBAL_TIQ_"):-len(".xlsx")]
 
 
-def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None, force=False):
+def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None):
     """Cierre MENSUAL — paso 1 (GENERAR GLOBAL). `sap_dir` por defecto es
     `base_dir_dev/publicacion/sap/`, exactamente donde el Módulo 06 ya deja
     los SAP_TIQ_DD-MM-YYYY.xlsx de cada cierre diario publicado
     oficialmente — nunca un directorio elegido por el navegador. Delega en
     v3.auditoria.generar_global_mensual() (que a su vez delega en
-    consolidador_mensual.py, V2, sin cambios)."""
+    consolidador_mensual.py, V2, sin cambios).
+
+    REGENERABLE mientras el mes esté abierto (decisión del auditor,
+    2026-09-18): a diferencia de CONTROL 1/CONTROL 3 (persistentes, ver
+    ejecutar_control1()/ejecutar_control3()), GLOBAL no tiene histórico
+    propio que proteger — es un resumen recalculable de los SAP diarios ya
+    publicados. Por eso esta capa V3 siempre pasa `force=True` hacia
+    consolidador_mensual.py (vía generar_global_mensual): una segunda
+    llamada para el mismo año/mes reemplaza `SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx`
+    (y su JSON) con una versión recalculada a partir de los SAP oficiales
+    disponibles en ese momento, en vez de bloquear con
+    SALIDA_YA_EXISTE_SIN_FORCE. `--force` en consolidador_mensual.py (V2,
+    sin cambios) solo afecta esa única ruta de salida determinística —
+    nunca un SAP diario ni la plantilla — así que nunca puede crear un
+    duplicado: en disco solo puede existir, como mucho, un archivo con ese
+    nombre exacto."""
     sap_dir = sap_dir or os.path.join(base_dir_dev, "publicacion", "sap")
     global_dir = os.path.join(base_dir_dev, "global")
     _verificar_contenido_en_base_dir(os.path.join(global_dir, "_"), base_dir_dev)
     os.makedirs(global_dir, exist_ok=True)
     ruta_salida = _ruta_global(base_dir_dev, anio, mes)
-    return generar_global_mensual(anio, mes, sap_dir, ruta_plantilla_origen, ruta_salida, force=force)
+    return generar_global_mensual(anio, mes, sap_dir, ruta_plantilla_origen, ruta_salida, force=True)
 
 
 def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=False):
@@ -572,7 +587,7 @@ def main(argv=None):
         elif args.accion == "generar_global":
             salida = {"resultado": "OK", **generar_global(
                 datos["anio"], datos["mes"], datos["base_dir_dev"], datos["ruta_plantilla_origen"],
-                datos.get("sap_dir"), datos.get("force", False),
+                datos.get("sap_dir"),
             )}
         elif args.accion == "ejecutar_control1":
             salida = {"resultado": "OK", **ejecutar_control1(

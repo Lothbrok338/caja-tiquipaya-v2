@@ -419,3 +419,174 @@ def test_cli_main_generar_global_y_controles_produce_json_valido(tmp_path):
     dev_api.main(["--accion", "ejecutar_control3", "--input", str(entrada2), "--output", str(salida)])
     resultado_c3 = jsonlib.loads(salida.read_text(encoding="utf-8"))
     assert resultado_c3["resultado"] == "OK"
+
+
+# ---------------------------------------------------------------------------
+# GLOBAL regenerable (decisión del auditor, 2026-09-18): dev_api.generar_global
+# ya no bloquea con SALIDA_YA_EXISTE_SIN_FORCE en una segunda llamada para el
+# mismo año/mes -- siempre reemplaza la única salida determinística. CONTROL 1
+# y CONTROL 3 NO cambian: siguen siendo persistentes/idempotentes (arriba).
+# ---------------------------------------------------------------------------
+
+def test_dev_api_generar_global_inexistente_crea(tmp_path):
+    base_dir_dev = tmp_path / "dev"
+    sap_dir = base_dir_dev / "publicacion" / "sap"
+    os.makedirs(sap_dir, exist_ok=True)
+    _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00")
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+
+    ruta_global = base_dir_dev / "global" / "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx"
+    assert not os.path.isfile(ruta_global)
+
+    r = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r["estado"] == "VALIDADO_PENDIENTE_PUBLICACION"
+    assert os.path.isfile(ruta_global)
+
+
+def test_dev_api_generar_global_existente_se_regenera_sin_bloquear(tmp_path):
+    """Antes de esta decisión, una segunda llamada para el mismo año/mes
+    fallaba con SALIDA_YA_EXISTE_SIN_FORCE. Ahora debe regenerar sin pedir
+    ningún flag adicional."""
+    base_dir_dev = tmp_path / "dev"
+    sap_dir = base_dir_dev / "publicacion" / "sap"
+    os.makedirs(sap_dir, exist_ok=True)
+    _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00")
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+
+    dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    # Segunda llamada, mismos SAP: NO debe lanzar SALIDA_YA_EXISTE_SIN_FORCE.
+    r2 = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r2["estado"] == "VALIDADO_PENDIENTE_PUBLICACION"
+
+
+def test_dev_api_generar_global_segunda_regeneracion_sigue_siendo_uno_solo(tmp_path):
+    import glob
+
+    base_dir_dev = tmp_path / "dev"
+    sap_dir = base_dir_dev / "publicacion" / "sap"
+    os.makedirs(sap_dir, exist_ok=True)
+    _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00")
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+
+    dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+
+    coincidencias = glob.glob(str(base_dir_dev / "global" / "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx"))
+    assert len(coincidencias) == 1  # nunca hay duplicado: la ruta de salida es determinística por diseño
+
+
+def test_dev_api_generar_global_regenerado_incorpora_sap_nuevos(tmp_path):
+    base_dir_dev = tmp_path / "dev"
+    sap_dir = base_dir_dev / "publicacion" / "sap"
+    os.makedirs(sap_dir, exist_ok=True)
+    _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00")
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+
+    r1 = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r1["cantidad_sap_incluidos"] == 1
+
+    _crear_sap_diario(str(sap_dir / "SAP_TIQ_02-09-2026.xlsx"), cargo="50.00")
+    r2 = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r2["cantidad_sap_incluidos"] == 2
+
+
+def test_dev_api_generar_global_no_toca_otro_mes(tmp_path):
+    base_dir_dev = tmp_path / "dev"
+    sap_dir = base_dir_dev / "publicacion" / "sap"
+    os.makedirs(sap_dir, exist_ok=True)
+    _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00",
+                       fecha_valor=datetime.date(2026, 9, 5))
+    _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-10-2026.xlsx"), cargo="75.00",
+                       fecha_valor=datetime.date(2026, 10, 5))
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+
+    dev_api.generar_global(2026, 10, str(base_dir_dev), str(plantilla))
+    ruta_octubre = base_dir_dev / "global" / "SAP_GLOBAL_TIQ_OCTUBRE_2026.xlsx"
+    hash_octubre_antes = cm._sha256_archivo(str(ruta_octubre))
+
+    # Regenerar SEPTIEMBRE no debe tocar el GLOBAL de OCTUBRE ya generado.
+    dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+
+    assert os.path.isfile(ruta_octubre)
+    assert cm._sha256_archivo(str(ruta_octubre)) == hash_octubre_antes
+
+
+def test_dev_api_regenerar_global_no_afecta_historicos_de_controles(tmp_path):
+    """Regenerar GLOBAL (siempre permitido) nunca debe tocar los históricos
+    persistentes de CONTROL 1/CONTROL 3 -- viven en archivos separados que
+    solo ejecutar_control1()/ejecutar_control3() escriben, nunca generar_global()."""
+    base_dir_dev = tmp_path / "dev"
+    sap_dir = base_dir_dev / "publicacion" / "sap"
+    os.makedirs(sap_dir, exist_ok=True)
+    _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00",
+                       cuenta="110201002", asignacion="3P66536982")
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+
+    dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    dev_api.ejecutar_control1(2026, 9, str(base_dir_dev))
+    dev_api.ejecutar_control3(2026, 9, str(base_dir_dev))
+
+    ruta_hist_c1 = base_dir_dev / "global" / "HISTORICO_ASIGNACIONES.csv"
+    ruta_hist_c3 = base_dir_dev / "global" / "HISTORICO_CXC_CXP.csv"
+    assert os.path.isfile(ruta_hist_c1)
+    assert os.path.isfile(ruta_hist_c3)
+    hash_c1_antes = cm._sha256_archivo(str(ruta_hist_c1))
+    hash_c3_antes = cm._sha256_archivo(str(ruta_hist_c3))
+
+    # Agregar un SAP nuevo y regenerar GLOBAL -- solo GLOBAL debe cambiar.
+    _crear_sap_diario(str(sap_dir / "SAP_TIQ_02-09-2026.xlsx"), cargo="25.00",
+                       cuenta="110201002")
+    dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+
+    assert cm._sha256_archivo(str(ruta_hist_c1)) == hash_c1_antes
+    assert cm._sha256_archivo(str(ruta_hist_c3)) == hash_c3_antes
+
+
+def test_dev_api_no_expone_ninguna_accion_de_borrado_o_reset(tmp_path):
+    """CONTROL 1/CONTROL 3 (y GLOBAL) nunca deben tener una vía de borrar o
+    resetear histórico: ni como acción del CLI (la misma superficie que usa
+    el webhook de n8n), ni como función pública del módulo."""
+    import v3.auditoria as auditoria_mod
+
+    for accion in ("crear_lote_pendiente", "procesar_lote", "estado", "datos", "revisar",
+                   "corregir", "publicar", "generar_global", "ejecutar_control1", "ejecutar_control3"):
+        assert "borrar" not in accion and "reset" not in accion and "eliminar" not in accion
+
+    nombres_publicos = [n for n in dir(auditoria_mod) if not n.startswith("_")]
+    for nombre in nombres_publicos:
+        nombre_lower = nombre.lower()
+        assert "borrar" not in nombre_lower
+        assert "reset" not in nombre_lower
+        assert "eliminar" not in nombre_lower
+        assert "delete" not in nombre_lower
+
+
+def test_ambiguedad_multiple_global_solo_es_posible_a_nivel_drive_no_local(tmp_path):
+    """A nivel local, `_ruta_global()` es una ruta determinística única por
+    año/mes (base_dir_dev/global/SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx): el
+    sistema de archivos no permite que existan dos archivos con ese mismo
+    nombre exacto, así que ERROR_AMBIGUO nunca puede ocurrir en este nivel
+    -- por diseño, no por falta de chequeo. El caso ">1 coincidencias
+    exactas" solo es posible en Drive (donde SÍ puede haber dos archivos
+    con igual nombre en la misma carpeta) y ya está cubierto por
+    ERROR_AMBIGUO_PUBLICACION en 07D, con cobertura de test propia en
+    tests_v3/n8n_publicacion_mensual/test_logic_reference.js."""
+    base_dir_dev = tmp_path / "dev"
+    sap_dir = base_dir_dev / "publicacion" / "sap"
+    os.makedirs(sap_dir, exist_ok=True)
+    _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00")
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+
+    dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+
+    import glob
+    assert len(glob.glob(str(base_dir_dev / "global" / "SAP_GLOBAL_TIQ_*_2026.xlsx"))) == 1
