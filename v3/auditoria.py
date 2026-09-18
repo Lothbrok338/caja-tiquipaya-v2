@@ -55,10 +55,8 @@ partidas de cada SAP diario tal cual (nunca reinterpreta ni ajusta nada).
 
 import json
 import os
-import re
 import sys
-import types
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -107,154 +105,55 @@ def _consolidar_controles(control1_resultado=None, control3_resultado=None):
 # Nada de esto se ejecuta desde el flujo DIARIO (ver docstring del módulo).
 # ---------------------------------------------------------------------------
 
-# FASE 12E (2026-09-18) — GLOBAL debe consolidar TODO SAP diario válido de
-# la carpeta SAP oficial del mes, sin importar si fue generado por el V2
-# original (nombre legacy, sin "TIQ") o por V3 (nombre actual). Desde V3 en
-# adelante el nombre que se sigue escribiendo es SAP_TIQ_DD-MM-YYYY.xlsx —
-# esto solo AMPLÍA qué se reconoce como entrada válida, nunca cambia qué se
-# escribe. consolidador_mensual.py (V2, sin cambios) solo reconoce el
-# patrón V3 en su propio escaneo de --sap-dir; por eso este descubrimiento
-# vive aquí y el resultado se pasa como --archivos-lista explícito, que
-# consolidador_mensual.py ya soportaba sin modificarlo.
-_RE_SAP_DIARIO_V3 = re.compile(r"^SAP_TIQ_(\d{2})-(\d{2})-(\d{4})\.xlsx$", re.IGNORECASE)
-_RE_SAP_DIARIO_LEGACY = re.compile(r"^SAP_(\d{2})-(\d{2})-(\d{4})\.xlsx$", re.IGNORECASE)
-
-
-def _fecha_y_origen_desde_nombre_sap(nombre):
-    """Reconoce los dos formatos válidos de SAP diario oficial. Nunca
-    matchea SAP_GLOBAL_*.xlsx (no tiene dígitos justo después de "SAP_"),
-    RESULTADO_*.json, ni ningún otro archivo -- ambigüedad de nombre
-    imposible entre los dos patrones porque uno exige literalmente "TIQ_"
-    y el otro un dígito en esa misma posición. Devuelve (fecha, origen) o
-    (None, None) si `nombre` no es ninguno de los dos."""
-    m = _RE_SAP_DIARIO_V3.match(nombre)
-    if m:
-        dia, mes, anio = m.groups()
-        return date(int(anio), int(mes), int(dia)), "v3"
-    m = _RE_SAP_DIARIO_LEGACY.match(nombre)
-    if m:
-        dia, mes, anio = m.groups()
-        return date(int(anio), int(mes), int(dia)), "legacy"
-    return None, None
-
-
-def descubrir_sap_oficiales_del_mes(sap_dir, anio, mes):
-    """Escanea `sap_dir` (la carpeta SAP oficial del mes, materializada
-    localmente) y decide qué SAP diarios entran al universo de GLOBAL,
-    aceptando ambos formatos válidos (ver _fecha_y_origen_desde_nombre_sap)
-    y filtrando por año/mes -- SAP_GLOBAL_*.xlsx, archivos de otro
-    mes/año, temporales (`consolidador_mensual._es_temporal`) y cualquier
-    nombre no reconocido quedan fuera. GLOBAL nunca depende de marker,
-    publicación o resultado V3: solo de que el archivo esté válidamente en
-    la carpeta oficial del mes pedido.
-
-    Protección por fecha: como máximo un SAP efectivo por fecha. Si dos
-    (o más) nombres distintos representan la MISMA fecha:
-      - mismo SHA256 (`consolidador_mensual._sha256_archivo`, solo
-        lectura) -> mismo contenido con dos nombres: se conserva el de
-        nombre V3 (o, si ninguno lo es, el primero en orden alfabético —
-        caso degenerado que no se espera en la práctica) y el otro queda
-        registrado como duplicado idéntico omitido, informativo, nunca
-        sumado dos veces;
-      - SHA256 distinto -> ambigüedad real: no se elige ninguno, se
-        agrega un blocker DUPLICADO_FECHA_AMBIGUA (mismo criterio que
-        `duplicados_diferentes` de consolidador_mensual.py) y esa fecha
-        queda fuera del universo consolidado.
-
-    Nunca abre ningún SAP en modo escritura, nunca reinterpreta su
-    validación estructural/contable (eso lo sigue haciendo
-    consolidador_mensual.py, sin cambios, sobre la lista final).
-
-    Devuelve {"archivos": [ruta_absoluta, ...] en orden cronológico,
-    "sap_incluidos": [{"nombre","fecha","origen"}, ...],
-    "duplicados_identicos_omitidos": [...], "blockers": [...]}."""
-    if not os.path.isdir(sap_dir):
-        raise RuntimeError(f"SAP_DIR_NO_ENCONTRADO: {sap_dir}")
-
-    por_fecha = {}
-    for nombre in sorted(os.listdir(sap_dir)):
-        if consolidador_mensual._es_temporal(nombre):
-            continue
-        fecha, origen = _fecha_y_origen_desde_nombre_sap(nombre)
-        if fecha is None:
-            continue
-        if fecha.year != anio or fecha.month != mes:
-            continue
-        ruta = os.path.abspath(os.path.join(sap_dir, nombre))
-        por_fecha.setdefault(fecha, []).append((nombre, ruta, origen))
-
-    archivos = []
-    sap_incluidos = []
-    duplicados_identicos_omitidos = []
-    blockers = []
-
-    for fecha in sorted(por_fecha.keys()):
-        candidatos = por_fecha[fecha]
-        if len(candidatos) == 1:
-            nombre, ruta, origen = candidatos[0]
-            archivos.append(ruta)
-            sap_incluidos.append({"nombre": nombre, "fecha": fecha.isoformat(), "origen": origen})
-            continue
-
-        hashes = {ruta: consolidador_mensual._sha256_archivo(ruta) for _, ruta, _ in candidatos}
-        if len(set(hashes.values())) > 1:
-            nombres = ", ".join(n for n, _, _ in candidatos)
-            blockers.append(f"DUPLICADO_FECHA_AMBIGUA:{fecha.isoformat()}:{nombres}")
-            continue
-
-        elegido = next((c for c in candidatos if c[2] == "v3"), candidatos[0])
-        for candidato in candidatos:
-            if candidato == elegido:
-                continue
-            duplicados_identicos_omitidos.append({
-                "fecha": fecha.isoformat(), "nombre_omitido": candidato[0], "nombre_usado": elegido[0],
-            })
-        archivos.append(elegido[1])
-        sap_incluidos.append({"nombre": elegido[0], "fecha": fecha.isoformat(), "origen": elegido[2]})
-
-    return {
-        "archivos": archivos,
-        "sap_incluidos": sap_incluidos,
-        "duplicados_identicos_omitidos": duplicados_identicos_omitidos,
-        "blockers": blockers,
-    }
+# FASE 12E.2 (2026-09-18) — el motor real de GLOBAL vive en
+# v3/consolidador_mensual_v3.py (descubrimiento legacy+V3 de SAP diarios +
+# reinterpretación V3 de C10/BLART de entrada, ver docstring de ese
+# módulo para el porqué). consolidador_mensual (V2, sin cambios) sigue
+# siendo la fuente de todas las funciones reutilizadas ahí. Este módulo
+# expone `descubrir_sap_oficiales_del_mes`/`_fecha_y_origen_desde_nombre_sap`
+# reexportados por compatibilidad (nombres ya usados en tests/otros
+# módulos), pero la implementación real está en consolidador_mensual_v3.
+from v3.consolidador_mensual_v3 import (  # noqa: E402
+    descubrir_sap_oficiales_del_mes, _fecha_y_origen_desde_nombre_sap,
+    ejecutar_consolidacion_v3,
+)
 
 
 def generar_global_mensual(anio, mes, sap_dir, plantilla, salida,
                             archivos_lista=None, force=False):
-    """GLOBAL — delega en consolidador_mensual.ejecutar_consolidacion()
-    (V2, sin cambios) para TODO lo que ya hacía bien: validar
-    estructura/cuadre de cada SAP diario, escribir el consolidado, nunca
-    abrir un SAP diario ni la plantilla en modo escritura.
+    """GLOBAL — delega en v3.consolidador_mensual_v3.ejecutar_consolidacion_v3()
+    para TODO lo que consolidador_mensual.py (V2) ya hacía bien: validar
+    estructura/cuadre de cada SAP diario, deduplicar por SHA256, escribir
+    el consolidado (con C10/BLART="DB", sin cambios), nunca abrir un SAP
+    diario ni la plantilla en modo escritura. La única diferencia real
+    frente a V2 es que un SAP diario con C10/BLART="SA" (el valor real que
+    escribe run_batch.py) se acepta como válido en la ENTRADA — ver
+    v3/consolidador_mensual_v3.py para el porqué y el detalle exacto de
+    qué se reutiliza tal cual y qué se reinterpreta.
 
-    Qué decide `archivos_lista` (agregado V3, FASE 12E):
-      - si el llamador pasa `archivos_lista` explícito, se respeta tal
-        cual (mismo comportamiento que consolidador_mensual.py siempre
-        tuvo para una lista curada a mano);
+    Qué decide `archivos_lista`:
+      - si el llamador lo pasa explícito, se respeta tal cual;
       - si no (el caso normal desde dev_api.generar_global), este wrapper
         llama a `descubrir_sap_oficiales_del_mes(sap_dir, anio, mes)` y
         arma la lista él mismo, aceptando SAP_DD-MM-YYYY.xlsx (legacy) y
-        SAP_TIQ_DD-MM-YYYY.xlsx (V3) de la carpeta SAP oficial -- GLOBAL
-        ya no depende del escaneo propio de consolidador_mensual.py, que
-        solo reconoce el patrón V3.
+        SAP_TIQ_DD-MM-YYYY.xlsx (V3) de la carpeta SAP oficial.
 
     Los blockers de ambigüedad de fecha que detecte el descubrimiento
-    (DUPLICADO_FECHA_AMBIGUA) se agregan a los que ya calculaba
-    consolidador_mensual.py y fuerzan `estado=ERROR_REVISAR` igual que
-    cualquier otro blocker suyo -- nunca se elige un SAP arbitrariamente.
+    (DUPLICADO_FECHA_AMBIGUA) se agregan a los que calcule el consolidador
+    y fuerzan `estado=ERROR_REVISAR` igual que cualquier otro blocker —
+    nunca se elige un SAP arbitrariamente.
 
-    Otro agregado de V3 (consolidador_mensual.py no lo calculaba):
+    Otro agregado de V3 (el consolidador no lo calculaba):
     `fechas_faltantes` — compara, por FECHA (no por nombre de archivo, ya
-    que ahora un día puede estar cubierto por un nombre legacy), los días
-    del mes sin ningún SAP diario incluido. Es informativo: nunca bloquea
-    la generación del GLOBAL (un mes puede cerrar legítimamente con días
-    sin cierre — feriados, domingos, mes todavía abierto) — el auditor
-    decide si esas fechas faltantes son esperadas o requieren
-    investigación.
+    que un día puede estar cubierto por un nombre legacy), los días del
+    mes sin ningún SAP diario incluido. Es informativo: nunca bloquea la
+    generación del GLOBAL (un mes puede cerrar legítimamente con días sin
+    cierre — feriados, domingos, mes todavía abierto) — el auditor decide
+    si esas fechas faltantes son esperadas o requieren investigación.
 
     Último agregado: se asegura que exista el directorio destino de
-    `salida` (consolidador_mensual.py asume que ya existe); nunca crea ni
-    toca nada dentro de `sap_dir` ni de la plantilla."""
+    `salida`; nunca crea ni toca nada dentro de `sap_dir` ni de la
+    plantilla."""
     os.makedirs(os.path.dirname(os.path.abspath(salida)) or ".", exist_ok=True)
 
     descubrimiento = None
@@ -262,11 +161,7 @@ def generar_global_mensual(anio, mes, sap_dir, plantilla, salida,
         descubrimiento = descubrir_sap_oficiales_del_mes(sap_dir, anio, mes)
         archivos_lista = descubrimiento["archivos"]
 
-    args = types.SimpleNamespace(
-        anio=anio, mes=mes, sap_dir=sap_dir, plantilla=plantilla,
-        salida=salida, archivos_lista=archivos_lista, force=force,
-    )
-    resultado = consolidador_mensual.ejecutar_consolidacion(args)
+    resultado = ejecutar_consolidacion_v3(anio, mes, plantilla, salida, archivos_lista, force)
 
     fechas_con_sap = set()
     if descubrimiento is not None:

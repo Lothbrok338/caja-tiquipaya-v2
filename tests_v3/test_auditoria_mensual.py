@@ -650,20 +650,10 @@ def test_descubrimiento_legacy_y_v3_en_fechas_distintas_ambos_incluidos(tmp_path
     assert r["blockers"] == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BLOQUEADO por decisión pendiente del auditor: consolidador_mensual.py "
-        "(V2, congelado) exige C10='DB' en cada SAP diario de entrada "
-        "(_CABECERA_ESPERADA['C']), pero todo SAP diario real trae C10='SA' "
-        "(run_batch.py::_TIPO_ASIENTO). El descubrimiento V3 SÍ acepta el "
-        "archivo (ver test_descubrimiento_reconoce_sap_tiq_dd_mm_yyyy); es la "
-        "validación estructural de V2, aguas abajo, la que sigue rechazándolo. "
-        "Este test debe empezar a pasar (y perder el xfail) el día que se "
-        "autorice y aplique la corrección de _CABECERA_ESPERADA."
-    ),
-)
 def test_sap_diario_real_c10_sa_es_aceptado_por_global(tmp_path):
+    """Resuelto en FASE 12E.2: v3.consolidador_mensual_v3 acepta C10='SA'
+    (el valor real de run_batch.py::_TIPO_ASIENTO) en la ENTRADA, sin
+    tocar consolidador_mensual.py V2."""
     base_dir_dev = tmp_path / "dev"
     sap_dir = base_dir_dev / "publicacion" / "sap"
     os.makedirs(sap_dir, exist_ok=True)
@@ -675,17 +665,31 @@ def test_sap_diario_real_c10_sa_es_aceptado_por_global(tmp_path):
     assert r["estado"] == "VALIDADO_PENDIENTE_PUBLICACION", r.get("blockers")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Depende de test_sap_diario_real_c10_sa_es_aceptado_por_global (mismo bloqueador C10).",
-)
+def test_sap_diario_con_c10_inesperado_sigue_siendo_blocker(tmp_path):
+    """C10/BLART con un valor que NO es 'SA' (ni el 'DB' que V2 exigía)
+    debe seguir bloqueando con claridad -- V3 amplía la entrada válida,
+    nunca la relaja a "cualquier cosa"."""
+    base_dir_dev = tmp_path / "dev"
+    sap_dir = base_dir_dev / "publicacion" / "sap"
+    os.makedirs(sap_dir, exist_ok=True)
+    ruta = str(sap_dir / "SAP_TIQ_10-09-2026.xlsx")
+    _crear_sap_diario_real(ruta, cuenta="110201002")
+    wb = openpyxl.load_workbook(ruta)
+    wb["1"]["C10"] = "XX"
+    wb.save(ruta)
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+
+    r = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r["estado"] == "ERROR_REVISAR"
+    assert any("CABECERA_C10_ESPERADO_'SA'_OBTENIDO_'XX'" in b for b in r["blockers"])
+    assert r["ruta_global_generado"] is None
+
+
 def test_global_generado_usa_c10_db_en_la_salida(tmp_path):
     """La SALIDA de GLOBAL siempre debe llevar C10='DB'
     (_TIPO_ASIENTO_GLOBAL, sin cambios) -- esto es independiente de qué
-    acepte como ENTRADA. Este test queda xfail junto con el anterior solo
-    porque, sin el fix de entrada, GLOBAL nunca llega a escribirse para un
-    SAP real; en cuanto el bloqueador de entrada se resuelva, este test
-    debería pasar sin tocarlo (la salida ya usa 'DB' hoy)."""
+    acepte como ENTRADA."""
     base_dir_dev = tmp_path / "dev"
     sap_dir = base_dir_dev / "publicacion" / "sap"
     os.makedirs(sap_dir, exist_ok=True)
@@ -821,8 +825,68 @@ def test_fechas_faltantes_son_informativas_no_bloquean_global(tmp_path):
 def test_v2_consolidador_mensual_no_fue_modificado_por_fase_12e():
     """Guardarraíl de regresión: FASE 12E deliberadamente NO toca
     consolidador_mensual.py (V2, congelado) -- toda la lógica nueva de
-    descubrimiento/dedup vive en v3.auditoria. Verifica que las constantes
-    y funciones de V2 relevantes a este cambio siguen exactamente igual."""
+    descubrimiento/dedup vive en v3.auditoria/v3.consolidador_mensual_v3.
+    Verifica que las constantes y funciones de V2 relevantes a este cambio
+    siguen exactamente igual, incluido después de FASE 12E.2 (C10)."""
     assert cm._CABECERA_ESPERADA == {"B": "BO01", "C": "DB", "H": "BOB", "L": "CAJA TIQUIPAYA"}
     assert cm._TIPO_ASIENTO_GLOBAL == "DB"
     assert cm._RE_SAP_DIARIO.pattern == r"^SAP_TIQ_(\d{2})-(\d{2})-(\d{4})\.xlsx$"
+
+
+# ---------------------------------------------------------------------------
+# FASE 12E.2 (2026-09-18) — resolución del bloqueador C10/BLART EXCLUSIVAMENTE
+# en V3 (v3/consolidador_mensual_v3.py), sin tocar consolidador_mensual.py,
+# sin monkeypatch, sin mutar constantes en runtime, sin adulterar SAP
+# diarios. Decisión del auditor: entrada acepta C10="SA" (run_batch.py,
+# real); salida de GLOBAL sigue en C10="DB" (sin cambios).
+# ---------------------------------------------------------------------------
+
+def test_v2_mensaje_cabecera_c10_no_cambio_de_formato(tmp_path):
+    """Guardarraíl explícito del que depende
+    v3.consolidador_mensual_v3._reinterpretar_problemas_entrada_v3(): si
+    V2 alguna vez cambia el formato exacto de este mensaje, este test
+    falla en rojo -- señal de que el regex de reinterpretación necesita
+    revisión, en vez de dejar de filtrar en silencio."""
+    ruta = str(tmp_path / "SAP_TIQ_10-09-2026.xlsx")
+    _crear_sap_diario_real(ruta)
+    resultado = cm.leer_y_validar_sap_diario(ruta)
+    assert resultado["problemas"] == ["CABECERA_C10_ESPERADO_'DB'_OBTENIDO_'SA'"]
+
+
+def test_nueve_sap_reales_legacy_y_v3_consolidan_global_valido(tmp_path):
+    """Reproduce exactamente el universo real de septiembre 2026 detectado
+    en Drive (8 legacy + 1 V3, fechas 01-05,07-09,10, sin el 06): con el
+    fix de C10, GLOBAL debe consolidar los 9 sin bloquear."""
+    base_dir_dev = tmp_path / "dev"
+    sap_dir = base_dir_dev / "publicacion" / "sap"
+    os.makedirs(sap_dir, exist_ok=True)
+
+    dias_legacy = [1, 2, 3, 4, 5, 7, 8, 9]
+    for dia in dias_legacy:
+        _crear_sap_diario_real(
+            str(sap_dir / f"SAP_{dia:02d}-09-2026.xlsx"),
+            cargo="100.00", cuenta="110201002",
+            fecha_valor=datetime.date(2026, 9, dia),
+        )
+    _crear_sap_diario_real(
+        str(sap_dir / "SAP_TIQ_10-09-2026.xlsx"),
+        cargo="100.00", cuenta="110201002", fecha_valor=datetime.date(2026, 9, 10),
+    )
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+
+    r = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+
+    assert r["estado"] == "VALIDADO_PENDIENTE_PUBLICACION", r.get("blockers")
+    assert r["cantidad_sap_incluidos"] == 9
+    assert sorted(r["sap_incluidos"]) == sorted(
+        [f"SAP_{dia:02d}-09-2026.xlsx" for dia in dias_legacy] + ["SAP_TIQ_10-09-2026.xlsx"]
+    )
+    assert r["ruta_global_generado"] is not None
+    # 06/09 es la única fecha del mes con SAP real ausente entre las
+    # detectadas -- las demas (11..30) tambien faltan pero son informativas.
+    assert "2026-09-06" in r["fechas_faltantes"]
+    assert len(r["fechas_faltantes"]) == 21  # 30 dias - 9 con SAP
+
+    wb = openpyxl.load_workbook(r["ruta_global_generado"], data_only=True)
+    assert wb["1"]["C10"].value == "DB"

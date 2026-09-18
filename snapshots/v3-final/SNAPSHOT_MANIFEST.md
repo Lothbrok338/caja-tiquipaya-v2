@@ -1,11 +1,11 @@
 # SNAPSHOT_MANIFEST.md — V3 FINAL (cierre formal)
 
 Fecha de captura inicial: **2026-09-17T20:55:26Z**
-Última actualización: **2026-09-18T13:55:00Z** — GLOBAL mensual V3 ahora
-consolida todo SAP diario válido de la carpeta SAP oficial (legacy + V3) y
-su publicación oficial en Drive quedó regenerable
+Última actualización: **2026-09-18T14:10:00Z** — GLOBAL mensual V3 ya
+consolida los 9 SAP reales de septiembre 2026 de punta a punta (bug C10
+resuelto exclusivamente en V3, sin tocar V2)
 (ver §"Cambios posteriores al cierre formal" al final de este archivo).
-Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`) + `fix: preserve Drive ingesta in official processing` + `fix: finalize official V3 publication path` + `feat: allow monthly GLOBAL regeneration in V3` + `fix: consolidate all monthly SAP files in V3`
+Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`) + `fix: preserve Drive ingesta in official processing` + `fix: finalize official V3 publication path` + `feat: allow monthly GLOBAL regeneration in V3` + `fix: consolidate all monthly SAP files in V3` + `fix: validate daily SA entries in V3 monthly consolidation`
 
 Este snapshot congela el estado de **los 14 workflows n8n de V3** en el momento
 del cierre formal, tras validar FASE 12E (E2E mensual completo, sandbox
@@ -252,3 +252,66 @@ el día que se aplique la corrección).
 Commits de este fix: `feat: allow monthly GLOBAL regeneration in V3` (GLOBAL
 regenerable, turno anterior) + `fix: consolidate all monthly SAP files in V3`
 (descubrimiento legacy+V3, protección por fecha, Drive `actualizar`).
+
+### Bug C10/BLART resuelto EXCLUSIVAMENTE en V3 (2026-09-18)
+
+**Decisión del auditor:** no modificar `consolidador_mensual.py` (V2,
+congelado). Contrato V3 explícito: SAP diario de ENTRADA acepta
+C10/BLART="SA" (el valor real); SAP GLOBAL de SALIDA sigue con C10="DB"
+(sin cambios).
+
+**Implementación — nuevo módulo `v3/consolidador_mensual_v3.py`:**
+reutiliza SIN NINGÚN CAMBIO todas las funciones públicas de
+`consolidador_mensual.py` que no tienen relación con el valor de C10 de
+entrada: `validar_guardarrieles_salida`, `detectar_duplicados`,
+`leer_y_validar_sap_diario`, `construir_metadata_cabecera_global`,
+`escribir_sap_global`, `nombre_sap_global`, `nombre_resultado_json`,
+`ultimo_dia_mes`, `_es_temporal`, `_sha256_archivo`. La escritura del
+GLOBAL (con su cabecera "DB") sigue siendo, byte a byte, la misma llamada
+de V2 — `construir_metadata_cabecera_global()`/`escribir_sap_global()` no
+se tocaron, así que la regla de salida no cambió ni un poco.
+
+Lo único nuevo es `_reinterpretar_problemas_entrada_v3()`: recibe la
+lista `problemas` que `leer_y_validar_sap_diario()` YA calculó (llamada
+sin cambios, sobre el archivo real, en modo solo lectura) y, usando el
+formato EXACTO del mensaje que V2 genera para un mismatch de C10
+(`CABECERA_C10_ESPERADO_'DB'_OBTENIDO_'<valor>'`), deja de considerar
+problema el caso `<valor>=='SA'`; cualquier OTRO valor de C10 sigue
+bloqueando, con un mensaje reescrito para reflejar el contrato real de V3
+(`CABECERA_C10_ESPERADO_'SA'_OBTENIDO_'<valor>'`) en vez de confundir con
+el de V2. Ningún otro problema (hoja, partidas, cuadre, otras columnas de
+cabecera) se toca. **No hay monkeypatch, no hay mutación de constantes en
+runtime, no hay copias adulteradas de ningún SAP diario** — solo se
+post-procesa, en memoria, el resultado ya calculado por una función de V2
+sin modificar.
+
+El orquestador `ejecutar_consolidacion_v3()` es un espejo delgado de
+`consolidador_mensual.ejecutar_consolidacion()` (mismo formato de
+resultado JSON), necesario porque esa función de V2 no expone un punto de
+extensión para inyectar la reinterpretación sin reimplementar el bucle
+que la contiene — pero cada paso dentro de ese espejo llama a una función
+pública de V2 sin cambios. `v3/auditoria.py::generar_global_mensual()`
+(la API pública que sigue usando `dev_api.generar_global`, sin cambios de
+firma) ahora delega en este nuevo módulo en vez de llamar directamente a
+`consolidador_mensual.ejecutar_consolidacion()`.
+
+**Validado con guardarraíl de regresión propio**
+(`test_v2_mensaje_cabecera_c10_no_cambio_de_formato`): si V2 alguna vez
+cambia el formato de ese mensaje, este test falla en rojo — señal
+explícita de revisar el regex, en vez de dejar de filtrar en silencio.
+
+**Validado en sandbox** (fixtures equivalentes a los 9 SAP reales de
+septiembre 2026 detectados en Drive — 8 legacy + 1 V3, fechas
+01-05/07-09/10, sin el 06 — ningún archivo real tocado, ningún Drive
+productivo escrito):
+
+```
+estado: VALIDADO_PENDIENTE_PUBLICACION
+cantidad_sap_incluidos: 9
+blockers: []
+cargo_global / haber_global / diferencia: 900.00 / 900.00 / 0.00
+fechas_faltantes: 21 (incluye 2026-09-06; informativas, no bloquean)
+C10 del GLOBAL generado: DB
+```
+
+Commit de este fix: `fix: validate daily SA entries in V3 monthly consolidation`.
