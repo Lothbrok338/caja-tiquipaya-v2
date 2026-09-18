@@ -46,9 +46,25 @@ fase fue no tocar el módulo 01 al implementar el módulo 02.
 4. Marcar este ítem como CERRADO en este documento, con la fecha y el
    commit/versión de n8n correspondiente.
 
-**Estado:** ABIERTO. No bloquea el uso en modo DEV (ambas implementaciones
-están sincronizadas y verificadas hoy), pero debe cerrarse antes de
-cualquier consideración de "V3 completo" o de exposición fuera de DEV.
+**Estado:** CERRADO (commit `144a007`, "feat: add master availability
+precheck before processing"). El subworkflow `TIQ V3 · 01 INGESTA · DEV`
+(`CanZtkmnm0ukAC8c`) ya no contiene el nodo Code JS `APLICAR - Busqueda
+exacta (REGLA G)` — verificado tanto en `v3/ingesta.py` (ver comentario
+"CLI — cierra DEBT-001" antes de `main()`) como en el snapshot congelado
+`snapshots/v3-final/CanZtkmnm0ukAC8c_01_ingesta.json` (13 nodos: IF de
+ruteo, lectura real de Google Drive de solo lectura, armado de payload,
+`Execute Command` que invoca `python3 -m v3.ingesta`, lectura del
+resultado). Python (`v3.ingesta.buscar_cierre_exacto`) es la única
+autoridad de REGLA G; n8n solo arma el payload y lee la salida, igual que
+el módulo 02 en adelante.
+
+Nota pendiente (no bloqueante): `parity_v3/PARITY_SCENARIOS.csv`
+(fila PARITY-010) todavía trae la nota antigua "El lado n8n (Code JS en
+CanZtkmnm0ukAC8c) replica esta misma logica; su sincronizacion se
+verifica manualmente" — quedó desactualizada por el mismo motivo que este
+archivo y conviene corregirla en el mismo commit que actualice esta
+sección, pero no cambia el veredicto: el test `test_PARITY_010_...` sigue
+verificando exclusivamente `v3.ingesta.buscar_cierre_exacto`.
 
 ---
 
