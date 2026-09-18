@@ -21,7 +21,8 @@ return [{
     nombre_global: 'SAP_GLOBAL_TIQ_' + mesNombre + '_' + anio + '.xlsx',
     nombre_historico: 'HISTORICO_ASIGNACIONES.csv',
     nombre_revision: 'REVISION_ASIGNACIONES_' + mesNombre + '_' + anio + '.xlsx',
-    // Carpetas oficiales de Drive: 05_CONTROLES, 05_CONTROLES/GLOBAL, 05_CONTROLES/CONTROL_1_ASIGNACIONES.
+    nombre_detalle: 'CONTROL_ASIGNACIONES_' + mesNombre + '_' + anio + '.json',
+    // Drive: 05_CONTROLES (historico CANONICO), 05_CONTROLES/GLOBAL, 05_CONTROLES/CONTROL_1_ASIGNACIONES (contiene una subcarpeta <YYYY-MM> por periodo).
     carpeta_controles_id: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB',
     carpeta_global_id: '1KREzDpgptWRwuArA1qYco49rplOEeeNU',
     carpeta_control1_id: '1oOcwIgq_9uU9eRLV7z36zBjdBS-hBlRk',

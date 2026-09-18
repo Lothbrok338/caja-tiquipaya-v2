@@ -1313,3 +1313,74 @@ def test_cli_preparar_control1_entrada_y_meses_del_backend_coinciden_con_consoli
     meses_js = [m.strip().strip("'") for m in meses_js.split(",")]
     meses_py = [cm.nombre_sap_global(2026, m)[len("SAP_GLOBAL_TIQ_"):-len("_2026.xlsx")] for m in range(1, 13)]
     assert meses_js == meses_py
+
+
+# ---------------------------------------------------------------------------
+# FASE 12E.5 — historico CANONICO en la raiz de 05_CONTROLES + artefactos por
+# periodo en CONTROL_1_ASIGNACIONES/<YYYY-MM>/. Python solo ve control1_entrada/.
+# ---------------------------------------------------------------------------
+
+_ESQUEMA_HISTORICO = ("asignacion,fecha_valor,cuenta_mayor,glosa,monto,archivo_global,fila_sap,sha256_archivo,"
+                      "fecha_incorporacion,alerta_duplicado,validacion_auditor,observacion_auditor,fecha_validacion,"
+                      "asignacion_original,asignacion_final,fila_global,sha256_global_original,sha256_global_final")
+
+
+def _crear_historico_agosto(ruta, n=5):
+    """Historico 'canonico' con n filas del periodo anterior (esquema completo, decisiones del auditor)."""
+    lineas = [_ESQUEMA_HISTORICO]
+    for i in range(n):
+        val = "CORRECTA" if i == 0 else ("INCORRECTA" if i == 1 else "")
+        lineas.append(f"AGO{i:03d},2026-08-0{(i % 9) + 1},110201002,glosa {i},10.00,SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx,{16 + i},"
+                      f"aaaa,2026-09-09T22:11:15,,{val},obs {i},2026-09-09,AGO{i:03d},AGO{i:03d},{16 + i},aaaa,aaaa")
+    with open(ruta, "w", encoding="utf-8", newline="") as f:
+        f.write("\n".join(lineas) + "\n")
+
+
+def test_control1_historico_raiz_es_acumulativo_agosto_preservado_y_septiembre_agregado(tmp_path):
+    base = _base_control1(tmp_path)
+    hist_raiz = tmp_path / "hist_raiz_drive.csv"
+    _crear_historico_agosto(str(hist_raiz), n=5)
+    antes = _filas_csv(hist_raiz)
+    drive_global = tmp_path / "drive_global.xlsx"
+    _crear_global_con_filas(str(drive_global), ["SEP001", "SEP002", "SEP003"])
+    dir_c1 = _materializar_desde_drive(base, drive_global, historico_src=hist_raiz)
+
+    r = dev_api.ejecutar_control1(2026, 9, str(base))
+    assert r["estado"] == "OK_SIN_DUPLICADOS" and r["historico_actualizado"] is True
+    despues = _filas_csv(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv"))
+    assert len(despues) == 5 + 3
+    assert despues[:5] == antes                                   # agosto intacto, fila por fila, con sus decisiones
+    assert {f["archivo_global"] for f in despues[5:]} == {"SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx"}
+    assert [f["validacion_auditor"] for f in despues[:2]] == ["CORRECTA", "INCORRECTA"]
+    # los antecedentes de agosto se usan: reejecutar con una asignacion repetida de agosto genera alerta historica.
+    drive_global2 = tmp_path / "drive_global2.xlsx"
+    _crear_global_con_filas(str(drive_global2), ["AGO002", "SEP009"])
+    _materializar_desde_drive(base, drive_global2, historico_src=hist_raiz)
+    r2 = dev_api.ejecutar_control1(2026, 9, str(base))
+    assert r2["alertas_contra_historico"] == 1
+
+
+def test_control1_escribe_detalle_del_periodo_con_nombre_canonico(tmp_path):
+    base = _base_control1(tmp_path)
+    drive_global = tmp_path / "drive_global.xlsx"
+    _crear_global_con_filas(str(drive_global), ["A1", "B2"])
+    dir_c1 = _materializar_desde_drive(base, drive_global)
+    r = dev_api.ejecutar_control1(2026, 9, str(base))
+    assert r["detalle_json"] == os.path.join(dir_c1, "CONTROL_ASIGNACIONES_SEPTIEMBRE_2026.json")
+    assert os.path.isfile(r["detalle_json"])
+
+
+def test_control1_ignora_snapshot_mensual_como_fuente_maestra(tmp_path):
+    """El snapshot del periodo anterior (otra carpeta / otro contenido) jamas se lee: solo cuenta el
+    historico materializado desde la RAIZ. Aqui el 'snapshot' esta en una subcarpeta 2026-08 local
+    con una asignacion que, de leerse, produciria una alerta."""
+    base = _base_control1(tmp_path)
+    snap_dir = base / "control1_entrada" / "2026-08"
+    os.makedirs(snap_dir, exist_ok=True)
+    _crear_historico_agosto(str(snap_dir / "HISTORICO_ASIGNACIONES.csv"), n=3)
+    drive_global = tmp_path / "drive_global.xlsx"
+    _crear_global_con_filas(str(drive_global), ["AGO001", "NUEVA1"])       # AGO001 esta SOLO en el snapshot
+    _materializar_desde_drive(base, drive_global)                             # historico raiz: no existe (vacio)
+    r = dev_api.ejecutar_control1(2026, 9, str(base))
+    assert r["estado"] == "OK_SIN_DUPLICADOS" and r["alertas_contra_historico"] == 0
+    assert (snap_dir / "HISTORICO_ASIGNACIONES.csv").exists()                 # y el snapshot queda intacto

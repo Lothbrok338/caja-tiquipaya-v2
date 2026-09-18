@@ -584,9 +584,16 @@ def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=
         directorio se limpió);
       - REVISION_ASIGNACIONES_<PERIODO>.xlsx (si existe en Drive, para
         preservar las decisiones previas del auditor).
-    Nunca usa `global/`, `publicacion/` ni otra corrida. Revisión, histórico
-    y (si el auditor autorizó correcciones) el GLOBAL corregido quedan en ese
-    mismo directorio para que el backend los publique a Drive."""
+    Nunca usa `global/`, `publicacion/` ni otra corrida. Revisión, histórico,
+    detalle (`CONTROL_ASIGNACIONES_<PERIODO>.json`) y (si el auditor autorizó
+    correcciones) el GLOBAL corregido quedan en ese mismo directorio para que
+    el backend los publique a Drive.
+
+    ESTRUCTURA EN DRIVE (decisión del auditor, 2026-09-18): el histórico
+    CANÓNICO/acumulativo es `05_CONTROLES/HISTORICO_ASIGNACIONES.csv` (raíz);
+    la revisión, el detalle y una copia-snapshot del histórico al cierre viven
+    en `05_CONTROLES/CONTROL_1_ASIGNACIONES/<YYYY-MM>/`. Esa copia por periodo
+    es solo evidencia: nunca es la fuente maestra (aquí nunca se lee)."""
     entrada = control1_entrada_dir(base_dir_dev, anio, mes)
     if not os.path.isdir(entrada):
         raise RuntimeError(
@@ -601,13 +608,14 @@ def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=
             f"CONTROL 1 nunca usa un GLOBAL local como sustituto."
         )
     ruta_historico = os.path.join(entrada, "HISTORICO_ASIGNACIONES.csv")
+    periodo_esperado = _periodo(anio, mes)
     resultado = ejecutar_control1_mensual(
         ruta_global, ruta_historico,
         directorio_revision=entrada, ruta_revision_json=ruta_revision_json, dry_run=dry_run,
+        ruta_detalle_json=os.path.join(entrada, f"CONTROL_ASIGNACIONES_{periodo_esperado}.json"),
     )
     resultado["dir_entrada"] = os.path.abspath(entrada)
     resultado["ruta_global_materializado"] = os.path.abspath(ruta_global)
-    periodo_esperado = _periodo(anio, mes)
     if resultado.get("periodo") not in (None, periodo_esperado):
         raise RuntimeError(
             f"PERIODO_INCONSISTENTE: CONTROL 1 devolvió {resultado.get('periodo')!r} y se pidió {periodo_esperado!r}"

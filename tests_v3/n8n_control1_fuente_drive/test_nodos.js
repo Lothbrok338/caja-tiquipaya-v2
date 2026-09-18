@@ -49,6 +49,7 @@ test('resolver: septiembre 2026 -> nombres, dir aislado control1_entrada/2026-09
   assert.strictEqual(RC.nombre_global, G);
   assert.strictEqual(RC.nombre_historico, H);
   assert.strictEqual(RC.nombre_revision, R);
+  assert.strictEqual(RC.nombre_detalle, 'CONTROL_ASIGNACIONES_SEPTIEMBRE_2026.json');
   assert.ok(RC.dir_entrada.endsWith('/dev_workdir/control1_entrada/2026-09'));
   assert.ok(!/\/global\/|publicacion/.test(RC.dir_entrada));
   assert.strictEqual(RC.carpeta_global_id, '1KREzDpgptWRwuArA1qYco49rplOEeeNU');
@@ -109,6 +110,32 @@ test('clasificar: revision de OTRO periodo en la carpeta no se toma', function (
   const r = clasificar([G], [null], ['REVISION_ASIGNACIONES_OCTUBRE_2026.xlsx', null]);
   assert.ok(!r.some(function (x) { return x.tipo === 'revision'; }));
 });
+test('revision se busca en la carpeta del periodo: si esa busqueda no corrio (periodo nuevo) -> sin revision, sin error', function () {
+  const nodos = NODOS_C([G], [H], [null]);
+  delete nodos['BUSCAR revision del periodo (Drive)'];
+  const r = ejecutar(cargar('clasificar'), nodos, []).map(function (i) { return i.json; });
+  assert.deepStrictEqual(r.map(function (x) { return x.tipo; }), ['global', 'historico']);
+  assert.strictEqual(r[0].revision_en_drive, false);
+});
+test('el historico que se descarga es SIEMPRE el de la raiz (nombre exacto en 05_CONTROLES), nunca el snapshot de un periodo', function () {
+  const c = cargar('clasificar');
+  assert.ok(/BUSCAR historico asignaciones \(Drive\)/.test(c));
+  assert.ok(!/snapshot|2026-08|periodo\b.*historico/.test(c.replace(/\/\/.*$/gm, '')));
+});
+const verificar = function (carpetas) {
+  return ejecutar(cargar('verificar_carpeta'), {
+    'RESOLVER control1 (periodo y carpetas)': [{ json: RC }],
+    'BUSCAR carpeta del periodo (Drive)': carpetas.map(function (n, i) { return { json: n === null ? {} : { id: 'c' + i, name: n } }; }),
+  }).map(function (i) { return i.json; })[0];
+};
+test('carpeta del periodo: 0 -> hay_carpeta=false (periodo nuevo)', function () {
+  assert.deepStrictEqual(verificar([null]), { hay_carpeta: false, carpeta_id: null });
+  assert.strictEqual(verificar(['2026-08']).hay_carpeta, false); // la de otro periodo no cuenta
+});
+test('carpeta del periodo: exactamente 1 -> se usa; >1 -> ERROR_AMBIGUO_CARPETA_PERIODO', function () {
+  assert.deepStrictEqual(verificar(['2026-08', '2026-09']), { hay_carpeta: true, carpeta_id: 'c1' });
+  assert.throws(function () { verificar(['2026-09', '2026-09']); }, /ERROR_AMBIGUO_CARPETA_PERIODO/);
+});
 test('restaurar/construir_payload usan $(...).first() (no .item) y leen body.anio/mes', function () {
   const w = WH({ anio: 2026, mes: 9, modo: 'official' });
   assert.deepStrictEqual(ejecutar(cargar('restaurar'), w)[0].json, w['WEBHOOK control1'][0].json);
@@ -120,13 +147,13 @@ test('restaurar/construir_payload usan $(...).first() (no .item) y leen body.ani
 
 const RESULT_BASE = { estado: 'REVISAR_DUPLICADOS_ENCONTRADOS', estado_validacion: 'PENDIENTE_VALIDACION_AUDITOR', archivo_global: G, periodo: 'SEPTIEMBRE_2026',
   global_modificado: false, correcciones_aplicadas: 0, dry_run: false, historico_actualizado: false, revision_actualizada: true,
-  ruta_revision: RC.dir_entrada + '/' + R, sha256_global_original: 'a'.repeat(64), sha256_global_final: 'a'.repeat(64) };
+  ruta_revision: RC.dir_entrada + '/' + R, detalle_json: RC.dir_entrada + '/' + RC.nombre_detalle, sha256_global_original: 'a'.repeat(64), sha256_global_final: 'a'.repeat(64) };
 const decidir = function (r, modo) {
   return ejecutar(cargar('decidir_publicar'), Object.assign(WH({ anio: 2026, mes: 9, modo: modo || 'official' }), { 'RESOLVER control1 (periodo y carpetas)': [{ json: RC }] }), [], { data: r })[0].json;
 };
 test('M/N: alertas pendientes -> solo revision se publica; historico NO; GLOBAL NO', function () {
   const d = decidir(RESULT_BASE);
-  assert.deepStrictEqual([d.debe_publicar, d.hay_revision, d.hay_historico, d.publicar_global], [true, true, false, false]);
+  assert.deepStrictEqual([d.debe_publicar, d.hay_revision, d.hay_detalle, d.hay_historico, d.publicar_global], [true, true, true, false, false]);
 });
 test('sin alertas (OK_SIN_DUPLICADOS): solo historico', function () {
   const d = decidir(Object.assign({}, RESULT_BASE, { estado: 'OK_SIN_DUPLICADOS', estado_validacion: null, revision_actualizada: false, ruta_revision: null, historico_actualizado: true }));
@@ -152,21 +179,44 @@ test('resultado de error / modo dev -> nada se publica', function () {
 test('revision con otro nombre que el del periodo -> no se publica', function () {
   assert.strictEqual(decidir(Object.assign({}, RESULT_BASE, { ruta_revision: RC.dir_entrada + '/REVISION_ASIGNACIONES_OCTUBRE_2026.xlsx' })).hay_revision, false);
 });
+const CARPETA_PERIODO = 'carpeta-periodo-2026-09';
 const lista = function (d) {
-  return ejecutar(cargar('lista_publicaciones'), { 'RESOLVER control1 (periodo y carpetas)': [{ json: RC }] }, [], d).map(function (i) { return i.json; });
+  return ejecutar(cargar('lista_publicaciones'), {
+    'RESOLVER control1 (periodo y carpetas)': [{ json: RC }],
+    'DECIDIR - Publicar CONTROL1 oficial': [{ json: d }],
+    'EJECUTAR 07E carpeta del periodo CONTROL1': [{ json: { accion: 'reutilizada', carpeta_id: CARPETA_PERIODO } }],
+  }, []).map(function (i) { return i.json; });
 };
-test('publicacion: orden GLOBAL -> revision -> historico, siempre modo actualizar, desde control1_entrada', function () {
-  const l = lista({ publicar_global: true, hay_revision: true, hay_historico: true });
-  assert.deepStrictEqual(l.map(function (x) { return x.nombre_archivo; }), [G, R, H]);
-  assert.deepStrictEqual(l.map(function (x) { return x.carpeta_id; }), [RC.carpeta_global_id, RC.carpeta_control1_id, RC.carpeta_controles_id]);
+const ND = 'CONTROL_ASIGNACIONES_SEPTIEMBRE_2026.json';
+test('publicacion completa: GLOBAL -> revision -> detalle -> snapshot del historico (periodo) -> historico MAESTRO (raiz) al final', function () {
+  const l = lista({ publicar_global: true, hay_revision: true, hay_detalle: true, hay_historico: true });
+  assert.deepStrictEqual(l.map(function (x) { return x.nombre_archivo; }), [G, R, ND, H, H]);
+  assert.deepStrictEqual(l.map(function (x) { return x.carpeta_id; }),
+    [RC.carpeta_global_id, CARPETA_PERIODO, CARPETA_PERIODO, CARPETA_PERIODO, RC.carpeta_controles_id]);
+  assert.strictEqual(l[l.length - 1].carpeta_id, RC.carpeta_controles_id); // el maestro de la raiz va ULTIMO
   l.forEach(function (x) { assert.strictEqual(x.modo_si_existe, 'actualizar'); assert.ok(x.ruta_local_origen.startsWith(RC.dir_entrada + '/')); assert.ok(!/\/dev_workdir\/global\//.test(x.ruta_local_origen)); });
 });
-test('publicacion: solo lo que corresponde (sin GLOBAL ni historico si no aplican)', function () {
-  assert.deepStrictEqual(lista({ publicar_global: false, hay_revision: true, hay_historico: false }).map(function (x) { return x.nombre_archivo; }), [R]);
-  assert.deepStrictEqual(lista({ publicar_global: false, hay_revision: false, hay_historico: true }).map(function (x) { return x.nombre_archivo; }), [H]);
+test('la revision de septiembre NUNCA va suelta a la raiz de CONTROL_1_ASIGNACIONES: siempre a la carpeta del periodo', function () {
+  const l = lista({ publicar_global: false, hay_revision: true, hay_detalle: true, hay_historico: true });
+  l.forEach(function (x) { assert.notStrictEqual(x.carpeta_id, RC.carpeta_control1_id); });
+  assert.ok(l.filter(function (x) { return x.nombre_archivo === R; }).every(function (x) { return x.carpeta_id === CARPETA_PERIODO; }));
+});
+test('publicacion parcial: alertas pendientes -> revision + detalle en el periodo; historico maestro NO se toca', function () {
+  const l = lista({ publicar_global: false, hay_revision: true, hay_detalle: true, hay_historico: false });
+  assert.deepStrictEqual(l.map(function (x) { return x.nombre_archivo; }), [R, ND]);
+  assert.ok(!l.some(function (x) { return x.carpeta_id === RC.carpeta_controles_id; }));
+});
+test('sin carpeta de periodo resuelta por 07E -> error explicito (no se publica a otro sitio)', function () {
+  assert.throws(function () {
+    ejecutar(cargar('lista_publicaciones'), {
+      'RESOLVER control1 (periodo y carpetas)': [{ json: RC }],
+      'DECIDIR - Publicar CONTROL1 oficial': [{ json: { hay_revision: true } }],
+      'EJECUTAR 07E carpeta del periodo CONTROL1': [{ json: {} }],
+    }, []);
+  }, /CARPETA_PERIODO_CONTROL1_NO_RESUELTA/);
 });
 test('ningun nodo nuevo referencia dev_workdir/global/ ni publicacion/ como fuente', function () {
-  ['resolver', 'clasificar', 'restaurar', 'construir_payload', 'decidir_publicar', 'lista_publicaciones'].forEach(function (n) {
+  ['resolver', 'clasificar', 'verificar_carpeta', 'restaurar', 'construir_payload', 'decidir_publicar', 'lista_publicaciones'].forEach(function (n) {
     assert.ok(!/dev_workdir\/global\/|publicacion\//.test(cargar(n)), n);
   });
 });
@@ -175,7 +225,8 @@ test('el codigo desplegado en el snapshot de BACKEND DEV coincide con estos arch
   const wf = JSON.parse(fs.readFileSync(snapshot, 'utf8')); const nodos = (wf.workflow || wf).nodes;
   const mapa = { 'RESOLVER control1 (periodo y carpetas)': 'resolver', 'CLASIFICAR - Artefactos de CONTROL 1 en Drive': 'clasificar',
     'RESTAURAR - Item del webhook control1': 'restaurar', 'CONSTRUIR payload control1': 'construir_payload',
-    'DECIDIR - Publicar CONTROL1 oficial': 'decidir_publicar', 'CONSTRUIR - Lista publicaciones CONTROL1': 'lista_publicaciones' };
+    'DECIDIR - Publicar CONTROL1 oficial': 'decidir_publicar', 'CONSTRUIR - Lista publicaciones CONTROL1': 'lista_publicaciones',
+    'VERIFICAR carpeta del periodo (CONTROL1)': 'verificar_carpeta' };
   Object.keys(mapa).forEach(function (nombre) {
     const nodo = nodos.find(function (n) { return n.name === nombre; });
     assert.ok(nodo, 'falta nodo ' + nombre);

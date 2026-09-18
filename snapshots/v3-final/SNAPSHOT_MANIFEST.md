@@ -1,9 +1,9 @@
 # SNAPSHOT_MANIFEST.md — V3 FINAL (cierre formal)
 
 Fecha de captura inicial: **2026-09-17T20:55:26Z**
-Última actualización: **2026-09-18T20:30:00Z** — AUDITORÍA DE ASIGNACIONES (`/control1`) ahora materializa GLOBAL, histórico y
-revisión desde Drive oficial en `control1_entrada/<periodo>/` (ver §"Cambios posteriores al cierre formal" al final).
-Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`) + `fix: preserve Drive ingesta in official processing` + `fix: finalize official V3 publication path` + `feat: allow monthly GLOBAL regeneration in V3` + `fix: consolidate all monthly SAP files in V3` + `fix: validate daily SA entries in V3 monthly consolidation` + `fix: materialize monthly SAP source from Drive` + `fix: materialize control1 inputs from Drive`
+Última actualización: **2026-09-18T21:00:00Z** — histórico canónico de CONTROL 1 migrado a la raíz de `05_CONTROLES` y
+artefactos por periodo en `CONTROL_1_ASIGNACIONES/<YYYY-MM>/` (ver §"Cambios posteriores al cierre formal" al final).
+Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`) + `fix: preserve Drive ingesta in official processing` + `fix: finalize official V3 publication path` + `feat: allow monthly GLOBAL regeneration in V3` + `fix: consolidate all monthly SAP files in V3` + `fix: validate daily SA entries in V3 monthly consolidation` + `fix: materialize monthly SAP source from Drive` + `fix: materialize control1 inputs from Drive` + `fix: establish canonical control1 history and period folders`
 
 Este snapshot congela el estado de **los 14 workflows n8n de V3** en el momento
 del cierre formal, tras validar FASE 12E (E2E mensual completo, sandbox
@@ -35,7 +35,7 @@ Verificado con grep sobre los 14 archivos: cero coincidencias de
 | 11 | TIQ V3 · 07D PUBLICAR ARCHIVO OFICIAL (crear o actualizar) · DRIVE | `HhuQCVP2oCubavzY` | `HhuQCVP2oCubavzY_07d_publicar_oficial.json` | false | 12 | `9f9aab93e4654612e8a1b10005975fac88ecfc793024b51ba0bab9ddbf848f78` |
 | 12 | TIQ V3 · 07E BUSCAR O CREAR CARPETA OFICIAL · DRIVE | `Lht5xRinJ9nJpHCW` | `Lht5xRinJ9nJpHCW_07e_buscar_crear_carpeta.json` | false | 7 | `2b331e13b50c40d69eb46c06817b6f5aecdeca8d4a25af408274e11bd74cc15f` |
 | 13 | TIQ V3 · PREFLIGHT OFICIAL (solo lectura) | `sJVgoBRpBntc96vf` | `sJVgoBRpBntc96vf_preflight_oficial.json` | false | 12 | `dccdfb3711e06518bce4d73c73acbfaa4a687457212e946d5b85321cb1f782de` |
-| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 127 | `8f0b21969fa4bd0a235cde8e77386a81ee21c21e8ba95a093607e78a58c8df7f` |
+| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 131 | `7f38427ab9a473a62b38c538e5fdc30ae6ad92ffbf2afb573474fe31c72c22e5` |
 
 **Estado `active` real en n8n al momento de esta actualización (2026-09-18):**
 7 workflows están activos — `aLs1f3GMqswbaENA` (BACKEND DEV), `CanZtkmnm0ukAC8c`
@@ -425,3 +425,49 @@ no se leyó el histórico ni `CONTROL_1_ASIGNACIONES` ni se probó la materializ
 real de `/control1`. Hay que reconectar la credencial antes de la primera ejecución.
 
 Commit de este fix: `fix: materialize control1 inputs from Drive`.
+
+
+### CONTROL 1: histórico canónico en la raíz + carpeta por periodo (2026-09-18)
+
+**Decisión del auditor:** `05_CONTROLES/HISTORICO_ASIGNACIONES.csv` es el ÚNICO histórico
+canónico/acumulativo que CONTROL 1 lee y actualiza entre periodos. Los artefactos de cada
+periodo viven en `05_CONTROLES/CONTROL_1_ASIGNACIONES/<YYYY-MM>/` (revisión, detalle
+`CONTROL_ASIGNACIONES_<MES>_<AÑO>.json` y, opcionalmente, una copia-snapshot del histórico
+al cierre como evidencia; esa copia NUNCA es fuente maestra).
+
+**Migración de datos en Drive (única escritura autorizada, verificada):** el archivo de la raíz
+(id `1D5SzH4_3kpvgbz3r6hXaMa8ejkt6RhIb`) era solo la cabecera del esquema antiguo (107 B, 0
+filas). Se descargaron ambos, se validó (raíz 0 filas; agosto 441 filas, un único periodo
+`SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx`, 18 columnas) y se actualizó EN EL SITIO (07D `actualizar`,
+mismo id, sin duplicado) con el contenido íntegro del histórico real de agosto. Verificación
+posterior: la raíz es byte-idéntica a la copia de agosto (sha256 `83717411a925fb99…`, 158,006 B,
+441 filas, decisiones 7 CORRECTA / 1 INCORRECTA / 433 SIN_VALIDACION); la copia original
+`CONTROL_1_ASIGNACIONES/2026-08/HISTORICO_ASIGNACIONES.csv` (id `1JLoDt7_9o-gWlkfgeKAMaOAf2-k2YL5a`)
+sigue intacta (mismo id, tamaño y fecha de modificación) y la carpeta `2026-08` conserva sus
+4 archivos. Ninguna fila se modificó ni reinterpretó.
+
+**BACKEND DEV (versión `1699bba5`, 131 nodos):**
+- El histórico se descarga SIEMPRE de la raíz de `05_CONTROLES` (0/1; >1 → `ERROR_AMBIGUO_HISTORICO`);
+  si no existe es una primera ejecución legítima con histórico vacío. Nunca del snapshot mensual.
+- Nuevos `BUSCAR carpeta del periodo` → `VERIFICAR carpeta del periodo` (0/1; >1 →
+  `ERROR_AMBIGUO_CARPETA_PERIODO`) → `IF`: la revisión del periodo se busca DENTRO de
+  `CONTROL_1_ASIGNACIONES/<YYYY-MM>/` (0/1; >1 → `ERROR_AMBIGUO_REVISION`); si la carpeta no
+  existe (periodo nuevo) la revisión es nueva.
+- Publicación (07D `actualizar`): `07E` busca o crea `CONTROL_1_ASIGNACIONES/<YYYY-MM>/`; orden GLOBAL
+  corregido (si aplica) → revisión → detalle → snapshot del histórico (carpeta del periodo) →
+  histórico MAESTRO de la raíz SIEMPRE al final. La revisión ya no se publica suelta en la raíz.
+- `v3/dev_api.py`: CONTROL 1 escribe `CONTROL_ASIGNACIONES_<PERIODO>.json` en la materialización.
+
+**Verificado en real (solo lectura, workflow temporal ya archivado):** septiembre → GLOBAL + histórico
+canónico (158,006 B) materializados, sin revisión (carpeta `2026-09` aún no existe); agosto → la
+carpeta `2026-08` y `REVISION_ASIGNACIONES_AGOSTO_2026.xlsx` se encuentran y luego falla por no
+existir GLOBAL de agosto en Drive (esperado). No se ejecutó Python de CONTROL 1 ni se publicó nada.
+
+**Corrección de un dato previo:** en el commit `fix: materialize control1 inputs from Drive` se
+describió `$('WEBHOOK …').item` en un Code de modo "todos los items" como fallo latente; no lo era
+(el equivalente de `/global` corrió bien en real). El cambio a `.first()` es inocuo y equivalente.
+
+**Pendiente para CONTROL 3:** aplicar el mismo concepto (histórico maestro en la raíz +
+artefactos/snapshots por periodo, materialización limpia desde Drive). Hoy sigue con el patrón local.
+
+Commit de este fix: `fix: establish canonical control1 history and period folders`.

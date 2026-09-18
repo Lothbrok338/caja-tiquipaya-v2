@@ -1,7 +1,10 @@
-// Exige EXACTAMENTE un GLOBAL oficial; historico y revision son opcionales (0 o 1), nunca mas de uno.
+// Exige EXACTAMENTE un GLOBAL oficial; el historico CANONICO (raiz de 05_CONTROLES) y la revision del periodo
+// (carpeta <YYYY-MM>) son opcionales (0 o 1), nunca mas de uno. El snapshot mensual del historico nunca se busca aqui.
 const rc = $('RESOLVER control1 (periodo y carpetas)').first().json;
 function exactos(nodo, nombre) {
-  return $(nodo).all().map(function (i) { return i.json; }).filter(function (j) { return j && j.id && j.name === nombre; });
+  let items;
+  try { items = $(nodo).all(); } catch (e) { items = []; } // p.ej. no existe la carpeta del periodo: la busqueda de revision no corrio
+  return items.map(function (i) { return i.json; }).filter(function (j) { return j && j.id && j.name === nombre; });
 }
 const g = exactos('BUSCAR GLOBAL oficial (Drive)', rc.nombre_global);
 const h = exactos('BUSCAR historico asignaciones (Drive)', rc.nombre_historico);
@@ -17,7 +20,7 @@ if (h.length > 1) {
   throw new Error('ERROR_AMBIGUO_HISTORICO: hay ' + h.length + ' archivos "' + rc.nombre_historico + '" en 05_CONTROLES. No se elige ninguno.');
 }
 if (r.length > 1) {
-  throw new Error('ERROR_AMBIGUO_REVISION: hay ' + r.length + ' archivos "' + rc.nombre_revision + '" en CONTROL_1_ASIGNACIONES. No se elige ninguno.');
+  throw new Error('ERROR_AMBIGUO_REVISION: hay ' + r.length + ' archivos "' + rc.nombre_revision + '" en CONTROL_1_ASIGNACIONES/' + rc.periodo + '. No se elige ninguno.');
 }
 
 const items = [{ tipo: 'global', id: String(g[0].id), name: rc.nombre_global }];
