@@ -1,14 +1,14 @@
 {
   "id": "aLs1f3GMqswbaENA",
   "name": "TIQ V3 · BACKEND DEV (webhooks)",
-  "active": false,
+  "active": true,
   "isArchived": false,
-  "versionId": "89483800-fd0b-4070-a30c-1680c5fd7300",
-  "activeVersionId": null,
-  "triggerCount": 6,
+  "versionId": "62037abf-2126-4f3b-a005-9f06f910ed34",
+  "activeVersionId": "62037abf-2126-4f3b-a005-9f06f910ed34",
+  "triggerCount": 10,
   "nodeCount": 112,
   "createdAt": "2026-09-14T04:52:50.018Z",
-  "updatedAt": "2026-09-17T20:00:52.628Z",
+  "updatedAt": "2026-09-18T12:10:14.368Z",
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": true
@@ -1245,7 +1245,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (procesar_lote) -- Python es la unica autoridad.\n// FASE 11A.3: requiere_ingesta_drive=true (modo oficial de este despliegue,\n// mismo criterio que publication_mode='official' en /estado) -- si\n// EJECUTAR - 01 INGESTA (Drive real) no entrego drive_file_id para algun\n// cierre ENCONTRADO (o fallo tecnicamente y t.cierres nunca llego),\n// v3.dev_api.procesar_lote() rechaza el lote ENTERO (IngestaDriveRequeridaError,\n// estado_lote=ERROR) en vez de caer al listado local (os.listdir). El\n// fallback local sigue existiendo en Python SOLO para DEV/tests que llamen\n// procesar_lote() sin este flag.\n// origen_cierres_dir/ruta_maestro_origen/ruta_plantilla_origen/markers_origen_dir\n// siguen apuntando a las COPIAS REALES ya descargadas de Google Drive\n// (solo lectura, ver v3/precheck_maestro.py y snapshots/v3-dev-integrated/\n// SNAPSHOT_MANIFEST.md FASE 10A-D) -- nunca al fixture sintetico de FASE 9.\n// v3.precheck_maestro (Python) sigue decidiendo MAESTRO_APTO/BLOQUEADO por\n// fecha antes de invocar el motor; este nodo no reinterpreta esa decision.\nconst payload = { lote_id: $('INTERPRETAR resultado crear_lote_pendiente').item.json.data.lote_id, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', origen_cierres_dir: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/cierres_origen', ruta_maestro_origen: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/maestro_origen/MACROS SEPTIEMBRE.xlsm', ruta_plantilla_origen: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/plantilla_origen/Plantilla SAP maestra.xlsx', markers_origen_dir: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/markers_origen', ingesta_precomputada: (t && t.cierres) || null, requiere_ingesta_drive: true };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (procesar_lote) -- Python es la unica autoridad.\n// FASE 11A.3: requiere_ingesta_drive=true (modo oficial de este despliegue,\n// mismo criterio que publication_mode='official' en /estado) -- si\n// EJECUTAR - 01 INGESTA (Drive real) no entrego drive_file_id para algun\n// cierre ENCONTRADO (o fallo tecnicamente y t.data.cierres nunca llego),\n// v3.dev_api.procesar_lote() rechaza el lote ENTERO (IngestaDriveRequeridaError,\n// estado_lote=ERROR) en vez de caer al listado local (os.listdir). El\n// fallback local sigue existiendo en Python SOLO para DEV/tests que llamen\n// procesar_lote() sin este flag.\n// origen_cierres_dir/ruta_maestro_origen/ruta_plantilla_origen/markers_origen_dir\n// siguen apuntando a las COPIAS REALES ya descargadas de Google Drive\n// (solo lectura, ver v3/precheck_maestro.py y snapshots/v3-dev-integrated/\n// SNAPSHOT_MANIFEST.md FASE 10A-D) -- nunca al fixture sintetico de FASE 9.\n// v3.precheck_maestro (Python) sigue decidiendo MAESTRO_APTO/BLOQUEADO por\n// fecha antes de invocar el motor; este nodo no reinterpreta esa decision.\n//\n// FIX (bug real, primer intento oficial 10/09): el nodo INTERPRETAR del\n// subworkflow 01 INGESTA envuelve su salida bajo .data (igual que TODOS\n// los demas INTERPRETAR de este backend, via extractFromFile/fromJson) --\n// antes este nodo leia t.cierres (siempre undefined) en vez de\n// t.data.cierres, asi que ingesta_precomputada quedaba SIEMPRE null y el\n// guard disparaba aunque Drive SI hubiera resuelto el cierre.\nconst payload = { lote_id: $('INTERPRETAR resultado crear_lote_pendiente').item.json.data.lote_id, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', origen_cierres_dir: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/cierres_origen', ruta_maestro_origen: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/maestro_origen/MACROS SEPTIEMBRE.xlsm', ruta_plantilla_origen: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/plantilla_origen/Plantilla SAP maestra.xlsx', markers_origen_dir: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/markers_origen', ingesta_precomputada: (t && t.data && t.data.cierres) || null, requiere_ingesta_drive: true };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
       }
     },
     {
@@ -3134,7 +3134,9 @@
     }
   ],
   "nodeGroups": [],
-  "activeVersion": null,
+  "activeVersion": {
+    "sameAsDraft": true
+  },
   "meta": {
     "aiBuilderAssisted": true,
     "builderVariant": "mcp"

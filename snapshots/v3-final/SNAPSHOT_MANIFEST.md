@@ -1,7 +1,9 @@
 # SNAPSHOT_MANIFEST.md — V3 FINAL (cierre formal)
 
-Fecha de captura: **2026-09-17T20:55:26Z**
-Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`)
+Fecha de captura inicial: **2026-09-17T20:55:26Z**
+Última actualización: **2026-09-18T12:10:14Z** — fix real de ingesta oficial
+(ver §"Cambios posteriores al cierre formal" al final de este archivo).
+Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`) + `fix: preserve Drive ingesta in official processing`
 
 Este snapshot congela el estado de **los 14 workflows n8n de V3** en el momento
 del cierre formal, tras validar FASE 12E (E2E mensual completo, sandbox
@@ -33,10 +35,20 @@ Verificado con grep sobre los 14 archivos: cero coincidencias de
 | 11 | TIQ V3 · 07D PUBLICAR ARCHIVO OFICIAL (crear o actualizar) · DRIVE | `HhuQCVP2oCubavzY` | `HhuQCVP2oCubavzY_07d_publicar_oficial.json` | false | 12 | `9f9aab93e4654612e8a1b10005975fac88ecfc793024b51ba0bab9ddbf848f78` |
 | 12 | TIQ V3 · 07E BUSCAR O CREAR CARPETA OFICIAL · DRIVE | `Lht5xRinJ9nJpHCW` | `Lht5xRinJ9nJpHCW_07e_buscar_crear_carpeta.json` | false | 7 | `2b331e13b50c40d69eb46c06817b6f5aecdeca8d4a25af408274e11bd74cc15f` |
 | 13 | TIQ V3 · PREFLIGHT OFICIAL (solo lectura) | `sJVgoBRpBntc96vf` | `sJVgoBRpBntc96vf_preflight_oficial.json` | false | 12 | `dccdfb3711e06518bce4d73c73acbfaa4a687457212e946d5b85321cb1f782de` |
-| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | false | 112 | `4396328cb60dd29834e0d3d2cd0285a919df05d6e806fd5bbb9153232cb56948` |
+| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 112 | `70589eacffbc9b322b75cd127194ef61f5c83f1b15dbff317bb308c9ea9f6bf4` |
 
-**Los 14 workflows están `active=false`.** Ninguno fue activado durante
-esta fase ni en ninguna fase anterior de V3.
+**Estado `active` real en n8n al momento de esta actualización (2026-09-18):**
+7 workflows están activos — `aLs1f3GMqswbaENA` (BACKEND DEV), `CanZtkmnm0ukAC8c`
+(01 INGESTA), `wcgxNei3duWfMDp1` (06B), `sJVgoBRpBntc96vf` (PREFLIGHT),
+`fn7lLjHsiMd48DGK` (07C), `HhuQCVP2oCubavzY` (07D), `Lht5xRinJ9nJpHCW` (07E) —
+activados para que el auditor pudiera operar el primer cierre oficial real
+(10/09/2026) desde la interfaz. Los otros 7 (línea exploratoria FASE 1-8:
+`principal` + 02/03/04/05/06/07 · DEV) siguen `active=false`, sin cambios.
+**Solo el archivo de BACKEND DEV en este snapshot se re-exportó** (es el
+único cuyo contenido cambió — el fix de esta sección); los otros 6 archivos
+activados conservan el contenido/SHA256 capturado el 2026-09-17 (su lógica
+no cambió, solo su bandera `active` en n8n, que este snapshot no vuelve a
+congelar por no ser parte de lo pedido).
 
 ## Dos líneas de trabajo dentro de V3 (aclaración honesta)
 
@@ -80,3 +92,36 @@ O individualmente: `sha256sum <archivo>.json` y comparar contra la tabla.
 `LkS0RHu9KEbHCR4p` (V2, `active=true`) no forma parte de este snapshot —
 V2 permanece congelado desde `7dbcf93` (`release: freeze validated Caja
 Tiquipaya V2 baseline`) y no fue tocado en ninguna fase de V3.
+
+## Cambios posteriores al cierre formal (2026-09-18)
+
+**Bug real encontrado en el primer intento de procesamiento oficial**
+(disparado por el auditor desde la interfaz, sobre el cierre real
+10/09/2026, no un fixture): `/procesar` fallaba siempre con
+`IngestaDriveRequeridaError: INGESTA_DRIVE_REQUERIDA`, incluso cuando
+`01 INGESTA (Drive real)` sí resolvía el `drive_file_id` correcto.
+
+**Causa:** el nodo `CONSTRUIR payload procesar_lote` leía
+`$input.first().json.cierres`, pero el nodo anterior
+(`EJECUTAR - 01 INGESTA (Drive real)`) envuelve su salida bajo `.data`
+(mismo patrón que todo `INTERPRETAR resultado *` de este backend, vía
+`extractFromFile`/`fromJson`). `t.cierres` era siempre `undefined`, así
+que `ingesta_precomputada` llegaba a `procesar_lote()` como `null`
+**siempre**, sin importar la fecha — el guard `requiere_ingesta_drive`
+(FASE 11A.3) disparaba de forma sistemática pese a que Drive sí resolvía
+el cierre.
+
+**Fix:** una línea, `t.cierres` → `t.data.cierres`, en
+`CONSTRUIR payload procesar_lote`. El guard (`requiere_ingesta_drive:
+true`) y el resto del wiring no se tocaron; ninguna lógica contable,
+ningún módulo Python, V2 no se tocó.
+
+**Validado en vivo** (10/09/2026, real, vía la interfaz activada):
+`drive_file_id: "1R9e4ZnuRShw2byVQD0CSfDhhkj4i3-ns"` llega íntegro hasta
+el resultado final de `procesar_lote()`; el cierre queda
+`estado_final: "LISTO_PARA_PUBLICAR"`, `diferencia: "0.00"`,
+`bloqueadores: 0`, **`publicado: 0`** — nunca se llamó `/publicar`, nunca
+se escribió nada oficial en Drive, nunca se movió el cierre ni se creó
+marker.
+
+Commit de este fix: `fix: preserve Drive ingesta in official processing`.
