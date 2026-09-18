@@ -1,9 +1,9 @@
 # SNAPSHOT_MANIFEST.md — V3 FINAL (cierre formal)
 
 Fecha de captura inicial: **2026-09-17T20:55:26Z**
-Última actualización: **2026-09-18T19:00:00Z** — la fuente real de GLOBAL ahora es la carpeta SAP oficial de Drive,
-materializada en `global_entrada/<periodo>/` (ver §"Cambios posteriores al cierre formal" al final de este archivo).
-Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`) + `fix: preserve Drive ingesta in official processing` + `fix: finalize official V3 publication path` + `feat: allow monthly GLOBAL regeneration in V3` + `fix: consolidate all monthly SAP files in V3` + `fix: validate daily SA entries in V3 monthly consolidation` + `fix: materialize monthly SAP source from Drive`
+Última actualización: **2026-09-18T20:30:00Z** — AUDITORÍA DE ASIGNACIONES (`/control1`) ahora materializa GLOBAL, histórico y
+revisión desde Drive oficial en `control1_entrada/<periodo>/` (ver §"Cambios posteriores al cierre formal" al final).
+Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`) + `fix: preserve Drive ingesta in official processing` + `fix: finalize official V3 publication path` + `feat: allow monthly GLOBAL regeneration in V3` + `fix: consolidate all monthly SAP files in V3` + `fix: validate daily SA entries in V3 monthly consolidation` + `fix: materialize monthly SAP source from Drive` + `fix: materialize control1 inputs from Drive`
 
 Este snapshot congela el estado de **los 14 workflows n8n de V3** en el momento
 del cierre formal, tras validar FASE 12E (E2E mensual completo, sandbox
@@ -35,7 +35,7 @@ Verificado con grep sobre los 14 archivos: cero coincidencias de
 | 11 | TIQ V3 · 07D PUBLICAR ARCHIVO OFICIAL (crear o actualizar) · DRIVE | `HhuQCVP2oCubavzY` | `HhuQCVP2oCubavzY_07d_publicar_oficial.json` | false | 12 | `9f9aab93e4654612e8a1b10005975fac88ecfc793024b51ba0bab9ddbf848f78` |
 | 12 | TIQ V3 · 07E BUSCAR O CREAR CARPETA OFICIAL · DRIVE | `Lht5xRinJ9nJpHCW` | `Lht5xRinJ9nJpHCW_07e_buscar_crear_carpeta.json` | false | 7 | `2b331e13b50c40d69eb46c06817b6f5aecdeca8d4a25af408274e11bd74cc15f` |
 | 13 | TIQ V3 · PREFLIGHT OFICIAL (solo lectura) | `sJVgoBRpBntc96vf` | `sJVgoBRpBntc96vf_preflight_oficial.json` | false | 12 | `dccdfb3711e06518bce4d73c73acbfaa4a687457212e946d5b85321cb1f782de` |
-| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 120 | `71bda439359c4312df748c1e9aefbadfab5df2d5a6fa9a402ae47e25fd3b46fa` |
+| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 127 | `8f0b21969fa4bd0a235cde8e77386a81ee21c21e8ba95a093607e78a58c8df7f` |
 
 **Estado `active` real en n8n al momento de esta actualización (2026-09-18):**
 7 workflows están activos — `aLs1f3GMqswbaENA` (BACKEND DEV), `CanZtkmnm0ukAC8c`
@@ -365,3 +365,63 @@ queda ignorado. El GLOBAL ya publicado en Drive NO se tocó (07D lo actualiza en
 la siguiente ejecución).
 
 Commit de este fix: `fix: materialize monthly SAP source from Drive`.
+
+
+### AUDITORÍA DE ASIGNACIONES (`/control1`): Drive oficial = fuente de verdad (2026-09-18)
+
+**Problema (hallado al trazar `/control1`, sin ejecutarlo):** leía el GLOBAL de
+`dev_workdir/global/` (local, no descargado de Drive), descargaba el histórico
+con 07C al mismo `global/` compartido (sin limpiar; si no estaba en Drive quedaba
+cualquier histórico local viejo), no descargaba la revisión existente en Drive
+(Python la lee local para preservar decisiones del auditor y 07D la sobrescribía
+en Drive) y una corrección de la columna R del GLOBAL se quedaba solo en local.
+Además `CONSTRUIR payload control1` y `DECIDIR - Publicar CONTROL1` usaban
+`$('WEBHOOK control1').item` en un Code de modo "todos los items" (falla latente).
+
+**Corrección:**
+- `v3/dev_api.py`: `control1_entrada_dir()` / `preparar_control1_entrada()` (limpia
+  solo `control1_entrada/<YYYY-MM>/`) y acción CLI `preparar_control1_entrada`.
+  `ejecutar_control1()` lee ÚNICAMENTE de ese directorio (GLOBAL oficial obligatorio,
+  histórico opcional, revisión opcional), sin fallback local; verifica que el periodo
+  devuelto sea el pedido. CONTROL 3 no se tocó.
+- BACKEND DEV (versión `819b9b9a`, 127 nodos): 9 nodos nuevos en la rama oficial de
+  `/control1` — `RESOLVER control1` → `PREPARAR control1_entrada limpio (Python)` →
+  búsquedas exactas en Drive de GLOBAL (`05_CONTROLES/GLOBAL`), histórico
+  (`05_CONTROLES`) y revisión (`CONTROL_1_ASIGNACIONES`) → `CLASIFICAR` (GLOBAL:
+  exactamente 1, si no `GLOBAL_OFICIAL_NO_ENCONTRADO` / `ERROR_AMBIGUO_GLOBAL`;
+  histórico y revisión: 0 o 1, si >1 `ERROR_AMBIGUO_HISTORICO` / `ERROR_AMBIGUO_REVISION`)
+  → descarga de cada artefacto por su fileId a `control1_entrada/` → Python. Se
+  eliminan `CONSTRUIR - Descarga historico CONTROL1` y `EJECUTAR 07C descargar
+  historico CONTROL1`. Histórico ausente en Drive = primera ejecución legítima
+  (vacío); nunca un histórico local.
+- Publicación (07D `actualizar`, en este orden): GLOBAL corregido → revisión →
+  histórico (siempre al final). Revisión solo si CONTROL 1 la escribió en esa
+  corrida; histórico solo si `historico_actualizado`. El GLOBAL corregido se publica
+  únicamente si `global_modificado`, `estado_validacion=CERRADO_CON_VALIDACION_AUDITOR`,
+  `correcciones_aplicadas>0`, no es `dry_run`, mismo archivo/periodo que el GLOBAL
+  descargado y SHA final distinto del original.
+- Limitación conocida: la carpeta GLOBAL de Drive y las de CONTROL_1 están como ids
+  fijos en el nodo `RESOLVER control1`. El `RESULTADO_GLOBAL_TIQ_*.json` de Drive no
+  se actualiza cuando CONTROL 1 corrige el GLOBAL (describe la corrida de `/global`).
+  Regenerar GLOBAL con `/global` reconstruye desde los SAP y perdería una corrección
+  ya publicada: no regenerar GLOBAL de un mes ya cerrado por CONTROL 1.
+
+**Fecha valor (sin cambios):** CONTROL 1 detecta por igualdad de la asignación
+(columna R) tras las exclusiones por cuenta/asignación; la fecha valor (columna O)
+NO participa en la detección. Se conserva tal como viene en el SAP origen y queda
+como trazabilidad (Excel de revisión y columna `fecha_valor` del histórico
+persistente), incluidas las fechas legacy con día/mes invertidos.
+
+**Tests:** `tests_v3/test_auditoria_mensual.py` (+9 de CONTROL 1: residuos locales
+ignorados, primera ejecución vacía, histórico de Drive usado y conservado, revisión
+de Drive que preserva decisiones + corrección autorizada del GLOBAL materializado,
+reejecución idempotente, limpieza por periodo) y
+`tests_v3/n8n_control1_fuente_drive/test_nodos.js` (24: casos A–K, decisión de
+publicación, orden, y coincidencia con el snapshot desplegado).
+
+**No se pudo verificar contra Drive real en esta fase:** la credencial "Google Drive
+account" de n8n devolvió "needs to be reconnected" (token vencido/revocado), así que
+no se leyó el histórico ni `CONTROL_1_ASIGNACIONES` ni se probó la materialización
+real de `/control1`. Hay que reconectar la credencial antes de la primera ejecución.
+
+Commit de este fix: `fix: materialize control1 inputs from Drive`.

@@ -3,12 +3,12 @@
   "name": "TIQ V3 · BACKEND DEV (webhooks)",
   "active": true,
   "isArchived": false,
-  "versionId": "83d4d373-8b68-45a1-81be-d6a660d9fa1e",
-  "activeVersionId": "83d4d373-8b68-45a1-81be-d6a660d9fa1e",
+  "versionId": "819b9b9a-08ee-4cc6-8d62-15d2a8f3de0d",
+  "activeVersionId": "819b9b9a-08ee-4cc6-8d62-15d2a8f3de0d",
   "triggerCount": 10,
-  "nodeCount": 120,
+  "nodeCount": 127,
   "createdAt": "2026-09-14T04:52:50.018Z",
-  "updatedAt": "2026-09-18T18:38:59.990Z",
+  "updatedAt": "2026-09-18T20:03:54.479Z",
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": true
@@ -841,33 +841,11 @@
       "main": [
         [
           {
-            "node": "CONSTRUIR - Descarga historico CONTROL1",
+            "node": "RESOLVER control1 (periodo y carpetas)",
             "type": "main",
             "index": 0
           }
         ],
-        [
-          {
-            "node": "CONSTRUIR payload control1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "CONSTRUIR - Descarga historico CONTROL1": {
-      "main": [
-        [
-          {
-            "node": "EJECUTAR 07C descargar historico CONTROL1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "EJECUTAR 07C descargar historico CONTROL1": {
-      "main": [
         [
           {
             "node": "CONSTRUIR payload control1",
@@ -1207,6 +1185,105 @@
         [
           {
             "node": "CONSTRUIR payload global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RESOLVER control1 (periodo y carpetas)": {
+      "main": [
+        [
+          {
+            "node": "PREPARAR control1_entrada limpio (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PREPARAR control1_entrada limpio (Python)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR GLOBAL oficial (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR GLOBAL oficial (Drive)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR historico asignaciones (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR historico asignaciones (Drive)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR revision del periodo (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR revision del periodo (Drive)": {
+      "main": [
+        [
+          {
+            "node": "CLASIFICAR - Artefactos de CONTROL 1 en Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CLASIFICAR - Artefactos de CONTROL 1 en Drive": {
+      "main": [
+        [
+          {
+            "node": "DESCARGAR - Artefacto de CONTROL 1 (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - Artefacto de CONTROL 1 (Drive)": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR - Artefacto a control1_entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR - Artefacto a control1_entrada": {
+      "main": [
+        [
+          {
+            "node": "RESTAURAR - Item del webhook control1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RESTAURAR - Item del webhook control1": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload control1",
             "type": "main",
             "index": 0
           }
@@ -2510,7 +2587,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const t = $('WEBHOOK control1').item.json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (ejecutar_control1) -- Python es la unica\n// autoridad. Opera sobre el GLOBAL del MISMO anio/mes ya generado por\n// /global (ruta determinista, ver v3/dev_api.py::_ruta_global). Cero\n// logica contable aqui.\nconst payload = { anio: t.body.anio, mes: t.body.mes, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', ruta_revision_json: t.body.ruta_revision_json || null, dry_run: t.body.dry_run || false };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+        "jsCode": "const t = $('WEBHOOK control1').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (ejecutar_control1) -- Python es la unica\n// autoridad. Opera sobre el GLOBAL OFICIAL que este backend acaba de\n// descargar de Drive a control1_entrada/<periodo>/ (nunca sobre un GLOBAL\n// local). Cero logica contable aqui.\nconst payload = { anio: t.body.anio, mes: t.body.mes, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', ruta_revision_json: t.body.ruta_revision_json || null, dry_run: t.body.dry_run || false };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];\n"
       }
     },
     {
@@ -2870,47 +2947,6 @@
       }
     },
     {
-      "id": "3cd920ab-c3f2-4e98-b2ca-891f70eb2cf7",
-      "name": "CONSTRUIR - Descarga historico CONTROL1",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        448,
-        3420
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "return [{ json: { carpeta_id: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB', nombre_archivo: 'HISTORICO_ASIGNACIONES.csv', ruta_local_destino: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir/global/HISTORICO_ASIGNACIONES.csv' } }];"
-      }
-    },
-    {
-      "id": "a0777441-896b-4881-ba26-ae69138934ff",
-      "name": "EJECUTAR 07C descargar historico CONTROL1",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        672,
-        3420
-      ],
-      "parameters": {
-        "mode": "once",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "fn7lLjHsiMd48DGK"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "carpeta_id": "={{ $json.carpeta_id }}",
-            "nombre_archivo": "={{ $json.nombre_archivo }}",
-            "ruta_local_destino": "={{ $json.ruta_local_destino }}"
-          }
-        }
-      }
-    },
-    {
       "id": "45918c80-e7aa-48ed-be73-cd194f2afd2f",
       "name": "DECIDIR - Publicar CONTROL1 oficial",
       "type": "n8n-nodes-base.code",
@@ -2922,7 +2958,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const modo = (($('WEBHOOK control1').item.json.body) || {}).modo || 'dev';\nconst r = $json.data;\nconst hayRevision = !!r.ruta_revision;\nconst hayHistorico = !!r.historico_actualizado;\nconst debePublicar = modo === 'official' && (hayRevision || hayHistorico);\nreturn [{ json: { debe_publicar: debePublicar, hay_revision: hayRevision, hay_historico: hayHistorico, ruta_revision: r.ruta_revision || null } }];"
+        "jsCode": "const modo = (($('WEBHOOK control1').first().json.body) || {}).modo || 'dev';\nconst r = $json.data || {};\nif (modo !== 'official') {\n  return [{ json: { debe_publicar: false, hay_revision: false, hay_historico: false, publicar_global: false, ruta_revision: null } }];\n}\nconst rc = $('RESOLVER control1 (periodo y carpetas)').first().json;\n\n// Revision e historico: solo cuando la logica de CONTROL 1 los escribio en ESTA corrida.\nconst hayRevision = r.revision_actualizada === true && typeof r.ruta_revision === 'string' && r.ruta_revision.split('/').pop() === rc.nombre_revision;\nconst hayHistorico = r.historico_actualizado === true;\n\n// GLOBAL corregido: solo si CONTROL 1 realmente lo modifico como resultado autorizado\n// (validacion del auditor cerrada), es el MISMO GLOBAL oficial descargado en esta corrida\n// (mismo nombre/periodo, SHA original distinto del final) y no es simulacro.\nconst publicarGlobal = r.global_modificado === true\n  && r.estado_validacion === 'CERRADO_CON_VALIDACION_AUDITOR'\n  && Number(r.correcciones_aplicadas) > 0\n  && r.dry_run !== true\n  && r.archivo_global === rc.nombre_global\n  && r.periodo === (rc.mes_nombre + '_' + rc.anio)\n  && typeof r.sha256_global_original === 'string' && typeof r.sha256_global_final === 'string'\n  && r.sha256_global_original !== r.sha256_global_final;\n\nreturn [{ json: { debe_publicar: hayRevision || hayHistorico || publicarGlobal, hay_revision: hayRevision, hay_historico: hayHistorico, publicar_global: publicarGlobal, ruta_revision: hayRevision ? r.ruta_revision : null } }];\n"
       }
     },
     {
@@ -2967,7 +3003,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const d = $json;\nconst items = [];\nif (d.hay_revision) { items.push({ carpeta_id: '1oOcwIgq_9uU9eRLV7z36zBjdBS-hBlRk', nombre_archivo: d.ruta_revision.split('/').pop(), ruta_local_origen: d.ruta_revision, modo_si_existe: 'actualizar' }); }\nif (d.hay_historico) { items.push({ carpeta_id: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB', nombre_archivo: 'HISTORICO_ASIGNACIONES.csv', ruta_local_origen: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir/global/HISTORICO_ASIGNACIONES.csv', modo_si_existe: 'actualizar' }); }\nreturn items.map(function(it){ return { json: it }; });"
+        "jsCode": "// Orden deliberado: GLOBAL corregido -> revision -> historico (el historico va SIEMPRE al final: si algo\n// falla antes, Drive nunca queda con un historico que dice \"GLOBAL final X\" y un GLOBAL distinto).\nconst d = $json;\nconst rc = $('RESOLVER control1 (periodo y carpetas)').first().json;\nconst items = [];\nif (d.publicar_global) {\n  items.push({ carpeta_id: rc.carpeta_global_id, nombre_archivo: rc.nombre_global, ruta_local_origen: rc.dir_entrada + '/' + rc.nombre_global, modo_si_existe: 'actualizar' });\n}\nif (d.hay_revision) {\n  items.push({ carpeta_id: rc.carpeta_control1_id, nombre_archivo: rc.nombre_revision, ruta_local_origen: rc.dir_entrada + '/' + rc.nombre_revision, modo_si_existe: 'actualizar' });\n}\nif (d.hay_historico) {\n  items.push({ carpeta_id: rc.carpeta_controles_id, nombre_archivo: rc.nombre_historico, ruta_local_origen: rc.dir_entrada + '/' + rc.nombre_historico, modo_si_existe: 'actualizar' });\n}\nreturn items.map(function (it) { return { json: it }; });\n"
       }
     },
     {
@@ -3393,6 +3429,212 @@
         "mode": "runOnceForAllItems",
         "language": "javaScript",
         "jsCode": "// Devuelve el item original del webhook: CONSTRUIR payload global sigue leyendo t.body.anio/mes sin cambios.\nreturn [{ json: $('WEBHOOK global').first().json }];\n"
+      }
+    },
+    {
+      "id": "63850d62-9373-49c5-bbb7-f1e18cf7647c",
+      "name": "RESOLVER control1 (periodo y carpetas)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        3700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// FASE 12E.4 -- CONTROL 1: Drive oficial = fuente de verdad; local = materializacion temporal de la corrida.\nconst t = $('WEBHOOK control1').first().json;\nconst body = t.body || {};\nconst anio = body.anio;\nconst mes = body.mes;\nif (!Number.isInteger(anio) || anio < 2000 || anio > 2100 || !Number.isInteger(mes) || mes < 1 || mes > 12) {\n  throw new Error('PERIODO_INVALIDO: anio/mes deben ser enteros validos (recibido anio=' + anio + ', mes=' + mes + ').');\n}\nconst MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];\nconst mesNombre = MESES[mes - 1];\nconst periodo = anio + '-' + String(mes).padStart(2, '0');\n\nconst baseDirDev = '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir';\nconst dirEntrada = baseDirDev + '/control1_entrada/' + periodo;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst payloadPrep = { anio: anio, mes: mes, base_dir_dev: baseDirDev };\n\nreturn [{\n  json: {\n    anio: anio, mes: mes, periodo: periodo, mes_nombre: mesNombre,\n    nombre_global: 'SAP_GLOBAL_TIQ_' + mesNombre + '_' + anio + '.xlsx',\n    nombre_historico: 'HISTORICO_ASIGNACIONES.csv',\n    nombre_revision: 'REVISION_ASIGNACIONES_' + mesNombre + '_' + anio + '.xlsx',\n    // Carpetas oficiales de Drive: 05_CONTROLES, 05_CONTROLES/GLOBAL, 05_CONTROLES/CONTROL_1_ASIGNACIONES.\n    carpeta_controles_id: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB',\n    carpeta_global_id: '1KREzDpgptWRwuArA1qYco49rplOEeeNU',\n    carpeta_control1_id: '1oOcwIgq_9uU9eRLV7z36zBjdBS-hBlRk',\n    dir_entrada: dirEntrada,\n    input_b64: Buffer.from(JSON.stringify(payloadPrep), 'utf8').toString('base64'),\n    ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_control1_input_' + executionId + '.json',\n    ruta_output_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_control1_output_' + executionId + '.json',\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "e4a26943-9025-477d-be82-f38541139f08",
+      "name": "PREPARAR control1_entrada limpio (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        672,
+        3700
+      ],
+      "parameters": {
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\" && cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion preparar_control1_entrada --input \"{{ $json.ruta_input_tmp }}\" --output \"{{ $json.ruta_output_tmp }}\" && grep -q '\"resultado\": \"OK\"' \"{{ $json.ruta_output_tmp }}\" && cat \"{{ $json.ruta_output_tmp }}\""
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "d46b2db5-36b8-41fa-b78f-e659a1c41a7b",
+      "name": "BUSCAR GLOBAL oficial (Drive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        896,
+        3700
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "={{ $('RESOLVER control1 (periodo y carpetas)').first().json.nombre_global }}",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER control1 (periodo y carpetas)').first().json.carpeta_global_id }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "4f436706-0ed8-42ab-9530-7c15899b46ae",
+      "name": "BUSCAR historico asignaciones (Drive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        3700
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "={{ $('RESOLVER control1 (periodo y carpetas)').first().json.nombre_historico }}",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER control1 (periodo y carpetas)').first().json.carpeta_controles_id }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "72c809cb-8bb5-4bd6-a183-2d74f4b8ee6b",
+      "name": "BUSCAR revision del periodo (Drive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1344,
+        3700
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "={{ $('RESOLVER control1 (periodo y carpetas)').first().json.nombre_revision }}",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER control1 (periodo y carpetas)').first().json.carpeta_control1_id }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "f151f2ad-13eb-4640-90ab-e82aaea817bd",
+      "name": "CLASIFICAR - Artefactos de CONTROL 1 en Drive",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        3700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Exige EXACTAMENTE un GLOBAL oficial; historico y revision son opcionales (0 o 1), nunca mas de uno.\nconst rc = $('RESOLVER control1 (periodo y carpetas)').first().json;\nfunction exactos(nodo, nombre) {\n  return $(nodo).all().map(function (i) { return i.json; }).filter(function (j) { return j && j.id && j.name === nombre; });\n}\nconst g = exactos('BUSCAR GLOBAL oficial (Drive)', rc.nombre_global);\nconst h = exactos('BUSCAR historico asignaciones (Drive)', rc.nombre_historico);\nconst r = exactos('BUSCAR revision del periodo (Drive)', rc.nombre_revision);\n\nif (g.length === 0) {\n  throw new Error('GLOBAL_OFICIAL_NO_ENCONTRADO: no existe \"' + rc.nombre_global + '\" en 05_CONTROLES/GLOBAL de Drive. CONTROL 1 no usa un GLOBAL local como sustituto: genera el GLOBAL antes.');\n}\nif (g.length > 1) {\n  throw new Error('ERROR_AMBIGUO_GLOBAL: hay ' + g.length + ' archivos \"' + rc.nombre_global + '\" en 05_CONTROLES/GLOBAL. No se elige ninguno.');\n}\nif (h.length > 1) {\n  throw new Error('ERROR_AMBIGUO_HISTORICO: hay ' + h.length + ' archivos \"' + rc.nombre_historico + '\" en 05_CONTROLES. No se elige ninguno.');\n}\nif (r.length > 1) {\n  throw new Error('ERROR_AMBIGUO_REVISION: hay ' + r.length + ' archivos \"' + rc.nombre_revision + '\" en CONTROL_1_ASIGNACIONES. No se elige ninguno.');\n}\n\nconst items = [{ tipo: 'global', id: String(g[0].id), name: rc.nombre_global }];\nif (h.length === 1) items.push({ tipo: 'historico', id: String(h[0].id), name: rc.nombre_historico });\nif (r.length === 1) items.push({ tipo: 'revision', id: String(r[0].id), name: rc.nombre_revision });\nreturn items.map(function (it) {\n  return { json: Object.assign({ ruta_destino: rc.dir_entrada + '/' + it.name, historico_en_drive: h.length === 1, revision_en_drive: r.length === 1 }, it) };\n});\n"
+      }
+    },
+    {
+      "id": "c3b62b1c-1797-4d36-b45e-10ee3156ad4c",
+      "name": "DESCARGAR - Artefacto de CONTROL 1 (Drive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1792,
+        3700
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "3eef3c1c-1352-40e7-9926-7e05e77c5884",
+      "name": "ESCRIBIR - Artefacto a control1_entrada",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        2016,
+        3700
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('CLASIFICAR - Artefactos de CONTROL 1 en Drive').item.json.ruta_destino }}",
+        "dataPropertyName": "data",
+        "options": {}
+      }
+    },
+    {
+      "id": "43aa1e1c-48f2-4afa-84b8-57e51d6f1813",
+      "name": "RESTAURAR - Item del webhook control1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        3700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Devuelve el item original del webhook: CONSTRUIR payload control1 sigue leyendo t.body.anio/mes.\nreturn [{ json: $('WEBHOOK control1').first().json }];\n"
       }
     }
   ],

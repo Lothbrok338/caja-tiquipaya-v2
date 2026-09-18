@@ -496,18 +496,45 @@ def global_entrada_dir(base_dir_dev, anio, mes):
     return os.path.join(base_dir_dev, "global_entrada", f"{anio:04d}-{mes:02d}")
 
 
+def _limpiar_y_crear_dir_periodo(destino, base_dir_dev, etiqueta):
+    """Borra ÚNICAMENTE `destino` (un directorio de materialización de UN
+    periodo, creado por este backend) y lo recrea vacío. Nunca toca otro
+    directorio ni Drive."""
+    _verificar_contenido_en_base_dir(os.path.join(destino, "_"), base_dir_dev)
+    if os.path.lexists(destino):
+        if os.path.islink(destino) or not os.path.isdir(destino):
+            raise RuntimeError(f"{etiqueta}_INVALIDA: {destino} no es un directorio normal")
+        shutil.rmtree(destino)
+    os.makedirs(destino)
+
+
 def preparar_global_entrada(anio, mes, base_dir_dev):
     """Deja `global_entrada/<periodo>/` VACÍO y listo para materializar la
     carpeta SAP oficial desde Drive. Borra únicamente esa carpeta del
     periodo (nunca `publicacion/sap`, nunca otros periodos, nunca Drive):
     así ningún archivo de una corrida anterior puede contaminar GLOBAL."""
     destino = global_entrada_dir(base_dir_dev, anio, mes)
-    _verificar_contenido_en_base_dir(os.path.join(destino, "_"), base_dir_dev)
-    if os.path.lexists(destino):
-        if os.path.islink(destino) or not os.path.isdir(destino):
-            raise RuntimeError(f"GLOBAL_ENTRADA_INVALIDA: {destino} no es un directorio normal")
-        shutil.rmtree(destino)
-    os.makedirs(destino)
+    _limpiar_y_crear_dir_periodo(destino, base_dir_dev, "GLOBAL_ENTRADA")
+    return {"dir_entrada": os.path.abspath(destino), "periodo": f"{anio:04d}-{mes:02d}"}
+
+
+def control1_entrada_dir(base_dir_dev, anio, mes):
+    """Materialización AISLADA de las entradas de CONTROL 1 para UN periodo:
+    `base_dir_dev/control1_entrada/<YYYY-MM>/`. Contiene, y solo contiene,
+    lo que el backend descargó de Drive en ESA corrida (SAP_GLOBAL oficial,
+    HISTORICO_ASIGNACIONES.csv si existe, REVISION_ASIGNACIONES_<periodo>.xlsx
+    si existe) y lo que CONTROL 1 escribe encima (revisión, histórico,
+    GLOBAL corregido). Nunca `dev_workdir/global/` ni `publicacion/`."""
+    _validar_anio_mes(anio, mes)
+    return os.path.join(base_dir_dev, "control1_entrada", f"{anio:04d}-{mes:02d}")
+
+
+def preparar_control1_entrada(anio, mes, base_dir_dev):
+    """Deja `control1_entrada/<periodo>/` VACÍO antes de materializar desde
+    Drive: ningún histórico, revisión o GLOBAL local de una corrida anterior
+    puede colarse en CONTROL 1."""
+    destino = control1_entrada_dir(base_dir_dev, anio, mes)
+    _limpiar_y_crear_dir_periodo(destino, base_dir_dev, "CONTROL1_ENTRADA")
     return {"dir_entrada": os.path.abspath(destino), "periodo": f"{anio:04d}-{mes:02d}"}
 
 
@@ -545,18 +572,47 @@ def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None)
 
 
 def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=False):
-    """Cierre MENSUAL — paso 2 (CONTROL 1). Opera sobre el GLOBAL generado
-    en el paso 1 para el MISMO año/mes (misma ruta determinística que
-    `generar_global`, nunca una ruta elegida por el navegador). Historial
-    de asignaciones y REVISION_ASIGNACIONES_<PERIODO>.xlsx quedan en
-    `base_dir_dev/global/`."""
-    global_dir = os.path.join(base_dir_dev, "global")
-    ruta_global = _ruta_global(base_dir_dev, anio, mes)
-    ruta_historico = os.path.join(global_dir, "HISTORICO_ASIGNACIONES.csv")
-    return ejecutar_control1_mensual(
+    """Cierre MENSUAL — paso 2 (AUDITORÍA DE ASIGNACIONES / CONTROL 1).
+
+    DRIVE OFICIAL = fuente de verdad; LOCAL = materialización temporal de la
+    corrida (FASE 12E.4). Lee ÚNICAMENTE `control1_entrada/<YYYY-MM>/`, que el
+    backend limpió y llenó justo antes desde Drive:
+      - SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx  (OBLIGATORIO: el GLOBAL oficial);
+      - HISTORICO_ASIGNACIONES.csv       (si no está, es una primera ejecución
+        legítima con histórico vacío — el backend ya verificó que tampoco
+        existe en Drive; aquí nunca hay un histórico "local viejo" porque el
+        directorio se limpió);
+      - REVISION_ASIGNACIONES_<PERIODO>.xlsx (si existe en Drive, para
+        preservar las decisiones previas del auditor).
+    Nunca usa `global/`, `publicacion/` ni otra corrida. Revisión, histórico
+    y (si el auditor autorizó correcciones) el GLOBAL corregido quedan en ese
+    mismo directorio para que el backend los publique a Drive."""
+    entrada = control1_entrada_dir(base_dir_dev, anio, mes)
+    if not os.path.isdir(entrada):
+        raise RuntimeError(
+            f"CONTROL1_ENTRADA_NO_MATERIALIZADA: {entrada} no existe; el backend debe "
+            f"materializar GLOBAL/histórico/revisión desde Drive antes de ejecutar CONTROL 1."
+        )
+    nombre_global = consolidador_mensual.nombre_sap_global(anio, mes)
+    ruta_global = os.path.join(entrada, nombre_global)
+    if not os.path.isfile(ruta_global):
+        raise RuntimeError(
+            f"GLOBAL_OFICIAL_NO_MATERIALIZADO: falta {nombre_global} en {entrada}; "
+            f"CONTROL 1 nunca usa un GLOBAL local como sustituto."
+        )
+    ruta_historico = os.path.join(entrada, "HISTORICO_ASIGNACIONES.csv")
+    resultado = ejecutar_control1_mensual(
         ruta_global, ruta_historico,
-        directorio_revision=global_dir, ruta_revision_json=ruta_revision_json, dry_run=dry_run,
+        directorio_revision=entrada, ruta_revision_json=ruta_revision_json, dry_run=dry_run,
     )
+    resultado["dir_entrada"] = os.path.abspath(entrada)
+    resultado["ruta_global_materializado"] = os.path.abspath(ruta_global)
+    periodo_esperado = _periodo(anio, mes)
+    if resultado.get("periodo") not in (None, periodo_esperado):
+        raise RuntimeError(
+            f"PERIODO_INCONSISTENTE: CONTROL 1 devolvió {resultado.get('periodo')!r} y se pidió {periodo_esperado!r}"
+        )
+    return resultado
 
 
 def ejecutar_control3(anio, mes, base_dir_dev, ruta_observaciones_json=None, dry_run=False):
@@ -590,7 +646,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Backend DEV (API de lotes) de V3 — FASE 9.")
     parser.add_argument("--accion", required=True, choices=[
         "crear_lote_pendiente", "procesar_lote", "estado", "datos", "revisar", "corregir", "publicar",
-        "generar_global", "preparar_global_entrada", "ejecutar_control1", "ejecutar_control3",
+        "generar_global", "preparar_global_entrada", "preparar_control1_entrada", "ejecutar_control1", "ejecutar_control3",
     ])
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
@@ -628,6 +684,10 @@ def main(argv=None):
             )}
         elif args.accion == "preparar_global_entrada":
             salida = {"resultado": "OK", **preparar_global_entrada(
+                datos["anio"], datos["mes"], datos["base_dir_dev"],
+            )}
+        elif args.accion == "preparar_control1_entrada":
+            salida = {"resultado": "OK", **preparar_control1_entrada(
                 datos["anio"], datos["mes"], datos["base_dir_dev"],
             )}
         elif args.accion == "ejecutar_control1":

@@ -359,6 +359,24 @@ def test_flujo_diario_nunca_ejecuta_control1_ni_control3(tmp_path):
             assert "HISTORICO_CXC_CXP" not in nombre
 
 
+def _materializar_control1(base_dir_dev, anio=2026, mes=9, historico_drive=None, revision_drive=None):
+    """Simula lo que el backend hace desde Drive antes de CONTROL 1: deja el
+    GLOBAL 'oficial' (aqui: copia del GLOBAL recien generado, que en
+    produccion es la descarga de 05_CONTROLES/GLOBAL/) en
+    control1_entrada/<periodo>/, junto con el historico/revision 'de Drive'
+    si se indican (rutas de archivos fuente)."""
+    import shutil as _sh
+    base = str(base_dir_dev)
+    dir_c1 = dev_api.preparar_control1_entrada(anio, mes, base)["dir_entrada"]
+    nombre = cm.nombre_sap_global(anio, mes)
+    _sh.copyfile(os.path.join(base, "global", nombre), os.path.join(dir_c1, nombre))
+    if historico_drive:
+        _sh.copyfile(str(historico_drive), os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv"))
+    if revision_drive:
+        _sh.copyfile(str(revision_drive), os.path.join(dir_c1, os.path.basename(str(revision_drive))))
+    return dir_c1
+
+
 # ---------------------------------------------------------------------------
 # v3/dev_api.py — envoltorio con rutas fijas del lado servidor (base_dir_dev)
 # ---------------------------------------------------------------------------
@@ -376,6 +394,7 @@ def test_dev_api_generar_global_y_controles_usan_base_dir_dev(tmp_path):
     ruta_global_esperada = os.path.join(str(base_dir_dev), "global", "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx")
     assert r_global["ruta_global_generado"] == os.path.abspath(ruta_global_esperada)
 
+    _materializar_control1(base_dir_dev)
     r_c1 = dev_api.ejecutar_control1(2026, 9, str(base_dir_dev))
     assert r_c1["estado"] == "OK_SIN_DUPLICADOS"
 
@@ -411,6 +430,7 @@ def test_cli_main_generar_global_y_controles_produce_json_valido(tmp_path):
 
     entrada2 = tmp_path / "in2.json"
     entrada2.write_text(jsonlib.dumps({"anio": 2026, "mes": 9, "base_dir_dev": str(base_dir_dev)}), encoding="utf-8")
+    _materializar_control1(base_dir_dev)
     dev_api.main(["--accion", "ejecutar_control1", "--input", str(entrada2), "--output", str(salida)])
     resultado_c1 = jsonlib.loads(salida.read_text(encoding="utf-8"))
     assert resultado_c1["resultado"] == "OK"
@@ -532,10 +552,11 @@ def test_dev_api_regenerar_global_no_afecta_historicos_de_controles(tmp_path):
     crear_plantilla_sap(str(plantilla))
 
     dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    _materializar_control1(base_dir_dev)
     dev_api.ejecutar_control1(2026, 9, str(base_dir_dev))
     dev_api.ejecutar_control3(2026, 9, str(base_dir_dev))
 
-    ruta_hist_c1 = base_dir_dev / "global" / "HISTORICO_ASIGNACIONES.csv"
+    ruta_hist_c1 = base_dir_dev / "control1_entrada" / "2026-09" / "HISTORICO_ASIGNACIONES.csv"
     ruta_hist_c3 = base_dir_dev / "global" / "HISTORICO_CXC_CXP.csv"
     assert os.path.isfile(ruta_hist_c1)
     assert os.path.isfile(ruta_hist_c3)
@@ -1068,3 +1089,227 @@ def test_cli_preparar_global_entrada_y_generar_global(tmp_path):
     r = jsonlib.loads(salida.read_text(encoding="utf-8"))
     assert r["resultado"] == "OK" and os.listdir(entrada) == []
     assert '"resultado": "OK"' in salida.read_text(encoding="utf-8")  # el nodo n8n lo verifica con grep -q
+
+
+# ---------------------------------------------------------------------------
+# FASE 12E.4 (2026-09-18) — AUDITORIA DE ASIGNACIONES (CONTROL 1): Drive oficial
+# = fuente de verdad; local = materializacion temporal de la corrida en
+# dev_workdir/control1_entrada/<YYYY-MM>/. Estos tests simulan con archivos
+# locales lo que el backend descarga de Drive (nunca escriben en Drive).
+# ---------------------------------------------------------------------------
+
+import csv as _csv
+import shutil as _shutil
+
+_NOMBRE_GLOBAL_SEP = "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx"
+_NOMBRE_REVISION_SEP = "REVISION_ASIGNACIONES_SEPTIEMBRE_2026.xlsx"
+
+
+def _crear_global_con_filas(ruta, asignaciones, cuenta="110201002", cargo=100):
+    """GLOBAL minimo con una partida por asignacion (fila 16 en adelante)."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "1"
+    for i, asig in enumerate(asignaciones):
+        fila = 16 + i
+        ws[f"B{fila}"] = "BO01"
+        ws[f"C{fila}"] = cuenta
+        ws[f"D{fila}"] = f"GLOSA {i}"
+        ws[f"E{fila}"] = cargo
+        ws[f"O{fila}"] = "2026-09-01"
+        ws[f"R{fila}"] = asig
+    wb.save(ruta)
+
+
+def _base_control1(tmp_path):
+    base = tmp_path / "dev"
+    os.makedirs(base / "global", exist_ok=True)
+    return base
+
+
+def _materializar_desde_drive(base, global_src, historico_src=None, revision_src=None):
+    """Lo que hace el backend: limpiar control1_entrada/<periodo> y dejar ahi lo
+    descargado de 'Drive' (los *_src son los archivos que estarian en Drive)."""
+    dir_c1 = dev_api.preparar_control1_entrada(2026, 9, str(base))["dir_entrada"]
+    _shutil.copyfile(str(global_src), os.path.join(dir_c1, _NOMBRE_GLOBAL_SEP))
+    if historico_src:
+        _shutil.copyfile(str(historico_src), os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv"))
+    if revision_src:
+        _shutil.copyfile(str(revision_src), os.path.join(dir_c1, _NOMBRE_REVISION_SEP))
+    return dir_c1
+
+
+def _filas_csv(ruta):
+    with open(ruta, encoding="utf-8", newline="") as f:
+        return list(_csv.DictReader(f))
+
+
+def _decidir_revision(ruta_xlsx, decisiones):
+    """Simula al auditor editando el Excel de revision: {FILA_GLOBAL: (validacion, asignacion_correcta)}."""
+    wb = openpyxl.load_workbook(ruta_xlsx)
+    ws = wb["REVISION"]
+    cab = {c.value: c.column for c in ws[1]}
+    for fila in range(2, ws.max_row + 1):
+        fg = ws.cell(row=fila, column=cab["FILA_GLOBAL"]).value
+        if fg in decisiones:
+            val, corr = decisiones[fg]
+            ws.cell(row=fila, column=cab["VALIDACION_AUDITOR"]).value = val
+            if corr:
+                ws.cell(row=fila, column=cab["ASIGNACION_CORRECTA"]).value = corr
+    wb.save(ruta_xlsx)
+
+
+def test_control1_sin_materializacion_falla_claro_no_usa_global_local(tmp_path):
+    base = _base_control1(tmp_path)
+    _crear_global_con_filas(str(base / "global" / _NOMBRE_GLOBAL_SEP), ["A1"])  # GLOBAL local residual
+    with pytest.raises(RuntimeError, match="CONTROL1_ENTRADA_NO_MATERIALIZADA"):
+        dev_api.ejecutar_control1(2026, 9, str(base))
+    dev_api.preparar_control1_entrada(2026, 9, str(base))  # dir existe pero sin GLOBAL oficial
+    with pytest.raises(RuntimeError, match="GLOBAL_OFICIAL_NO_MATERIALIZADO"):
+        dev_api.ejecutar_control1(2026, 9, str(base))
+
+
+def test_control1_ignora_global_historico_y_revision_locales_residuales(tmp_path):
+    """B/F/J: solo cuenta lo materializado en control1_entrada; los residuos de
+    dev_workdir/global/ (GLOBAL distinto, historico viejo, revision vieja) no influyen."""
+    base = _base_control1(tmp_path)
+    # Residuos locales: GLOBAL con duplicado, historico viejo con la asignacion, revision vieja.
+    _crear_global_con_filas(str(base / "global" / _NOMBRE_GLOBAL_SEP), ["DUP", "DUP"])
+    with open(base / "global" / "HISTORICO_ASIGNACIONES.csv", "w", encoding="utf-8") as f:
+        f.write("asignacion,fecha_valor,cuenta_mayor,glosa,monto,archivo_global,fila_sap,sha256_archivo,fecha_incorporacion\nUNICA,2026-08-01,110201002,x,1,SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx,16,zz,2026-08-31\n")
+    (base / "global" / _NOMBRE_REVISION_SEP).write_bytes(b"revision local vieja")
+    # "Drive": GLOBAL distinto y limpio (una asignacion unica).
+    drive_global = tmp_path / "drive_global.xlsx"
+    _crear_global_con_filas(str(drive_global), ["UNICA"])
+    _materializar_desde_drive(base, drive_global)
+
+    r = dev_api.ejecutar_control1(2026, 9, str(base))
+    # Si hubiera usado los residuos: GLOBAL local (DUP x2) y/o historico viejo (UNICA) => alertas.
+    assert r["estado"] == "OK_SIN_DUPLICADOS", r
+    assert r["ruta_global_materializado"].endswith("control1_entrada/2026-09/" + _NOMBRE_GLOBAL_SEP)
+    assert r["filas_historico_totales"] if "filas_historico_totales" in r else True
+    filas = _filas_csv(base / "control1_entrada" / "2026-09" / "HISTORICO_ASIGNACIONES.csv")
+    assert [f["asignacion"] for f in filas] == ["UNICA"]  # historico local viejo NO se mezcló
+    # Los residuos locales quedan intactos (no se leen ni se escriben).
+    assert (base / "global" / _NOMBRE_REVISION_SEP).read_bytes() == b"revision local vieja"
+
+
+def test_control1_primera_ejecucion_sin_historico_en_drive_empieza_vacio(tmp_path):
+    """G: solo cuando el historico NO existe en Drive (no se materializa) arranca vacio."""
+    base = _base_control1(tmp_path)
+    drive_global = tmp_path / "drive_global.xlsx"
+    _crear_global_con_filas(str(drive_global), ["A1", "B2"])
+    dir_c1 = _materializar_desde_drive(base, drive_global)
+    assert not os.path.exists(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv"))
+    r = dev_api.ejecutar_control1(2026, 9, str(base))
+    assert r["estado"] == "OK_SIN_DUPLICADOS" and r["historico_actualizado"] is True
+    assert len(_filas_csv(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv"))) == 2
+
+
+def test_control1_historico_de_drive_se_usa_y_no_se_pierde(tmp_path):
+    """E/N: el historico materializado desde Drive detecta alertas contra periodos previos
+    y sus filas previas se conservan al agregar el periodo nuevo."""
+    base = _base_control1(tmp_path)
+    hist = tmp_path / "hist_drive.csv"
+    with open(hist, "w", encoding="utf-8") as f:
+        f.write("asignacion,fecha_valor,cuenta_mayor,glosa,monto,archivo_global,fila_sap,sha256_archivo,fecha_incorporacion\nPREVIA,2026-08-01,110201002,x,1,SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx,16,zz,2026-08-31\n")
+    drive_global = tmp_path / "drive_global.xlsx"
+    _crear_global_con_filas(str(drive_global), ["PREVIA", "NUEVA"])
+    dir_c1 = _materializar_desde_drive(base, drive_global, historico_src=hist)
+
+    r = dev_api.ejecutar_control1(2026, 9, str(base))
+    assert r["estado"] == "REVISAR_DUPLICADOS_ENCONTRADOS"      # PREVIA choca con el historico de Drive
+    assert r["alertas_contra_historico"] == 1
+    assert r["historico_actualizado"] is False                  # pendiente: el historico NO se toca todavia
+    assert [f["asignacion"] for f in _filas_csv(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv"))] == ["PREVIA"]
+
+
+def test_control1_revision_de_drive_preserva_decisiones_y_publica_global_corregido(tmp_path):
+    """I + correccion autorizada: (1) 1a corrida: alertas pendientes, se genera la revision.
+    (2) el auditor decide en el Excel (que 'esta en Drive'). (3) 2a corrida con historico y
+    revision materializados desde Drive: preserva las decisiones, cierra, corrige la columna
+    R del GLOBAL materializado y actualiza el historico sin perder lo previo."""
+    base = _base_control1(tmp_path)
+    drive_global = tmp_path / "drive_global.xlsx"
+    _crear_global_con_filas(str(drive_global), ["DUP", "DUP", "OK"])
+    dir1 = _materializar_desde_drive(base, drive_global)
+    r1 = dev_api.ejecutar_control1(2026, 9, str(base))
+    assert r1["estado_validacion"] == "PENDIENTE_VALIDACION_AUDITOR" and r1["global_modificado"] is False
+    assert r1["revision_actualizada"] is True and r1["historico_actualizado"] is False
+    ruta_rev = os.path.join(dir1, _NOMBRE_REVISION_SEP)
+    assert os.path.isfile(ruta_rev)
+
+    # El auditor valida en el Excel de Drive: fila 16 CORRECTA, fila 17 INCORRECTA -> "CORREGIDA".
+    rev_drive = tmp_path / "rev_drive.xlsx"
+    _shutil.copyfile(ruta_rev, rev_drive)
+    _decidir_revision(str(rev_drive), {16: ("CORRECTA", None), 17: ("INCORRECTA", "CORREGIDA")})
+
+    # 2a corrida: se limpia la entrada (los residuos de la corrida 1 desaparecen) y se materializa de 'Drive'.
+    dir2 = _materializar_desde_drive(base, drive_global, revision_src=rev_drive)
+    assert sorted(os.listdir(dir2)) == sorted([_NOMBRE_GLOBAL_SEP, _NOMBRE_REVISION_SEP])
+    r2 = dev_api.ejecutar_control1(2026, 9, str(base))
+
+    assert r2["estado_validacion"] == "CERRADO_CON_VALIDACION_AUDITOR"
+    assert r2["global_modificado"] is True and r2["correcciones_aplicadas"] == 1
+    assert r2["sha256_global_original"] != r2["sha256_global_final"]
+    assert r2["archivo_global"] == _NOMBRE_GLOBAL_SEP and r2["periodo"] == "SEPTIEMBRE_2026"
+    assert r2["historico_actualizado"] is True and r2["revision_actualizada"] is True
+    # GLOBAL corregido: solo la celda R de la fila 17, en el archivo MATERIALIZADO (no en el 'oficial' de origen).
+    ws = openpyxl.load_workbook(os.path.join(dir2, _NOMBRE_GLOBAL_SEP))["1"]
+    assert [ws[f"R{f}"].value for f in (16, 17, 18)] == ["DUP", "CORREGIDA", "OK"]
+    assert openpyxl.load_workbook(str(drive_global))["1"]["R17"].value == "DUP"  # el origen no se toco
+    # Historico: asignacion FINAL; decisiones del auditor preservadas.
+    filas = _filas_csv(os.path.join(dir2, "HISTORICO_ASIGNACIONES.csv"))
+    assert sorted(f["asignacion"] for f in filas) == ["CORREGIDA", "DUP", "OK"]
+
+
+def test_control1_reejecutar_mismo_global_no_duplica_periodo(tmp_path):
+    """M: con el historico ya publicado (materializado de Drive), el mismo GLOBAL es
+    YA_PROCESADO_SIN_CAMBIOS: no agrega el periodo dos veces."""
+    base = _base_control1(tmp_path)
+    drive_global = tmp_path / "drive_global.xlsx"
+    _crear_global_con_filas(str(drive_global), ["A1", "B2"])
+    dir1 = _materializar_desde_drive(base, drive_global)
+    dev_api.ejecutar_control1(2026, 9, str(base))
+    hist_drive = tmp_path / "hist_drive.csv"
+    _shutil.copyfile(os.path.join(dir1, "HISTORICO_ASIGNACIONES.csv"), hist_drive)
+
+    dir2 = _materializar_desde_drive(base, drive_global, historico_src=hist_drive)
+    r2 = dev_api.ejecutar_control1(2026, 9, str(base))
+    assert r2["estado"] == "YA_PROCESADO_SIN_CAMBIOS"
+    assert len(_filas_csv(os.path.join(dir2, "HISTORICO_ASIGNACIONES.csv"))) == 2
+
+
+def test_preparar_control1_entrada_limpia_solo_ese_periodo_y_valida(tmp_path):
+    """L: cada corrida empieza limpiando SOLO control1_entrada/<periodo>/."""
+    base = _base_control1(tmp_path)
+    dir_sep = dev_api.preparar_control1_entrada(2026, 9, str(base))["dir_entrada"]
+    (open(os.path.join(dir_sep, "HISTORICO_ASIGNACIONES.csv"), "w")).write("residuo")
+    otro = dev_api.preparar_control1_entrada(2026, 10, str(base))["dir_entrada"]
+    (open(os.path.join(otro, "x.txt"), "w")).write("octubre")
+    (base / "global" / "HISTORICO_ASIGNACIONES.csv").write_text("residuo global/")
+    dev_api.preparar_control1_entrada(2026, 9, str(base))
+    assert os.listdir(dir_sep) == []
+    assert os.listdir(otro) == ["x.txt"]
+    assert (base / "global" / "HISTORICO_ASIGNACIONES.csv").read_text() == "residuo global/"
+    for anio, mes in ((2026, 13), ("2026", 9), (1999, 9)):
+        with pytest.raises(ValueError, match="PERIODO_INVALIDO"):
+            dev_api.preparar_control1_entrada(anio, mes, str(base))
+
+
+def test_cli_preparar_control1_entrada_y_meses_del_backend_coinciden_con_consolidador(tmp_path):
+    import json as jsonlib
+    import re as _re
+    base = _base_control1(tmp_path)
+    ent = tmp_path / "in.json"
+    out = tmp_path / "out.json"
+    ent.write_text(jsonlib.dumps({"anio": 2026, "mes": 9, "base_dir_dev": str(base)}))
+    dev_api.main(["--accion", "preparar_control1_entrada", "--input", str(ent), "--output", str(out)])
+    assert '"resultado": "OK"' in out.read_text(encoding="utf-8")
+    # Los nombres de mes que arma el nodo n8n RESOLVER deben ser los de consolidador_mensual.
+    js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "tests_v3", "n8n_control1_fuente_drive", "nodos", "resolver.js"), encoding="utf-8").read()
+    meses_js = _re.search(r"const MESES = \[(.*?)\];", js).group(1)
+    meses_js = [m.strip().strip("'") for m in meses_js.split(",")]
+    meses_py = [cm.nombre_sap_global(2026, m)[len("SAP_GLOBAL_TIQ_"):-len("_2026.xlsx")] for m in range(1, 13)]
+    assert meses_js == meses_py
