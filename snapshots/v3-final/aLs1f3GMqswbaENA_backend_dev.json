@@ -3,12 +3,12 @@
   "name": "TIQ V3 · BACKEND DEV (webhooks)",
   "active": true,
   "isArchived": false,
-  "versionId": "62037abf-2126-4f3b-a005-9f06f910ed34",
-  "activeVersionId": "62037abf-2126-4f3b-a005-9f06f910ed34",
+  "versionId": "78ab08f3-1bad-4e8b-a849-271835dc90d2",
+  "activeVersionId": "78ab08f3-1bad-4e8b-a849-271835dc90d2",
   "triggerCount": 10,
   "nodeCount": 112,
   "createdAt": "2026-09-14T04:52:50.018Z",
-  "updatedAt": "2026-09-18T12:10:14.368Z",
+  "updatedAt": "2026-09-18T13:53:44.401Z",
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": true
@@ -1889,7 +1889,8 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict"
+            "typeValidation": "loose",
+            "version": 1
           },
           "conditions": [
             {
@@ -1902,7 +1903,9 @@
             }
           ],
           "combinator": "and"
-        }
+        },
+        "looseTypeValidation": false,
+        "options": {}
       }
     },
     {
@@ -2666,7 +2669,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const d = $('DECIDIR - Publicar GLOBAL oficial').item.json;\nconst carpetaId = $json.carpeta_id;\nreturn [\n  { json: { carpeta_id: carpetaId, nombre_archivo: d.ruta_sap.split('/').pop(), ruta_local_origen: d.ruta_sap, modo_si_existe: 'mantener' } },\n  { json: { carpeta_id: carpetaId, nombre_archivo: d.ruta_resultado.split('/').pop(), ruta_local_origen: d.ruta_resultado, modo_si_existe: 'mantener' } },\n];"
+        "jsCode": "const d = $('DECIDIR - Publicar GLOBAL oficial').item.json;\nconst carpetaId = $json.carpeta_id;\nreturn [\n  { json: { carpeta_id: carpetaId, nombre_archivo: d.ruta_sap.split('/').pop(), ruta_local_origen: d.ruta_sap, modo_si_existe: 'actualizar' } },\n  { json: { carpeta_id: carpetaId, nombre_archivo: d.ruta_resultado.split('/').pop(), ruta_local_origen: d.ruta_resultado, modo_si_existe: 'actualizar' } },\n];"
       }
     },
     {

@@ -1,10 +1,11 @@
 # SNAPSHOT_MANIFEST.md — V3 FINAL (cierre formal)
 
 Fecha de captura inicial: **2026-09-17T20:55:26Z**
-Última actualización: **2026-09-18T13:05:00Z** — primer cierre oficial V3 publicado
-con éxito (10/09/2026) + fix de los 4 IF booleanos de 06B que lo permitió
+Última actualización: **2026-09-18T13:55:00Z** — GLOBAL mensual V3 ahora
+consolida todo SAP diario válido de la carpeta SAP oficial (legacy + V3) y
+su publicación oficial en Drive quedó regenerable
 (ver §"Cambios posteriores al cierre formal" al final de este archivo).
-Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`) + `fix: preserve Drive ingesta in official processing` + `fix: finalize official V3 publication path`
+Commit Git de referencia: **`bd2424b`** (`feat: complete V3 official monthly persistence`, rama `v3-dev`) + `fix: preserve Drive ingesta in official processing` + `fix: finalize official V3 publication path` + `feat: allow monthly GLOBAL regeneration in V3` + `fix: consolidate all monthly SAP files in V3`
 
 Este snapshot congela el estado de **los 14 workflows n8n de V3** en el momento
 del cierre formal, tras validar FASE 12E (E2E mensual completo, sandbox
@@ -36,7 +37,7 @@ Verificado con grep sobre los 14 archivos: cero coincidencias de
 | 11 | TIQ V3 · 07D PUBLICAR ARCHIVO OFICIAL (crear o actualizar) · DRIVE | `HhuQCVP2oCubavzY` | `HhuQCVP2oCubavzY_07d_publicar_oficial.json` | false | 12 | `9f9aab93e4654612e8a1b10005975fac88ecfc793024b51ba0bab9ddbf848f78` |
 | 12 | TIQ V3 · 07E BUSCAR O CREAR CARPETA OFICIAL · DRIVE | `Lht5xRinJ9nJpHCW` | `Lht5xRinJ9nJpHCW_07e_buscar_crear_carpeta.json` | false | 7 | `2b331e13b50c40d69eb46c06817b6f5aecdeca8d4a25af408274e11bd74cc15f` |
 | 13 | TIQ V3 · PREFLIGHT OFICIAL (solo lectura) | `sJVgoBRpBntc96vf` | `sJVgoBRpBntc96vf_preflight_oficial.json` | false | 12 | `dccdfb3711e06518bce4d73c73acbfaa4a687457212e946d5b85321cb1f782de` |
-| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 112 | `70589eacffbc9b322b75cd127194ef61f5c83f1b15dbff317bb308c9ea9f6bf4` |
+| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 112 | `bad138256de28b2518f7bb5ed9be117756be8becfffe3c8a2c000997d896bb82` |
 
 **Estado `active` real en n8n al momento de esta actualización (2026-09-18):**
 7 workflows están activos — `aLs1f3GMqswbaENA` (BACKEND DEV), `CanZtkmnm0ukAC8c`
@@ -174,3 +175,80 @@ Drive real**, cerrando la cadena completa `/procesar` → `/publicar` → 06B
 → Drive oficial.
 
 Commit de este fix: `fix: finalize official V3 publication path`.
+
+### GLOBAL mensual: consolida todo SAP oficial del mes + regenerable en Drive (2026-09-18)
+
+**Disparador:** el auditor generó el primer GLOBAL real de septiembre 2026
+desde la interfaz. Resultado: `ERROR_REVISAR`, `1 SAP incluidos, 29
+fecha(s) sin cierre`, `ruta_global_generado: null` (nunca se llegó a
+escribir el `.xlsx`).
+
+**Dos problemas reales, distintos, encontrados en esa única corrida:**
+
+1. **GLOBAL solo veía los SAP que V3 había publicado** (`publicacion/sap/`
+   local), nunca los `SAP_DD-MM-YYYY.xlsx` (nombre legacy, sin `TIQ_`) que
+   ya existían en la carpeta SAP oficial de Drive desde antes de V3.
+   Confirmado leyendo Drive real (workflow de diagnóstico temporal, creado
+   y borrado en esta misma sesión): la carpeta SAP oficial de septiembre
+   2026 tiene exactamente 9 archivos — `SAP_01-09-2026.xlsx` ...
+   `SAP_05-09-2026.xlsx`, `SAP_07-09-2026.xlsx` ... `SAP_09-09-2026.xlsx`
+   (legacy, 8 archivos) y `SAP_TIQ_10-09-2026.xlsx` (V3, 1 archivo) — sin
+   `SAP_06-09-2026`, sin duplicados de fecha, sin `SAP_GLOBAL_*` mezclado.
+
+2. **Bug real, preexistente, en `consolidador_mensual.py` (V2, congelado
+   antes de `7dbcf93`):** `_CABECERA_ESPERADA["C"]` exige `"DB"` en la
+   celda C10 (BLART/tipo de asiento) de cada SAP diario de entrada, pero
+   todo SAP diario real trae `"SA"` (`run_batch.py::_TIPO_ASIENTO`,
+   confirmado leyendo el SAP oficial real). `"DB"` es en realidad
+   `_TIPO_ASIENTO_GLOBAL`, la constante separada para la cabecera de
+   SALIDA del propio GLOBAL — nunca debió usarse para validar la entrada.
+   Nunca se había detectado porque este era el primer SAP real (no un
+   fixture sintético) que pasaba por este validador.
+
+**Corregido en esta sesión (problema 1, capa V3, `v3/auditoria.py`):**
+nuevas `_fecha_y_origen_desde_nombre_sap()` / `descubrir_sap_oficiales_del_mes()`
+que escanean la carpeta SAP oficial aceptando AMBOS formatos (legacy y
+V3), filtran por año/mes, excluyen `SAP_GLOBAL_*`/temporales/nombres
+inválidos, y aplican protección por fecha: como máximo un SAP efectivo
+por fecha — mismo contenido con dos nombres se deduplica (se prefiere el
+nombre V3, el otro queda registrado como duplicado idéntico omitido);
+contenido distinto para la misma fecha genera un blocker
+`DUPLICADO_FECHA_AMBIGUA` y detiene la consolidación (nunca elige uno
+arbitrariamente). `generar_global_mensual()` usa este descubrimiento por
+defecto (si no se pasa `archivos_lista` explícito) y se lo pasa a
+`consolidador_mensual.ejecutar_consolidacion()` vía `--archivos-lista`,
+que ya soportaba una lista explícita sin cambios. `fechas_faltantes` (ya
+existente) se recalculó para comparar por FECHA, no por nombre de
+archivo, para no marcar como "faltante" un día cubierto por un SAP
+legacy. **`consolidador_mensual.py` no se tocó.**
+
+**También corregido (Drive oficial, BACKEND DEV):** el nodo `CONSTRUIR -
+Lista publicaciones GLOBAL` pasaba `modo_si_existe: "mantener"` a `07D
+PUBLICAR ARCHIVO OFICIAL` para el SAP_GLOBAL y su JSON de resultado
+(tratándolos como inmutables). Ahora pasa `modo_si_existe: "actualizar"`,
+consistente con la decisión de que GLOBAL es regenerable mientras el mes
+está abierto: una republicación reemplaza el archivo oficial existente en
+`05_CONTROLES/GLOBAL/` en vez de dejarlo intacto. `07D`/`07E` (lógica
+genérica, ya soportaba ambos modos) no se tocaron. Re-publicado
+(`activeVersionId` = `versionId` = `78ab08f3-1bad-4e8b-a849-271835dc90d2`).
+
+**Problema 2 (bug de C10/BLART en `consolidador_mensual.py`) — NO
+corregido en esta sesión, pendiente de decisión del auditor.** Es código
+V2 congelado; corregirlo requiere tocar `_CABECERA_ESPERADA` (o añadir un
+punto de extensión) dentro de ese archivo. Por instrucción explícita del
+auditor ("si descubres que no puede resolverse sin modificar una pieza
+compartida de V2, detente y explícame antes de hacerlo"), esta sesión se
+detuvo ahí: el descubrimiento V3 ya acepta correctamente cualquier SAP
+diario real (`origen: "legacy"` o `"v3"`), pero `consolidador_mensual.py`
+sigue rechazando su cabecera aguas abajo con
+`SAP_INVALIDO:...:CABECERA_C10_ESPERADO_'DB'_OBTENIDO_'SA'` para los 9
+SAP reales de septiembre. **Por eso GLOBAL de septiembre 2026 sigue sin
+poder generarse de punta a punta todavía** — el auditor debe decidir
+cómo corregir `_CABECERA_ESPERADA["C"]` antes de que esto quede resuelto.
+Cubierto con dos tests `xfail(strict=True)` en
+`tests_v3/test_auditoria_mensual.py` (dejan de ser xfail automáticamente
+el día que se aplique la corrección).
+
+Commits de este fix: `feat: allow monthly GLOBAL regeneration in V3` (GLOBAL
+regenerable, turno anterior) + `fix: consolidate all monthly SAP files in V3`
+(descubrimiento legacy+V3, protección por fecha, Drive `actualizar`).

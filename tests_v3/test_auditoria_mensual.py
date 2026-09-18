@@ -590,3 +590,239 @@ def test_ambiguedad_multiple_global_solo_es_posible_a_nivel_drive_no_local(tmp_p
 
     import glob
     assert len(glob.glob(str(base_dir_dev / "global" / "SAP_GLOBAL_TIQ_*_2026.xlsx"))) == 1
+
+
+# ---------------------------------------------------------------------------
+# FASE 12E (2026-09-18) — GLOBAL debe consolidar TODO SAP diario válido de
+# la carpeta SAP oficial del mes (legacy SAP_DD-MM-YYYY.xlsx y V3
+# SAP_TIQ_DD-MM-YYYY.xlsx), no solo los que V3 generó/publicó. Fixtures con
+# C10="SA" -- el valor REAL que escribe run_batch.py en todo SAP diario
+# real (_TIPO_ASIENTO="SA") -- a propósito, para no repetir el mismo
+# supuesto equivocado (C10="DB") que ya tenían los fixtures de arriba y que
+# ocultó, hasta el primer GLOBAL real, que consolidador_mensual.py exige
+# "DB" en la entrada.
+# ---------------------------------------------------------------------------
+
+from v3.auditoria import descubrir_sap_oficiales_del_mes  # noqa: E402
+
+
+def _crear_sap_diario_real(ruta, cargo="100.00", cuenta="110101001", asignacion=None,
+                            fecha_valor=datetime.date(2026, 9, 5)):
+    """Igual que _crear_sap_diario, pero con C10="SA" (el valor real,
+    confirmado leyendo SAP_TIQ_10-09-2026.xlsx en Drive), no "DB"."""
+    _crear_sap_diario(ruta, cargo=cargo, cuenta=cuenta, asignacion=asignacion, fecha_valor=fecha_valor)
+    wb = openpyxl.load_workbook(ruta)
+    wb["1"]["C10"] = "SA"
+    wb.save(ruta)
+
+
+def test_descubrimiento_reconoce_legacy_sap_dd_mm_yyyy(tmp_path):
+    sap_dir = tmp_path / "sap_oficial"
+    sap_dir.mkdir()
+    _crear_sap_diario_real(str(sap_dir / "SAP_01-09-2026.xlsx"))
+
+    r = descubrir_sap_oficiales_del_mes(str(sap_dir), 2026, 9)
+    assert [i["nombre"] for i in r["sap_incluidos"]] == ["SAP_01-09-2026.xlsx"]
+    assert r["sap_incluidos"][0]["origen"] == "legacy"
+    assert r["blockers"] == []
+
+
+def test_descubrimiento_reconoce_sap_tiq_dd_mm_yyyy(tmp_path):
+    sap_dir = tmp_path / "sap_oficial"
+    sap_dir.mkdir()
+    _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_10-09-2026.xlsx"))
+
+    r = descubrir_sap_oficiales_del_mes(str(sap_dir), 2026, 9)
+    assert [i["nombre"] for i in r["sap_incluidos"]] == ["SAP_TIQ_10-09-2026.xlsx"]
+    assert r["sap_incluidos"][0]["origen"] == "v3"
+
+
+def test_descubrimiento_legacy_y_v3_en_fechas_distintas_ambos_incluidos(tmp_path):
+    sap_dir = tmp_path / "sap_oficial"
+    sap_dir.mkdir()
+    _crear_sap_diario_real(str(sap_dir / "SAP_01-09-2026.xlsx"), fecha_valor=datetime.date(2026, 9, 1))
+    _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_10-09-2026.xlsx"), fecha_valor=datetime.date(2026, 9, 10))
+
+    r = descubrir_sap_oficiales_del_mes(str(sap_dir), 2026, 9)
+    nombres = sorted(i["nombre"] for i in r["sap_incluidos"])
+    assert nombres == ["SAP_01-09-2026.xlsx", "SAP_TIQ_10-09-2026.xlsx"]
+    assert len(r["archivos"]) == 2
+    assert r["blockers"] == []
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "BLOQUEADO por decisión pendiente del auditor: consolidador_mensual.py "
+        "(V2, congelado) exige C10='DB' en cada SAP diario de entrada "
+        "(_CABECERA_ESPERADA['C']), pero todo SAP diario real trae C10='SA' "
+        "(run_batch.py::_TIPO_ASIENTO). El descubrimiento V3 SÍ acepta el "
+        "archivo (ver test_descubrimiento_reconoce_sap_tiq_dd_mm_yyyy); es la "
+        "validación estructural de V2, aguas abajo, la que sigue rechazándolo. "
+        "Este test debe empezar a pasar (y perder el xfail) el día que se "
+        "autorice y aplique la corrección de _CABECERA_ESPERADA."
+    ),
+)
+def test_sap_diario_real_c10_sa_es_aceptado_por_global(tmp_path):
+    base_dir_dev = tmp_path / "dev"
+    sap_dir = base_dir_dev / "publicacion" / "sap"
+    os.makedirs(sap_dir, exist_ok=True)
+    _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_10-09-2026.xlsx"), cuenta="110201002")
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+
+    r = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r["estado"] == "VALIDADO_PENDIENTE_PUBLICACION", r.get("blockers")
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Depende de test_sap_diario_real_c10_sa_es_aceptado_por_global (mismo bloqueador C10).",
+)
+def test_global_generado_usa_c10_db_en_la_salida(tmp_path):
+    """La SALIDA de GLOBAL siempre debe llevar C10='DB'
+    (_TIPO_ASIENTO_GLOBAL, sin cambios) -- esto es independiente de qué
+    acepte como ENTRADA. Este test queda xfail junto con el anterior solo
+    porque, sin el fix de entrada, GLOBAL nunca llega a escribirse para un
+    SAP real; en cuanto el bloqueador de entrada se resuelva, este test
+    debería pasar sin tocarlo (la salida ya usa 'DB' hoy)."""
+    base_dir_dev = tmp_path / "dev"
+    sap_dir = base_dir_dev / "publicacion" / "sap"
+    os.makedirs(sap_dir, exist_ok=True)
+    _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_10-09-2026.xlsx"), cuenta="110201002")
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+
+    r = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r["estado"] == "VALIDADO_PENDIENTE_PUBLICACION"
+    wb = openpyxl.load_workbook(r["ruta_global_generado"], data_only=True)
+    assert wb["1"]["C10"].value == "DB"
+
+
+def test_descubrimiento_ignora_sap_global_existente(tmp_path):
+    sap_dir = tmp_path / "sap_oficial"
+    sap_dir.mkdir()
+    _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"))
+    # Un SAP_GLOBAL_* en la misma carpeta (p.ej. de una corrida anterior)
+    # nunca debe tratarse como si fuera un SAP diario más.
+    (sap_dir / "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx").write_bytes(b"contenido cualquiera")
+
+    r = descubrir_sap_oficiales_del_mes(str(sap_dir), 2026, 9)
+    assert [i["nombre"] for i in r["sap_incluidos"]] == ["SAP_TIQ_01-09-2026.xlsx"]
+
+
+def test_descubrimiento_excluye_otro_mes(tmp_path):
+    sap_dir = tmp_path / "sap_oficial"
+    sap_dir.mkdir()
+    _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), fecha_valor=datetime.date(2026, 9, 1))
+    _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_01-10-2026.xlsx"), fecha_valor=datetime.date(2026, 10, 1))
+
+    r = descubrir_sap_oficiales_del_mes(str(sap_dir), 2026, 9)
+    assert [i["nombre"] for i in r["sap_incluidos"]] == ["SAP_TIQ_01-09-2026.xlsx"]
+
+
+def test_descubrimiento_excluye_otro_anio(tmp_path):
+    sap_dir = tmp_path / "sap_oficial"
+    sap_dir.mkdir()
+    _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), fecha_valor=datetime.date(2026, 9, 1))
+    _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_01-09-2027.xlsx"), fecha_valor=datetime.date(2027, 9, 1))
+
+    r = descubrir_sap_oficiales_del_mes(str(sap_dir), 2026, 9)
+    assert [i["nombre"] for i in r["sap_incluidos"]] == ["SAP_TIQ_01-09-2026.xlsx"]
+
+
+def test_descubrimiento_excluye_nombre_invalido(tmp_path):
+    sap_dir = tmp_path / "sap_oficial"
+    sap_dir.mkdir()
+    _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"))
+    (sap_dir / "notas.txt").write_text("no es un SAP")
+    (sap_dir / "RESULTADO_TIQ_01-09-2026.json").write_text("{}")
+    (sap_dir / "SAP_TIQ_01-09-2026.xlsx.tmp").write_bytes(b"temporal")
+    (sap_dir / "~$SAP_TIQ_01-09-2026.xlsx").write_bytes(b"lock de excel")
+
+    r = descubrir_sap_oficiales_del_mes(str(sap_dir), 2026, 9)
+    assert [i["nombre"] for i in r["sap_incluidos"]] == ["SAP_TIQ_01-09-2026.xlsx"]
+
+
+def test_descubrimiento_misma_fecha_dos_nombres_contenido_identico_no_duplica(tmp_path):
+    sap_dir = tmp_path / "sap_oficial"
+    sap_dir.mkdir()
+    _crear_sap_diario_real(str(sap_dir / "SAP_10-09-2026.xlsx"), fecha_valor=datetime.date(2026, 9, 10))
+    # Copia byte-identica con el nombre V3 (mismo escenario que el retry
+    # local visto en 06B: mismo contenido, dos nombres para el mismo dia).
+    import shutil as _shutil
+    _shutil.copyfile(str(sap_dir / "SAP_10-09-2026.xlsx"), str(sap_dir / "SAP_TIQ_10-09-2026.xlsx"))
+
+    r = descubrir_sap_oficiales_del_mes(str(sap_dir), 2026, 9)
+    assert len(r["archivos"]) == 1  # nunca doble conteo
+    assert r["sap_incluidos"][0]["nombre"] == "SAP_TIQ_10-09-2026.xlsx"  # se prefiere el nombre V3
+    assert r["sap_incluidos"][0]["origen"] == "v3"
+    assert len(r["duplicados_identicos_omitidos"]) == 1
+    assert r["duplicados_identicos_omitidos"][0]["nombre_omitido"] == "SAP_10-09-2026.xlsx"
+    assert r["blockers"] == []
+
+
+def test_descubrimiento_misma_fecha_contenido_distinto_es_blocker_ambiguo(tmp_path):
+    sap_dir = tmp_path / "sap_oficial"
+    sap_dir.mkdir()
+    _crear_sap_diario_real(str(sap_dir / "SAP_10-09-2026.xlsx"), cargo="100.00", fecha_valor=datetime.date(2026, 9, 10))
+    _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_10-09-2026.xlsx"), cargo="999.00", fecha_valor=datetime.date(2026, 9, 10))
+
+    r = descubrir_sap_oficiales_del_mes(str(sap_dir), 2026, 9)
+    assert r["archivos"] == []  # ninguno se elige arbitrariamente
+    assert len(r["blockers"]) == 1
+    assert r["blockers"][0].startswith("DUPLICADO_FECHA_AMBIGUA:2026-09-10:")
+    assert "SAP_10-09-2026.xlsx" in r["blockers"][0]
+    assert "SAP_TIQ_10-09-2026.xlsx" in r["blockers"][0]
+
+
+def test_global_mensual_propaga_blocker_de_ambiguedad_de_fecha(tmp_path):
+    """El blocker de ambigüedad de fecha debe llegar hasta el resultado
+    final de generar_global_mensual y forzar ERROR_REVISAR -- nunca se
+    resuelve la ambigüedad eligiendo un archivo por su cuenta."""
+    base_dir_dev = tmp_path / "dev"
+    sap_dir = base_dir_dev / "publicacion" / "sap"
+    os.makedirs(sap_dir, exist_ok=True)
+    _crear_sap_diario_real(str(sap_dir / "SAP_10-09-2026.xlsx"), cargo="100.00", fecha_valor=datetime.date(2026, 9, 10))
+    _crear_sap_diario_real(str(sap_dir / "SAP_TIQ_10-09-2026.xlsx"), cargo="999.00", fecha_valor=datetime.date(2026, 9, 10))
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+
+    r = dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert r["estado"] == "ERROR_REVISAR"
+    assert any(b.startswith("DUPLICADO_FECHA_AMBIGUA:2026-09-10:") for b in r["blockers"])
+    assert r["ruta_global_generado"] is None
+
+
+def test_fechas_faltantes_son_informativas_no_bloquean_global(tmp_path):
+    """Con un único SAP real del mes (C10='SA'), GLOBAL sigue bloqueado
+    hoy por el mismo blocker C10 (ver test_sap_diario_real_c10_sa_es_...);
+    lo que este test aísla y prueba es que, aunque eso NO estuviera
+    bloqueado, `fechas_faltantes` nunca aparece en `blockers` ni afecta
+    `estado` -- se prueba directamente sobre `descubrir_sap_oficiales_del_mes`
+    + el cálculo de fechas_faltantes que hace generar_global_mensual,
+    usando un SAP con C10='DB' (fixture antiguo, aceptado hoy por V2) para
+    no mezclar los dos problemas en un mismo test."""
+    sap_dir = tmp_path / "sap_diarios"
+    sap_dir.mkdir()
+    _crear_sap_diario(str(sap_dir / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00")
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+    salida = tmp_path / "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx"
+
+    r = generar_global_mensual(2026, 9, str(sap_dir), str(plantilla), str(salida))
+
+    assert r["estado"] == "VALIDADO_PENDIENTE_PUBLICACION"
+    assert "fechas_faltantes" in r
+    assert len(r["fechas_faltantes"]) == 29  # septiembre tiene 30 dias, 1 presente
+    assert not any("fecha" in b.lower() for b in r["blockers"])
+
+
+def test_v2_consolidador_mensual_no_fue_modificado_por_fase_12e():
+    """Guardarraíl de regresión: FASE 12E deliberadamente NO toca
+    consolidador_mensual.py (V2, congelado) -- toda la lógica nueva de
+    descubrimiento/dedup vive en v3.auditoria. Verifica que las constantes
+    y funciones de V2 relevantes a este cambio siguen exactamente igual."""
+    assert cm._CABECERA_ESPERADA == {"B": "BO01", "C": "DB", "H": "BOB", "L": "CAJA TIQUIPAYA"}
+    assert cm._TIPO_ASIENTO_GLOBAL == "DB"
+    assert cm._RE_SAP_DIARIO.pattern == r"^SAP_TIQ_(\d{2})-(\d{2})-(\d{4})\.xlsx$"
