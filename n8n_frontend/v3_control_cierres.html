@@ -442,6 +442,32 @@
   .form-hint { font-size: 10.5px; color: var(--muted2); margin-top: -2px; }
   .form-error { color: var(--red); font-size: 11.5px; margin-top: 6px; }
   .form-ok { color: var(--green); font-size: 11.5px; margin-top: 6px; }
+  /* Cierre mensual: año/mes a la izquierda, acciones a la derecha, misma altura y separación uniforme. */
+  .acciones-mensual {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: stretch;
+    gap: 10px;
+    margin-left: auto;
+  }
+  .acciones-mensual button {
+    height: 40px;
+    padding: 0 14px;
+    font-size: 12px;
+    letter-spacing: .01em;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* Sin ancho para una sola fila: cuadrícula ordenada de columnas iguales (nunca un botón suelto). */
+  @media (max-width: 1240px) {
+    .acciones-mensual { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; margin-left: 0; }
+  }
+  @media (max-width: 720px) {
+    .acciones-mensual { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   button.cerrar-auditoria { background: var(--red); border-color: var(--red); color: #fff; }
   button.cerrar-auditoria:hover { filter: none; background: #8C1D18; border-color: #8C1D18; }
   button.publicar { background: var(--green); border-color: var(--green); color: #fff; }
@@ -563,12 +589,13 @@
         <label>Mes</label>
         <input type="number" id="in-mensual-mes" min="1" max="12" style="width:70px">
       </div>
-      <div class="field grow"></div>
+      <div class="acciones-mensual">
       <button class="primary" id="btn-mensual-global" title="Regenerable mientras el mes esté abierto">GENERAR GLOBAL</button>
       <button class="primary" id="btn-mensual-control1" title="Revisión preliminar: el periodo sigue abierto">AUDITORÍA DE ASIGNACIONES</button>
       <button class="cerrar-auditoria" id="btn-mensual-control1-cerrar" title="Cierre definitivo del periodo (pide confirmación)">CERRAR AUDITORÍA DE ASIGNACIONES</button>
       <button class="primary" id="btn-mensual-control3" title="Revisión preliminar: el periodo sigue abierto">AUDITORÍA CxC / CxP</button>
       <button class="cerrar-auditoria" id="btn-mensual-control3-cerrar" title="Cierre definitivo del periodo (pide confirmación)">CERRAR AUDITORÍA CxC / CxP</button>
+      </div>
     </div>
     <div style="font-size:0.85em;opacity:0.75;margin-top:2px;">GENERAR GLOBAL: regenerable mientras el mes esté abierto.</div>
     <div id="mensual-resultado" class="mensual-resultado">Sin ejecutar todavía.</div>
