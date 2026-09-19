@@ -20,7 +20,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # n8n via npm (mismo paquete que publica n8nio/n8n internamente).
-RUN npm install -g n8n
+# Versión fijada: 2.35.7 es la que se validó realmente en este runtime
+# (Task Runners para Code nodes, $env en vez de process.env — ver
+# scripts/adapt_workflows_for_railway.py). "n8n" a secas dejaría que un
+# redeploy futuro instale una versión distinta sin que nadie lo decida.
+RUN npm install -g n8n@2.35.7
 
 WORKDIR /app
 

@@ -20,7 +20,7 @@
       "main": [
         [
           {
-            "node": "BUSCAR - Subcarpeta por nombre",
+            "node": "GUARDIA SHADOW (bloquea si TIQ_BLOCK_OFFICIAL_PUBLISH)",
             "type": "main",
             "index": 0
           }
@@ -72,6 +72,17 @@
         [
           {
             "node": "CREAR - Subcarpeta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GUARDIA SHADOW (bloquea si TIQ_BLOCK_OFFICIAL_PUBLISH)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Subcarpeta por nombre",
             "type": "main",
             "index": 0
           }
@@ -245,6 +256,19 @@
         "language": "javaScript",
         "jsCode": "return [{ json: { accion: 'creada', carpeta_id: $json.id } }];"
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// SHADOW GUARD (migracion Railway, defensa en profundidad) -- ver\n// v3/shadow_guard.py para el equivalente en Python. Corre ANTES de\n// cualquier nodo Google Drive que pueda escribir en este subworkflow,\n// sin importar qué decidió el llamador (BACKEND). Inactiva por\n// defecto: sin la variable (o con cualquier valor que no sea\n// exactamente true/1/yes) este subworkflow se comporta exactamente\n// igual que antes de esta guarda.\nconst valor = String($env.TIQ_BLOCK_OFFICIAL_PUBLISH || '').trim().toLowerCase();\nif (['true', '1', 'yes'].includes(valor)) {\n  throw new Error('PUBLICACION_OFICIAL_BLOQUEADA_POR_ENTORNO: TIQ_BLOCK_OFFICIAL_PUBLISH activo (entorno sombra/dev). Este subworkflow no puede escribir en Drive.');\n}\nreturn $input.all();"
+      },
+      "id": "a1a1a1a1-0003-4a1a-9a1a-000000000003",
+      "name": "GUARDIA SHADOW (bloquea si TIQ_BLOCK_OFFICIAL_PUBLISH)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        0
+      ]
     }
   ],
   "nodeGroups": [],

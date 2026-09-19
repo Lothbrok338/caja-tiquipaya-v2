@@ -25,7 +25,13 @@ export NODES_EXCLUDE='[]'
 # se amplia este allowlist. Se agrega la carpeta de fixtures sinteticos
 # del POC (fuera del repo, ver FASE B): ~/poc_n8n_tiquipaya. Inofensivo si
 # esa carpeta no existe en el entorno actual (Railway).
-export N8N_RESTRICT_FILE_ACCESS_TO="~/.n8n-files;${HOME}/poc_n8n_tiquipaya"
+# En Railway, base_dir_dev de v3/dev_api.py vive bajo TIQ_BASE_DIR
+# (/app/dev_workdir por defecto — ver Dockerfile). Sin agregarlo aquí, los
+# nodos "Read/Write Files from Disk" del backend no podrían leer/escribir
+# ahí (mismo bloqueo de seguridad que ya obligaba a agregar
+# poc_n8n_tiquipaya para el POC de Codespaces). No se usa "/" ni se abre
+# nada fuera de estas rutas puntuales.
+export N8N_RESTRICT_FILE_ACCESS_TO="~/.n8n-files;${HOME}/poc_n8n_tiquipaya;${TIQ_BASE_DIR:-/app/dev_workdir}"
 
 if [ -n "${CODESPACE_NAME:-}" ] && [ -n "${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-}" ]; then
   # Codespaces: se accede via la URL HTTPS de reenvio de puerto, no via
