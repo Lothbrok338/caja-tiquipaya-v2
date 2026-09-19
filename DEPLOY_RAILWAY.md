@@ -134,7 +134,10 @@ repetirlos en Railway salvo que se quiera cambiar alguno.
 3. Esperar el primer deploy sano (`environment-status` / logs).
 4. Generar dominio público del servicio (`generate-domain`) si no existe aún.
 5. Ejecutar **una vez** `bash scripts/import_workflows_railway.sh` dentro del contenedor
-   (`railway ssh` o `railway run`) para importar los 7 workflows activos.
+   (`railway ssh -s cajas-gabo-shadow` o `railway run -s cajas-gabo-shadow -- bash scripts/import_workflows_railway.sh`,
+   con la Railway CLI autenticada en tu máquina) para importar los 7 workflows activos.
+   Esto no se pudo ejecutar desde la sesión que preparó esta migración: no tuvo acceso de
+   shell al contenedor ni salida de red hacia el dominio desplegado — ver `CURRENT_STATE.md §Pendientes`.
 6. En la UI de n8n (`https://<dominio>`, ruta `/` es n8n mismo si se accede directo al
    puerto 5678 vía túnel, pero el uso normal es la interfaz V3 en la raíz del dominio
    público): reconectar la credencial OAuth2 "Google Drive account" y activar los 7

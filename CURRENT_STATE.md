@@ -22,8 +22,22 @@
 |---|---|---|
 | Proyecto `CAJAS-GABO-DEV` | `97144abb-71b7-4484-87c9-f2647529017c` | — |
 | Entorno `production` | `79d1b49f-028b-4229-a1b9-f89ba44331ac` | — |
-| `cajas-gabo-shadow` | `36c7e2fa-4060-4008-89a0-43f86c9b0e45` | conectado a `migration/railway-shadow`; ver estado de deploy abajo |
+| `cajas-gabo-shadow` | `36c7e2fa-4060-4008-89a0-43f86c9b0e45` | **online**, 1/1 réplica corriendo, 0 crashes — deploy `0ce876e2` SUCCESS |
 | `Postgres` | `c9c4d214-d602-41f8-91d7-ee7a82a3adec` | ya existía, online, volumen persistente, privado — no se tocó |
+
+**URL del entorno sombra:** `https://cajas-gabo-shadow-production.up.railway.app` (dominio Railway generado, `railwayManaged`, certificado automático).
+
+Confirmado en los logs de arranque reales (deploy `0ce876e2-6353-47c7-be0b-5fe6bd795596`):
+- `[railway_entrypoint] TIQ_BLOCK_OFFICIAL_PUBLISH=true` — la guarda SHADOW está activa.
+- `GET / HTTP/1.1" 200` — el proxy del frontend (`serve_v3_frontend.py`) sirve la interfaz.
+- `n8n ready on ::, port 5678` y `Editor is now accessible via: https://cajas-gabo-shadow-production.up.railway.app`
+  — `start_n8n.sh` detectó `RAILWAY_PUBLIC_DOMAIN` correctamente y configuró la URL pública sin
+  necesitar `CODESPACE_NAME`.
+- `Version: 2.35.7`, `Building workflow dependency index... Processed 0 draft workflows, 0 published workflows`
+  — instancia nueva y limpia, ningún workflow importado todavía (pendiente, ver abajo).
+- Sin errores de conexión a Postgres (n8n no habría llegado a "ready" si `DB_POSTGRESDB_*` fuera incorrecto).
+- Nota menor no bloqueante: n8n advierte que `N8N_RUNNERS_ENABLED` ya no hace falta fijarla
+  (deprecación propia de n8n) — se puede quitar en una limpieza futura, no afecta nada hoy.
 
 ## Variables fijadas en `cajas-gabo-shadow`
 
@@ -75,25 +89,44 @@ cierre de referencia sugerido es 10/09/2026 (ya validado en real, ver
 
 ## Consumo / recursos observados
 
-**No medido todavía.** `get-service-metrics` de Railway requiere que el servicio lleve
-tiempo corriendo con tráfico real; en el momento de escribir esto el primer deploy
-recién se está construyendo. Pendiente actualizar esta sección una vez el servicio esté
-en marcha.
+Medido con `get-service-metrics` sobre la última hora (incluye el build + arranque, no un
+uso normal sostenido — la muestra es corta a propósito porque el servicio recién arrancó):
 
-## Pendientes (honesto, en orden)
+| Métrica | Actual | Promedio | Máximo |
+|---|---|---|---|
+| CPU | 0.016 vCPU | 0.010 vCPU | 0.367 vCPU (pico de arranque) |
+| Memoria | 0.499 GB | 0.090 GB | 1.093 GB (pico de arranque) |
 
-1. Confirmar que el deploy actual de `cajas-gabo-shadow` termina `SUCCESS` (build con
-   `node:22-bookworm-slim` + `npm install -g n8n`, tras dos builds fallidos previos por
-   incompatibilidad con la imagen base `n8nio/n8n` — ver commits 2 y 3 de la lista de arriba).
-2. Generar el dominio público del servicio.
-3. `bash scripts/import_workflows_railway.sh` dentro del contenedor.
-4. Reconectar a mano la credencial OAuth2 de Google Drive en la UI de n8n de Railway.
-5. Activar los 7 workflows importados.
-6. Ejecutar la prueba sombra de paridad contra el cierre 10/09/2026 y completar la
+En reposo, sin tráfico, el consumo es bajo (n8n + el proxy Python, nada más). El pico de
+~1.1 GB corresponde al arranque de n8n (carga de ~2200 paquetes npm en memoria); conviene
+revisar de nuevo tras la importación de workflows y un uso real con Drive.
+
+## Pendientes (honesto, en orden — lo único que falta)
+
+Esta sesión no tiene acceso de shell al contenedor de Railway (no hay una herramienta de
+`exec`/`ssh` en el MCP de Railway disponible aquí) ni salida de red hacia el dominio
+desplegado (`cajas-gabo-shadow-production.up.railway.app` — el proxy de egreso de este
+entorno la rechaza por política de la organización). Por eso lo que sigue requiere que el
+usuario (o una sesión con esos accesos) lo ejecute:
+
+1. `bash scripts/import_workflows_railway.sh` — necesita correr DENTRO del contenedor
+   (`railway ssh -s cajas-gabo-shadow` o `railway run`, con la CLI de Railway autenticada).
+   Importa los 7 workflows activos desde `snapshots/railway-shadow/*.json`.
+2. Reconectar a mano la credencial OAuth2 "Google Drive account" en la UI de n8n
+   (`https://cajas-gabo-shadow-production.up.railway.app`) — nunca automatizable sin
+   exponer el secreto.
+3. Activar (toggle ON) los 7 workflows importados.
+4. Ejecutar la prueba sombra de paridad contra el cierre 10/09/2026 y completar la
    sección "Paridad" de este documento con el resultado real.
-7. Medir consumo real (`get-service-metrics`) tras un rato de uso normal.
-8. Confirmar `N8N_ENCRYPTION_KEY`/credenciales sobreviven un redeploy (Postgres ya
-   persiste esto, pero conviene verificarlo en vivo una vez).
+5. Volver a medir consumo (`get-service-metrics`) tras un rato de uso real con Drive.
+6. Opcional: quitar `N8N_RUNNERS_ENABLED` (deprecada, ver arriba) en una limpieza menor.
+7. Opcional: en el dashboard de Railway, el campo "Branch" del servicio quedó como cambio
+   pendiente sin confirmar (`accept-deploy` no se ejecutó — quedó sin aprobar en esta
+   sesión); no bloquea nada porque los deploys ya corren sobre `migration/railway-shadow`
+   en la práctica, pero conviene confirmarlo desde el dashboard para que quede prolijo.
+
+Todo lo demás — build, deploy, Postgres, guarda SHADOW MODE, dominio público, suites de
+test — está verificado en vivo, no proyectado.
 
 ## Confirmación
 
