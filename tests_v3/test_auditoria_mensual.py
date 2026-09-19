@@ -38,6 +38,8 @@ from v3 import dev_api  # noqa: E402
 # Fixtures — SAP diario y GLOBAL sintéticos (nunca datos contables reales).
 # ---------------------------------------------------------------------------
 
+_CIERRE = dict(modo_control1="cerrar", confirmacion_cierre=True)  # tests heredados asumen semantica de cierre
+
 def _crear_sap_diario(ruta, cargo="100.00", cuenta="110101001", asignacion=None,
                        fecha_valor=datetime.date(2026, 9, 5)):
     """SAP diario mínimo válido: hoja '1', cabecera fija, una partida DEBE
@@ -395,7 +397,7 @@ def test_dev_api_generar_global_y_controles_usan_base_dir_dev(tmp_path):
     assert r_global["ruta_global_generado"] == os.path.abspath(ruta_global_esperada)
 
     _materializar_control1(base_dir_dev)
-    r_c1 = dev_api.ejecutar_control1(2026, 9, str(base_dir_dev))
+    r_c1 = dev_api.ejecutar_control1(2026, 9, str(base_dir_dev), **_CIERRE)
     assert r_c1["estado"] == "OK_SIN_DUPLICADOS"
 
     r_c3 = dev_api.ejecutar_control3(2026, 9, str(base_dir_dev))
@@ -553,7 +555,7 @@ def test_dev_api_regenerar_global_no_afecta_historicos_de_controles(tmp_path):
 
     dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
     _materializar_control1(base_dir_dev)
-    dev_api.ejecutar_control1(2026, 9, str(base_dir_dev))
+    dev_api.ejecutar_control1(2026, 9, str(base_dir_dev), **_CIERRE)
     dev_api.ejecutar_control3(2026, 9, str(base_dir_dev))
 
     ruta_hist_c1 = base_dir_dev / "control1_entrada" / "2026-09" / "HISTORICO_ASIGNACIONES.csv"
@@ -1105,7 +1107,7 @@ _NOMBRE_GLOBAL_SEP = "SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx"
 _NOMBRE_REVISION_SEP = "REVISION_ASIGNACIONES_SEPTIEMBRE_2026.xlsx"
 
 
-def _crear_global_con_filas(ruta, asignaciones, cuenta="110201002", cargo=100):
+def _crear_global_con_filas(ruta, asignaciones, cuenta="110201002", cargo=100, glosas=None):
     """GLOBAL minimo con una partida por asignacion (fila 16 en adelante)."""
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -1114,7 +1116,7 @@ def _crear_global_con_filas(ruta, asignaciones, cuenta="110201002", cargo=100):
         fila = 16 + i
         ws[f"B{fila}"] = "BO01"
         ws[f"C{fila}"] = cuenta
-        ws[f"D{fila}"] = f"GLOSA {i}"
+        ws[f"D{fila}"] = glosas[i] if glosas else f"GLOSA {i}"
         ws[f"E{fila}"] = cargo
         ws[f"O{fila}"] = "2026-09-01"
         ws[f"R{fila}"] = asig
@@ -1159,6 +1161,9 @@ def _decidir_revision(ruta_xlsx, decisiones):
     wb.save(ruta_xlsx)
 
 
+
+
+
 def test_control1_sin_materializacion_falla_claro_no_usa_global_local(tmp_path):
     base = _base_control1(tmp_path)
     _crear_global_con_filas(str(base / "global" / _NOMBRE_GLOBAL_SEP), ["A1"])  # GLOBAL local residual
@@ -1183,7 +1188,7 @@ def test_control1_ignora_global_historico_y_revision_locales_residuales(tmp_path
     _crear_global_con_filas(str(drive_global), ["UNICA"])
     _materializar_desde_drive(base, drive_global)
 
-    r = dev_api.ejecutar_control1(2026, 9, str(base))
+    r = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
     # Si hubiera usado los residuos: GLOBAL local (DUP x2) y/o historico viejo (UNICA) => alertas.
     assert r["estado"] == "OK_SIN_DUPLICADOS", r
     assert r["ruta_global_materializado"].endswith("control1_entrada/2026-09/" + _NOMBRE_GLOBAL_SEP)
@@ -1201,7 +1206,7 @@ def test_control1_primera_ejecucion_sin_historico_en_drive_empieza_vacio(tmp_pat
     _crear_global_con_filas(str(drive_global), ["A1", "B2"])
     dir_c1 = _materializar_desde_drive(base, drive_global)
     assert not os.path.exists(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv"))
-    r = dev_api.ejecutar_control1(2026, 9, str(base))
+    r = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
     assert r["estado"] == "OK_SIN_DUPLICADOS" and r["historico_actualizado"] is True
     assert len(_filas_csv(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv"))) == 2
 
@@ -1217,7 +1222,7 @@ def test_control1_historico_de_drive_se_usa_y_no_se_pierde(tmp_path):
     _crear_global_con_filas(str(drive_global), ["PREVIA", "NUEVA"])
     dir_c1 = _materializar_desde_drive(base, drive_global, historico_src=hist)
 
-    r = dev_api.ejecutar_control1(2026, 9, str(base))
+    r = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
     assert r["estado"] == "REVISAR_DUPLICADOS_ENCONTRADOS"      # PREVIA choca con el historico de Drive
     assert r["alertas_contra_historico"] == 1
     assert r["historico_actualizado"] is False                  # pendiente: el historico NO se toca todavia
@@ -1233,7 +1238,7 @@ def test_control1_revision_de_drive_preserva_decisiones_y_publica_global_corregi
     drive_global = tmp_path / "drive_global.xlsx"
     _crear_global_con_filas(str(drive_global), ["DUP", "DUP", "OK"])
     dir1 = _materializar_desde_drive(base, drive_global)
-    r1 = dev_api.ejecutar_control1(2026, 9, str(base))
+    r1 = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
     assert r1["estado_validacion"] == "PENDIENTE_VALIDACION_AUDITOR" and r1["global_modificado"] is False
     assert r1["revision_actualizada"] is True and r1["historico_actualizado"] is False
     ruta_rev = os.path.join(dir1, _NOMBRE_REVISION_SEP)
@@ -1247,7 +1252,7 @@ def test_control1_revision_de_drive_preserva_decisiones_y_publica_global_corregi
     # 2a corrida: se limpia la entrada (los residuos de la corrida 1 desaparecen) y se materializa de 'Drive'.
     dir2 = _materializar_desde_drive(base, drive_global, revision_src=rev_drive)
     assert sorted(os.listdir(dir2)) == sorted([_NOMBRE_GLOBAL_SEP, _NOMBRE_REVISION_SEP])
-    r2 = dev_api.ejecutar_control1(2026, 9, str(base))
+    r2 = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
 
     assert r2["estado_validacion"] == "CERRADO_CON_VALIDACION_AUDITOR"
     assert r2["global_modificado"] is True and r2["correcciones_aplicadas"] == 1
@@ -1270,12 +1275,12 @@ def test_control1_reejecutar_mismo_global_no_duplica_periodo(tmp_path):
     drive_global = tmp_path / "drive_global.xlsx"
     _crear_global_con_filas(str(drive_global), ["A1", "B2"])
     dir1 = _materializar_desde_drive(base, drive_global)
-    dev_api.ejecutar_control1(2026, 9, str(base))
+    dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
     hist_drive = tmp_path / "hist_drive.csv"
     _shutil.copyfile(os.path.join(dir1, "HISTORICO_ASIGNACIONES.csv"), hist_drive)
 
     dir2 = _materializar_desde_drive(base, drive_global, historico_src=hist_drive)
-    r2 = dev_api.ejecutar_control1(2026, 9, str(base))
+    r2 = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
     assert r2["estado"] == "YA_PROCESADO_SIN_CAMBIOS"
     assert len(_filas_csv(os.path.join(dir2, "HISTORICO_ASIGNACIONES.csv"))) == 2
 
@@ -1345,7 +1350,7 @@ def test_control1_historico_raiz_es_acumulativo_agosto_preservado_y_septiembre_a
     _crear_global_con_filas(str(drive_global), ["SEP001", "SEP002", "SEP003"])
     dir_c1 = _materializar_desde_drive(base, drive_global, historico_src=hist_raiz)
 
-    r = dev_api.ejecutar_control1(2026, 9, str(base))
+    r = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
     assert r["estado"] == "OK_SIN_DUPLICADOS" and r["historico_actualizado"] is True
     despues = _filas_csv(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv"))
     assert len(despues) == 5 + 3
@@ -1356,7 +1361,7 @@ def test_control1_historico_raiz_es_acumulativo_agosto_preservado_y_septiembre_a
     drive_global2 = tmp_path / "drive_global2.xlsx"
     _crear_global_con_filas(str(drive_global2), ["AGO002", "SEP009"])
     _materializar_desde_drive(base, drive_global2, historico_src=hist_raiz)
-    r2 = dev_api.ejecutar_control1(2026, 9, str(base))
+    r2 = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
     assert r2["alertas_contra_historico"] == 1
 
 
@@ -1365,7 +1370,7 @@ def test_control1_escribe_detalle_del_periodo_con_nombre_canonico(tmp_path):
     drive_global = tmp_path / "drive_global.xlsx"
     _crear_global_con_filas(str(drive_global), ["A1", "B2"])
     dir_c1 = _materializar_desde_drive(base, drive_global)
-    r = dev_api.ejecutar_control1(2026, 9, str(base))
+    r = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
     assert r["detalle_json"] == os.path.join(dir_c1, "CONTROL_ASIGNACIONES_SEPTIEMBRE_2026.json")
     assert os.path.isfile(r["detalle_json"])
 
@@ -1381,6 +1386,304 @@ def test_control1_ignora_snapshot_mensual_como_fuente_maestra(tmp_path):
     drive_global = tmp_path / "drive_global.xlsx"
     _crear_global_con_filas(str(drive_global), ["AGO001", "NUEVA1"])       # AGO001 esta SOLO en el snapshot
     _materializar_desde_drive(base, drive_global)                             # historico raiz: no existe (vacio)
-    r = dev_api.ejecutar_control1(2026, 9, str(base))
+    r = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
     assert r["estado"] == "OK_SIN_DUPLICADOS" and r["alertas_contra_historico"] == 0
     assert (snap_dir / "HISTORICO_ASIGNACIONES.csv").exists()                 # y el snapshot queda intacto
+
+
+# ---------------------------------------------------------------------------
+# FASE 12E.6 — AUDITORIA DE ASIGNACIONES: modo PRELIMINAR (mes abierto, por
+# defecto) vs CIERRE DEFINITIVO (solo con señal explicita). Tests A-Q.
+# Sandbox/fixtures: nada toca Drive ni datos reales.
+# ---------------------------------------------------------------------------
+
+import hashlib as _hashlib  # noqa: E402
+from v3 import control1_modos  # noqa: E402
+
+_PRELIM = dict(modo_control1="preliminar")
+
+
+def _sha_archivo(ruta):
+    return _hashlib.sha256(open(ruta, "rb").read()).hexdigest()
+
+
+def _hoja_revision(ruta_xlsx):
+    wb = openpyxl.load_workbook(ruta_xlsx)
+    ws = wb["REVISION"]
+    cab = [c.value for c in ws[1]]
+    filas = [dict(zip(cab, [c.value for c in fila])) for fila in ws.iter_rows(min_row=2)]
+    wb.close()
+    return filas
+
+
+def _anotar_revision(ruta_xlsx, fila_global, observacion=None, validacion=None, correcta=None):
+    wb = openpyxl.load_workbook(ruta_xlsx)
+    ws = wb["REVISION"]
+    cab = {c.value: c.column for c in ws[1]}
+    for fila in range(2, ws.max_row + 1):
+        if ws.cell(row=fila, column=cab["FILA_GLOBAL"]).value == fila_global:
+            if observacion is not None:
+                ws.cell(row=fila, column=cab["OBSERVACION_AUDITOR"]).value = observacion
+            if validacion is not None:
+                ws.cell(row=fila, column=cab["VALIDACION_AUDITOR"]).value = validacion
+            if correcta is not None:
+                ws.cell(row=fila, column=cab["ASIGNACION_CORRECTA"]).value = correcta
+    wb.save(ruta_xlsx)
+
+
+def _glosas_estables(asignaciones):
+    """Glosa ligada a la asignación (no a la posición): así una fila conserva su identidad si el GLOBAL se corre."""
+    vistas = {}
+    glosas = []
+    for a in asignaciones:
+        vistas[a] = vistas.get(a, 0) + 1
+        glosas.append(f"GLOSA {a} #{vistas[a]}")
+    return glosas
+
+
+def _corrida_preliminar(tmp_path, base, asignaciones, historico_src=None, revision_src=None, nombre="g.xlsx"):
+    """Un 'click' preliminar: materializa desde 'Drive' (GLOBAL + histórico + revisión previa) y ejecuta."""
+    drive_global = tmp_path / nombre
+    _crear_global_con_filas(str(drive_global), asignaciones, glosas=_glosas_estables(asignaciones))
+    dir_c1 = _materializar_desde_drive(base, drive_global, historico_src=historico_src, revision_src=revision_src)
+    r = dev_api.ejecutar_control1(2026, 9, str(base))
+    return r, dir_c1, drive_global
+
+
+def test_modo_por_defecto_es_preliminar_y_cierre_exige_confirmacion_explicita(tmp_path):
+    assert control1_modos.validar_modo(None) == "preliminar"
+    assert control1_modos.validar_modo("") == "preliminar"
+    with pytest.raises(ValueError, match="CIERRE_SIN_CONFIRMACION"):
+        control1_modos.validar_modo("cerrar")
+    with pytest.raises(ValueError, match="CIERRE_SIN_CONFIRMACION"):
+        control1_modos.validar_modo("cerrar", confirmacion_cierre="true")     # solo el booleano True
+    with pytest.raises(ValueError, match="MODO_CONTROL1_INVALIDO"):
+        control1_modos.validar_modo("definitivo")
+    assert control1_modos.validar_modo("cerrar", True) == "cerrar"
+    base = _base_control1(tmp_path)
+    r, _d, _g = _corrida_preliminar(tmp_path, base, ["A1", "A1"])
+    assert r["modo_control1"] == "preliminar" and r["periodo_cerrado"] is False
+
+
+def test_A_primera_corrida_preliminar_crea_revision_sin_cerrar(tmp_path):
+    base = _base_control1(tmp_path)
+    r, dir_c1, _g = _corrida_preliminar(tmp_path, base, ["DUP", "DUP", "OK"])
+    assert r["estado_control1"] == "PRELIMINAR_PENDIENTE" and r["estado_validacion"] == "PENDIENTE_VALIDACION_AUDITOR"
+    assert r["revision_actualizada"] is True and r["filas_pendientes"] == 2 and r["alertas_nuevas"] == 2
+    assert [f["FILA_GLOBAL"] for f in _hoja_revision(os.path.join(dir_c1, _NOMBRE_REVISION_SEP))] == [16, 17]
+    assert os.path.isfile(r["detalle_json"])
+
+
+def test_B_segunda_corrida_sin_cambios_es_idempotente(tmp_path):
+    base = _base_control1(tmp_path)
+    r1, dir1, g = _corrida_preliminar(tmp_path, base, ["DUP", "DUP", "OK"])
+    rev = tmp_path / "rev.xlsx"
+    _shutil.copyfile(os.path.join(dir1, _NOMBRE_REVISION_SEP), rev)
+    filas1 = _hoja_revision(str(rev))
+    r2, dir2, _g = _corrida_preliminar(tmp_path, base, ["DUP", "DUP", "OK"], revision_src=rev)
+    filas2 = _hoja_revision(os.path.join(dir2, _NOMBRE_REVISION_SEP))
+    assert filas2 == filas1 and len(filas2) == 2                                   # sin filas duplicadas
+    assert r2["alertas_nuevas"] == 0 and r2["alertas_retiradas"] == 0
+    assert os.listdir(dir2).count(_NOMBRE_REVISION_SEP) == 1
+
+
+def test_C_segunda_corrida_con_alertas_nuevas_las_agrega_y_conserva_las_viejas(tmp_path):
+    base = _base_control1(tmp_path)
+    _r1, dir1, _g = _corrida_preliminar(tmp_path, base, ["DUP", "DUP", "OK"])
+    rev = tmp_path / "rev.xlsx"
+    _shutil.copyfile(os.path.join(dir1, _NOMBRE_REVISION_SEP), rev)
+    _anotar_revision(str(rev), 16, validacion="CORRECTA")
+    # GLOBAL regenerado con una alerta nueva (NUEVA x2) al final.
+    r2, dir2, _g = _corrida_preliminar(tmp_path, base, ["DUP", "DUP", "OK", "NUEVA", "NUEVA"], revision_src=rev)
+    filas = _hoja_revision(os.path.join(dir2, _NOMBRE_REVISION_SEP))
+    assert sorted((f["ASIGNACION_ORIGINAL"], f["FILA_GLOBAL"]) for f in filas) == [("DUP", 16), ("DUP", 17), ("NUEVA", 19), ("NUEVA", 20)]
+    assert r2["alertas_nuevas"] == 2 and r2["decisiones_conservadas"] == 1
+    assert [f["VALIDACION_AUDITOR"] for f in filas if f["FILA_GLOBAL"] == 16] == ["CORRECTA"]
+
+
+def test_D_E_F_decisiones_observaciones_y_correcciones_se_preservan_aunque_cambie_el_global(tmp_path):
+    base = _base_control1(tmp_path)
+    _r1, dir1, _g = _corrida_preliminar(tmp_path, base, ["DUP", "DUP", "OK", "XX", "XX"])
+    rev = tmp_path / "rev.xlsx"
+    _shutil.copyfile(os.path.join(dir1, _NOMBRE_REVISION_SEP), rev)
+    _anotar_revision(str(rev), 16, validacion="CORRECTA", observacion="obs correcta")
+    _anotar_revision(str(rev), 17, validacion="INCORRECTA", correcta="CORREGIDA", observacion="obs incorrecta")
+    _anotar_revision(str(rev), 19, observacion="solo observacion")
+    # GLOBAL distinto (se antepone una fila 'OK' -> todas las filas se corren una posicion) y otro SHA.
+    r2, dir2, _g = _corrida_preliminar(tmp_path, base, ["OK0", "DUP", "DUP", "OK", "XX", "XX"], revision_src=rev)
+    por_fila = {f["FILA_GLOBAL"]: f for f in _hoja_revision(os.path.join(dir2, _NOMBRE_REVISION_SEP))}
+    assert (por_fila[17]["VALIDACION_AUDITOR"], por_fila[17]["OBSERVACION_AUDITOR"]) == ("CORRECTA", "obs correcta")
+    assert (por_fila[18]["VALIDACION_AUDITOR"], por_fila[18]["ASIGNACION_CORRECTA"], por_fila[18]["OBSERVACION_AUDITOR"]) == \
+        ("INCORRECTA", "CORREGIDA", "obs incorrecta")
+    assert por_fila[20]["OBSERVACION_AUDITOR"] == "solo observacion" and r2["decisiones_conservadas"] == 3
+    assert all(f["SHA256_GLOBAL"] == r2["sha256_archivo"] for f in por_fila.values())
+
+
+def test_alerta_que_desaparece_no_se_borra_queda_en_no_vigentes_y_puede_reaparecer(tmp_path):
+    base = _base_control1(tmp_path)
+    _r1, dir1, _g = _corrida_preliminar(tmp_path, base, ["DUP", "DUP", "XX", "XX"])
+    rev = tmp_path / "rev.xlsx"
+    _shutil.copyfile(os.path.join(dir1, _NOMBRE_REVISION_SEP), rev)
+    _anotar_revision(str(rev), 18, validacion="CORRECTA", observacion="visto")
+    r2, dir2, _g = _corrida_preliminar(tmp_path, base, ["DUP", "DUP", "OK"], revision_src=rev)   # XX desaparece
+    ruta2 = os.path.join(dir2, _NOMBRE_REVISION_SEP)
+    assert r2["alertas_retiradas"] == 2 and r2["alertas_no_vigentes_total"] == 2
+    assert [f["ASIGNACION_ORIGINAL"] for f in _hoja_revision(ruta2)] == ["DUP", "DUP"]
+    nv = control1_modos.leer_no_vigentes(ruta2)
+    assert sorted(f["ASIGNACION_ORIGINAL"] for f in nv) == ["XX", "XX"]
+    assert all(f["MOTIVO_RETIRO"] and f["FECHA_RETIRO"] for f in nv)
+    assert [f["OBSERVACION_AUDITOR"] for f in nv if f["FILA_GLOBAL"] == 18] == ["visto"]
+    # Reaparece: se restaura con su decision.
+    rev2 = tmp_path / "rev2.xlsx"
+    _shutil.copyfile(ruta2, rev2)
+    r3, dir3, _g = _corrida_preliminar(tmp_path, base, ["DUP", "DUP", "XX", "XX"], revision_src=rev2)
+    por_fila = {f["FILA_GLOBAL"]: f for f in _hoja_revision(os.path.join(dir3, _NOMBRE_REVISION_SEP))}
+    assert r3["alertas_restauradas"] == 2 and por_fila[18]["OBSERVACION_AUDITOR"] == "visto"
+    assert control1_modos.leer_no_vigentes(os.path.join(dir3, _NOMBRE_REVISION_SEP)) == []
+
+
+def test_G_H_preliminar_no_modifica_historico_ni_global(tmp_path):
+    base = _base_control1(tmp_path)
+    hist = tmp_path / "hist.csv"
+    _crear_historico_agosto(str(hist), n=5)
+    drive_global = tmp_path / "g.xlsx"
+    _crear_global_con_filas(str(drive_global), ["DUP", "DUP", "AGO002"])
+    dir_c1 = _materializar_desde_drive(base, drive_global, historico_src=hist)
+    sha_hist = _sha_archivo(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv"))
+    sha_global = _sha_archivo(os.path.join(dir_c1, _NOMBRE_GLOBAL_SEP))
+    r = dev_api.ejecutar_control1(2026, 9, str(base), **_PRELIM)
+    rev = os.path.join(dir_c1, _NOMBRE_REVISION_SEP)
+    _anotar_revision(rev, 16, validacion="INCORRECTA", correcta="CORREGIDA")
+    _anotar_revision(rev, 17, validacion="CORRECTA")
+    _anotar_revision(rev, 18, validacion="CORRECTA")
+    r = dev_api.ejecutar_control1(2026, 9, str(base), **_PRELIM)          # todo validado, pero sigue siendo preliminar
+    assert r["estado_control1"] == "PRELIMINAR_LISTO_PARA_CERRAR" and r["estado_validacion"] == "TODAS_VALIDADAS_PENDIENTE_CIERRE"
+    assert r["historico_actualizado"] is False and r["global_modificado"] is False and r["periodo_cerrado"] is False
+    assert _sha_archivo(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv")) == sha_hist
+    assert _sha_archivo(os.path.join(dir_c1, _NOMBRE_GLOBAL_SEP)) == sha_global
+    assert not any(f["archivo_global"] == _NOMBRE_GLOBAL_SEP for f in _filas_csv(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv")))
+    # y repetirlo N veces sigue sin cerrar ni bloquear futuras corridas del mismo mes
+    r = dev_api.ejecutar_control1(2026, 9, str(base), **_PRELIM)
+    assert r["estado_control1"] == "PRELIMINAR_LISTO_PARA_CERRAR"
+
+
+def test_cli_pasa_modo_y_confirmacion(tmp_path):
+    import json as jsonlib
+    base = _base_control1(tmp_path)
+    drive_global = tmp_path / "g.xlsx"
+    _crear_global_con_filas(str(drive_global), ["DUP", "DUP"])
+    _materializar_desde_drive(base, drive_global)
+    ent, out = tmp_path / "in.json", tmp_path / "out.json"
+    ent.write_text(jsonlib.dumps({"anio": 2026, "mes": 9, "base_dir_dev": str(base)}))
+    dev_api.main(["--accion", "ejecutar_control1", "--input", str(ent), "--output", str(out)])
+    assert jsonlib.loads(out.read_text())["modo_control1"] == "preliminar"
+    ent.write_text(jsonlib.dumps({"anio": 2026, "mes": 9, "base_dir_dev": str(base), "modo_control1": "cerrar"}))
+    dev_api.main(["--accion", "ejecutar_control1", "--input", str(ent), "--output", str(out)])
+    assert "CIERRE_SIN_CONFIRMACION" in out.read_text()
+
+
+def _preparar_todo_validado(tmp_path, base, correcta="CORREGIDA"):
+    hist = tmp_path / "hist.csv"
+    _crear_historico_agosto(str(hist), n=5)
+    _r, dir_c1, drive_global = _corrida_preliminar(tmp_path, base, ["DUP", "DUP", "OK"], historico_src=hist)
+    rev = os.path.join(dir_c1, _NOMBRE_REVISION_SEP)
+    _anotar_revision(rev, 16, validacion="CORRECTA")
+    if correcta is not None:
+        _anotar_revision(rev, 17, validacion="INCORRECTA", correcta=correcta)
+    else:
+        _anotar_revision(rev, 17, validacion="INCORRECTA")
+    return dir_c1, hist, drive_global
+
+
+def test_I_cierre_exige_todas_las_alertas_resueltas(tmp_path):
+    base = _base_control1(tmp_path)
+    _r, dir_c1, _g = _corrida_preliminar(tmp_path, base, ["DUP", "DUP", "OK"])
+    sha_global = _sha_archivo(os.path.join(dir_c1, _NOMBRE_GLOBAL_SEP))
+    r = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
+    assert r["estado_control1"] == "CIERRE_BLOQUEADO_PENDIENTES" and r["periodo_cerrado"] is False
+    assert "alertas sin resolver" in r["mensaje"]
+    assert r["historico_actualizado"] is False and _sha_archivo(os.path.join(dir_c1, _NOMBRE_GLOBAL_SEP)) == sha_global
+    assert not os.path.exists(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv"))
+
+
+def test_J_incorrecta_sin_asignacion_correcta_bloquea_el_cierre(tmp_path):
+    base = _base_control1(tmp_path)
+    dir_c1, _hist, _g = _preparar_todo_validado(tmp_path, base, correcta=None)
+    sha_hist = _sha_archivo(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv"))
+    r = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
+    assert r["estado_control1"] == "CIERRE_BLOQUEADO_PENDIENTES" and r["global_modificado"] is False
+    assert _sha_archivo(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv")) == sha_hist
+
+
+def test_K_L_M_cierre_corrige_global_actualiza_historico_y_deja_snapshot_del_periodo(tmp_path):
+    base = _base_control1(tmp_path)
+    dir_c1, hist, drive_global = _preparar_todo_validado(tmp_path, base)
+    r = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
+    assert r["estado_control1"] == "CERRADO" and r["periodo_cerrado"] is True and r["modo_control1"] == "cerrar"
+    assert r["global_modificado"] is True and r["correcciones_aplicadas"] == 1
+    ws = openpyxl.load_workbook(os.path.join(dir_c1, _NOMBRE_GLOBAL_SEP))["1"]
+    assert [ws[f"R{f}"].value for f in (16, 17, 18)] == ["DUP", "CORREGIDA", "OK"]
+    assert openpyxl.load_workbook(str(drive_global))["1"]["R17"].value == "DUP"       # el 'origen' no cambia
+    filas = _filas_csv(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv"))
+    assert len(filas) == 5 + 3 and filas[:5] == _filas_csv(hist)                        # agosto intacto + septiembre
+    assert sorted(f["asignacion"] for f in filas[5:]) == ["CORREGIDA", "DUP", "OK"]
+    assert {f["archivo_global"] for f in filas[5:]} == {_NOMBRE_GLOBAL_SEP}
+    # La revision + detalle del periodo quedan disponibles para publicar (snapshot del periodo lo copia n8n del histórico).
+    assert os.path.isfile(os.path.join(dir_c1, _NOMBRE_REVISION_SEP)) and os.path.isfile(r["detalle_json"])
+    assert control1_modos.periodo_cerrado(control1_modos.ctrl1.cargar_historico(os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv")), _NOMBRE_GLOBAL_SEP)
+
+
+def test_N_segundo_cierre_no_duplica_y_responde_ya_cerrado(tmp_path):
+    base = _base_control1(tmp_path)
+    dir_c1, _hist, _g = _preparar_todo_validado(tmp_path, base)
+    dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
+    ruta_hist = os.path.join(dir_c1, "HISTORICO_ASIGNACIONES.csv")
+    ruta_glob = os.path.join(dir_c1, _NOMBRE_GLOBAL_SEP)
+    sha_hist, sha_glob = _sha_archivo(ruta_hist), _sha_archivo(ruta_glob)
+    r2 = dev_api.ejecutar_control1(2026, 9, str(base), **_CIERRE)
+    assert r2["estado_control1"] == "YA_CERRADO" and r2["periodo_cerrado"] is True and r2["historico_actualizado"] is False
+    assert (_sha_archivo(ruta_hist), _sha_archivo(ruta_glob)) == (sha_hist, sha_glob)
+    assert len(_filas_csv(ruta_hist)) == 8
+    # Un preliminar posterior tampoco toca nada de un periodo cerrado.
+    r3 = dev_api.ejecutar_control1(2026, 9, str(base), **_PRELIM)
+    assert r3["estado_control1"] == "YA_CERRADO" and r3["revision_actualizada"] is False
+
+
+def test_O_generar_global_se_bloquea_tras_el_cierre_y_sigue_libre_mientras_esta_abierto(tmp_path):
+    base_dir_dev = tmp_path / "dev"
+    entrada = base_dir_dev / "global_entrada" / "2026-09"
+    os.makedirs(entrada, exist_ok=True)
+    _crear_sap_diario(str(entrada / "SAP_TIQ_01-09-2026.xlsx"), cargo="100.00", cuenta="110201002", asignacion="3P66536982")
+    plantilla = tmp_path / "Plantilla.xlsx"
+    crear_plantilla_sap(str(plantilla))
+    # Mes abierto: histórico (de Drive) sin filas de septiembre -> GLOBAL regenerable, dos veces.
+    _crear_historico_agosto(str(entrada / "HISTORICO_ASIGNACIONES.csv"), n=3)
+    assert dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))["estado"] == "VALIDADO_PENDIENTE_PUBLICACION"
+    assert dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))["estado"] == "VALIDADO_PENDIENTE_PUBLICACION"
+    # Sin histórico materializado (primera vez): también permitido.
+    os.remove(entrada / "HISTORICO_ASIGNACIONES.csv")
+    assert dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))["estado"] == "VALIDADO_PENDIENTE_PUBLICACION"
+    # Periodo cerrado: el histórico ya trae filas de SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx.
+    with open(entrada / "HISTORICO_ASIGNACIONES.csv", "w", encoding="utf-8") as f:
+        f.write(_ESQUEMA_HISTORICO + "\n" +
+                f"SEP1,2026-09-01,110201002,x,1.00,{_NOMBRE_GLOBAL_SEP},16,aa,2026-09-30T10:00:00,,CORRECTA,,,SEP1,SEP1,16,aa,aa\n")
+    ruta_global = base_dir_dev / "global" / _NOMBRE_GLOBAL_SEP
+    sha_previo = _sha_archivo(str(ruta_global))
+    with pytest.raises(RuntimeError, match="PERIODO_CERRADO_CONTROL1"):
+        dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
+    assert _sha_archivo(str(ruta_global)) == sha_previo                                  # el GLOBAL no se tocó
+    # Otro mes con histórico cerrado de septiembre no se bloquea por eso (solo el mes cerrado).
+    assert control1_modos.periodo_cerrado(_filas_csv(str(entrada / "HISTORICO_ASIGNACIONES.csv")), "SAP_GLOBAL_TIQ_OCTUBRE_2026.xlsx") is False
+
+
+def test_P_Q_v2_y_control3_permanecen_sin_cambios():
+    import subprocess
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    intactos = ["consolidador_mensual.py", "control_asignaciones.py", "control_cxc_cxp.py", "run_batch.py",
+                "excel_io.py", "correcciones_tiquipaya.py"]
+    r = subprocess.run(["git", "diff", "HEAD", "--stat", "--"] + [os.path.join(raiz, p) for p in intactos],
+                       capture_output=True, text=True, cwd=raiz)
+    assert r.returncode == 0 and r.stdout.strip() == ""
+    import inspect
+    assert "modo_control1" not in inspect.signature(dev_api.ejecutar_control3).parameters
+    assert "control1_modos" not in inspect.getsource(dev_api.ejecutar_control3)

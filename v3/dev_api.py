@@ -55,6 +55,8 @@ from v3.auditoria import (  # noqa: E402
     generar_global_mensual, ejecutar_control1_mensual, ejecutar_control3_mensual,
 )
 import consolidador_mensual  # noqa: E402  (reutilizado tal cual — solo para nombre_sap_global)
+import control_asignaciones as _ctrl1_v2  # noqa: E402  (V2, sin cambios — solo lectura del historico para la guardia de cierre)
+from v3 import control1_modos  # noqa: E402
 
 
 PROCESANDO = "PROCESANDO"
@@ -538,6 +540,27 @@ def preparar_control1_entrada(anio, mes, base_dir_dev):
     return {"dir_entrada": os.path.abspath(destino), "periodo": f"{anio:04d}-{mes:02d}"}
 
 
+def _verificar_periodo_no_cerrado(entrada_dir, anio, mes):
+    """Protección de GLOBAL tras el CIERRE DEFINITIVO de la Auditoría de
+    Asignaciones. El backend descarga el histórico maestro (raíz de
+    05_CONTROLES) a `global_entrada/<periodo>/HISTORICO_ASIGNACIONES.csv`
+    justo antes de generar; si ese histórico ya contiene filas de
+    `SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx`, CONTROL 1 cerró el periodo y
+    regenerar GLOBAL podría borrar correcciones autorizadas: se BLOQUEA (no
+    hay reapertura implementada). Mientras el mes está abierto no hay filas
+    de ese GLOBAL en el histórico y GLOBAL sigue siendo regenerable."""
+    ruta = os.path.join(entrada_dir, "HISTORICO_ASIGNACIONES.csv")
+    if not os.path.isfile(ruta):
+        return
+    nombre = consolidador_mensual.nombre_sap_global(anio, mes)
+    if control1_modos.periodo_cerrado(_ctrl1_v2.cargar_historico(ruta), nombre):
+        raise RuntimeError(
+            f"PERIODO_CERRADO_CONTROL1: la Auditoría de Asignaciones de {anio:04d}-{mes:02d} ya fue cerrada "
+            f"definitivamente; GENERAR GLOBAL queda bloqueado para no perder correcciones autorizadas. "
+            f"La reapertura del periodo no está implementada."
+        )
+
+
 def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None):
     """Cierre MENSUAL — paso 1 (GENERAR GLOBAL). `sap_dir` por defecto es
     `base_dir_dev/global_entrada/<YYYY-MM>/` (ver global_entrada_dir): el
@@ -564,6 +587,7 @@ def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None)
             f"GLOBAL_ENTRADA_NO_MATERIALIZADA: {sap_dir} no existe; el backend debe "
             f"materializar la carpeta SAP oficial de Drive antes de generar GLOBAL."
         )
+    _verificar_periodo_no_cerrado(sap_dir, anio, mes)
     global_dir = os.path.join(base_dir_dev, "global")
     _verificar_contenido_en_base_dir(os.path.join(global_dir, "_"), base_dir_dev)
     os.makedirs(global_dir, exist_ok=True)
@@ -571,7 +595,8 @@ def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None)
     return generar_global_mensual(anio, mes, sap_dir, ruta_plantilla_origen, ruta_salida, force=True)
 
 
-def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=False):
+def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=False,
+                      modo_control1=None, confirmacion_cierre=False):
     """Cierre MENSUAL — paso 2 (AUDITORÍA DE ASIGNACIONES / CONTROL 1).
 
     DRIVE OFICIAL = fuente de verdad; LOCAL = materialización temporal de la
@@ -588,6 +613,13 @@ def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=
     detalle (`CONTROL_ASIGNACIONES_<PERIODO>.json`) y (si el auditor autorizó
     correcciones) el GLOBAL corregido quedan en ese mismo directorio para que
     el backend los publique a Drive.
+
+    MODOS (FASE 12E.6, ver v3/control1_modos.py): `modo_control1` = "preliminar"
+    (por defecto, mes abierto: conserva decisiones entre corridas aunque GLOBAL
+    se regenere, NO toca histórico ni GLOBAL, NO cierra el periodo) o "cerrar"
+    (cierre definitivo: exige `confirmacion_cierre=True` explícito; corrige el
+    GLOBAL autorizado, actualiza el histórico maestro y marca el periodo como
+    cerrado; idempotente: un segundo cierre responde YA_CERRADO).
 
     ESTRUCTURA EN DRIVE (decisión del auditor, 2026-09-18): el histórico
     CANÓNICO/acumulativo es `05_CONTROLES/HISTORICO_ASIGNACIONES.csv` (raíz);
@@ -607,13 +639,17 @@ def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=
             f"GLOBAL_OFICIAL_NO_MATERIALIZADO: falta {nombre_global} en {entrada}; "
             f"CONTROL 1 nunca usa un GLOBAL local como sustituto."
         )
+    modo = control1_modos.validar_modo(modo_control1, confirmacion_cierre)
     ruta_historico = os.path.join(entrada, "HISTORICO_ASIGNACIONES.csv")
     periodo_esperado = _periodo(anio, mes)
-    resultado = ejecutar_control1_mensual(
-        ruta_global, ruta_historico,
-        directorio_revision=entrada, ruta_revision_json=ruta_revision_json, dry_run=dry_run,
-        ruta_detalle_json=os.path.join(entrada, f"CONTROL_ASIGNACIONES_{periodo_esperado}.json"),
-    )
+    ruta_detalle = os.path.join(entrada, f"CONTROL_ASIGNACIONES_{periodo_esperado}.json")
+    if modo == control1_modos.PRELIMINAR:
+        resultado = control1_modos.ejecutar_control1_preliminar(
+            ruta_global, ruta_historico, entrada, ruta_detalle_json=ruta_detalle, dry_run=dry_run)
+    else:
+        resultado = control1_modos.ejecutar_control1_cierre(
+            ruta_global, ruta_historico, entrada, ruta_detalle_json=ruta_detalle, dry_run=dry_run,
+            ruta_revision_json=ruta_revision_json)
     resultado["dir_entrada"] = os.path.abspath(entrada)
     resultado["ruta_global_materializado"] = os.path.abspath(ruta_global)
     if resultado.get("periodo") not in (None, periodo_esperado):
@@ -702,6 +738,7 @@ def main(argv=None):
             salida = {"resultado": "OK", **ejecutar_control1(
                 datos["anio"], datos["mes"], datos["base_dir_dev"],
                 datos.get("ruta_revision_json"), datos.get("dry_run", False),
+                datos.get("modo_control1"), datos.get("confirmacion_cierre", False),
             )}
         elif args.accion == "ejecutar_control3":
             salida = {"resultado": "OK", **ejecutar_control3(
