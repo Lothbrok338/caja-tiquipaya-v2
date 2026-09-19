@@ -32,20 +32,17 @@ if [ -n "${CODESPACE_NAME:-}" ] && [ -n "${GITHUB_CODESPACES_PORT_FORWARDING_DOM
   # localhost, y n8n necesita saberlo para construir el redirect_uri de
   # OAuth2 (por ejemplo, para Google Drive) correctamente.
   export N8N_EDITOR_BASE_URL="https://${CODESPACE_NAME}-5678.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN}"
+  export N8N_WEBHOOK_URL="${N8N_EDITOR_BASE_URL}"
 elif [ -n "${RAILWAY_PUBLIC_DOMAIN:-}" ]; then
   # Railway: RAILWAY_PUBLIC_DOMAIN la inyecta la plataforma automaticamente
   # cuando el servicio tiene un dominio generado. n8n corre solo en la red
   # interna del contenedor (scripts/serve_v3_frontend.py expone /webhook/*
-  # bajo ese mismo dominio en $PORT), pero N8N_EDITOR_BASE_URL/WEBHOOK_URL
-  # igual deben apuntar al dominio publico real para que la UI de n8n y
-  # cualquier flujo OAuth2 (credencial de Google Drive) construyan URLs
-  # correctas.
-  export N8N_EDITOR_BASE_URL="https://${RAILWAY_PUBLIC_DOMAIN}"
-fi
-
-if [ -n "${N8N_EDITOR_BASE_URL:-}" ]; then
-  # WEBHOOK_URL corrige las URLs publicas de Webhook/Form Trigger, que no
-  # heredan N8N_EDITOR_BASE_URL (se calculan por separado).
+  # bajo ese mismo dominio en $PORT). El editor queda privado via tunel SSH,
+  # mientras que las URLs de Webhook/Form Trigger usan el dominio publico.
+  export N8N_EDITOR_BASE_URL="${TIQ_N8N_EDITOR_BASE_URL:-http://localhost:5678}"
+  export N8N_WEBHOOK_URL="https://${RAILWAY_PUBLIC_DOMAIN}"
+elif [ -n "${N8N_EDITOR_BASE_URL:-}" ]; then
+  # Compatibilidad con entornos existentes que todavia usan WEBHOOK_URL.
   export WEBHOOK_URL="${N8N_EDITOR_BASE_URL}"
 fi
 
