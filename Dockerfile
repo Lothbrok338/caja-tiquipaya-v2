@@ -11,9 +11,19 @@ FROM n8nio/n8n:latest
 
 USER root
 
-# Python 3 + pip (imagen base es Alpine). openpyxl/pytest son las únicas
-# dependencias reales del motor y los tests — ver requirements.txt.
-RUN apk add --no-cache python3 py3-pip
+# Python 3 + pip. openpyxl/pytest son las únicas dependencias reales del
+# motor y los tests — ver requirements.txt. La imagen base de n8n cambió
+# de Alpine a Debian en algún momento entre versiones (sin apk); se
+# detecta el gestor de paquetes disponible en vez de asumir uno fijo,
+# para no romperse otra vez si vuelve a cambiar.
+RUN if command -v apt-get >/dev/null 2>&1; then \
+      apt-get update && apt-get install -y --no-install-recommends python3 python3-pip && \
+      rm -rf /var/lib/apt/lists/*; \
+    elif command -v apk >/dev/null 2>&1; then \
+      apk add --no-cache python3 py3-pip; \
+    else \
+      echo "Ni apt-get ni apk disponibles en la imagen base" >&2 && exit 1; \
+    fi
 
 WORKDIR /app
 
