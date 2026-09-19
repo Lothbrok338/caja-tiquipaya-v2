@@ -868,7 +868,7 @@ async function test_boton_control1_llama_una_vez() {
 
   ok(calls.control1 === 1, "el botón CONTROL 1 llamó a /control1 exactamente una vez");
   ok(calls.global === 0 && calls.control3 === 0, "CONTROL 1 no llamó a GLOBAL ni a CONTROL 3");
-  ok(window.document.getElementById("mensual-resultado").textContent.indexOf("OK_SIN_DUPLICADOS") !== -1, "muestra el estado devuelto");
+  ok(window.document.getElementById("mensual-resultado").textContent.indexOf("Auditoría preliminar actualizada. El periodo sigue abierto.") !== -1, "muestra el mensaje funcional preliminar");
   dom.window.close();
 }
 
@@ -887,6 +887,83 @@ async function test_boton_control3_llama_una_vez() {
 
   ok(calls.control3 === 1, "el botón CONTROL 3 llamó a /control3 exactamente una vez");
   ok(calls.global === 0 && calls.control1 === 0, "CONTROL 3 no llamó a GLOBAL ni a CONTROL 1");
+  dom.window.close();
+}
+
+
+// FASE 12E.6 — CONTROL 1: modo preliminar / cierre definitivo desde la interfaz.
+function _mockControl1(respuesta) {
+  const bodies = [];
+  const fn = function (url, opts) {
+    if (url.indexOf("/control1") !== -1) {
+      bodies.push(JSON.parse(opts.body));
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(respuesta) });
+    }
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "ERROR", publication_mode: "official" }) });
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+  return { fn, bodies };
+}
+async function _clickControl1(idBoton, respuesta, confirmar) {
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function () {};
+  const confirmaciones = [];
+  window.confirm = function (m) { confirmaciones.push(m); return confirmar; };
+  const { fn, bodies } = _mockControl1(respuesta);
+  window.fetch = fn;
+  await waitFor(() => window.document.getElementById("in-mensual-anio") && window.document.getElementById("in-mensual-anio").value !== "");
+  window.document.getElementById(idBoton).click();
+  await new Promise((r) => setTimeout(r, confirmar === false ? 300 : 0));
+  if (confirmar !== false) {
+    await waitFor(() => /ok|error/.test(window.document.getElementById("mensual-resultado").className), 3000);
+  }
+  const res = { bodies, confirmaciones, texto: window.document.getElementById("mensual-resultado").textContent, clase: window.document.getElementById("mensual-resultado").className };
+  dom.window.close();
+  return res;
+}
+
+async function test_control1_preliminar_manda_modo_preliminar_sin_confirmar() {
+  console.log("\n[12E.6] AUDITORÍA DE ASIGNACIONES manda modo_control1=preliminar, sin confirmación");
+  const r = await _clickControl1("btn-mensual-control1", { resultado: "OK", estado: "REVISAR_DUPLICADOS_ENCONTRADOS", estado_control1: "PRELIMINAR_PENDIENTE", modo_control1: "preliminar" }, true);
+  ok(r.bodies.length === 1 && r.bodies[0].modo_control1 === "preliminar", "envía modo_control1=preliminar");
+  ok(r.bodies[0].confirmacion_cierre === undefined, "el preliminar NO envía confirmacion_cierre");
+  ok(r.confirmaciones.length === 0, "el preliminar no pide confirmación");
+  ok(r.texto.indexOf("Auditoría preliminar actualizada. El periodo sigue abierto.") !== -1 && r.texto.indexOf("Revisión pendiente de validación del auditor.") !== -1, "mensaje preliminar con pendientes");
+}
+async function test_control1_cierre_confirmado_manda_cerrar_y_confirmacion() {
+  console.log("\n[12E.6] CERRAR AUDITORÍA: confirma y manda modo_control1=cerrar + confirmacion_cierre=true");
+  const r = await _clickControl1("btn-mensual-control1-cerrar", { resultado: "OK", estado_control1: "CERRADO", modo_control1: "cerrar" }, true);
+  ok(r.confirmaciones.length === 1 && r.confirmaciones[0].indexOf("cerrará el periodo") !== -1 && r.confirmaciones[0].indexOf("protegido contra regeneración") !== -1, "muestra la explicación del cierre");
+  ok(r.bodies.length === 1 && r.bodies[0].modo_control1 === "cerrar" && r.bodies[0].confirmacion_cierre === true, "envía cerrar + confirmacion_cierre=true");
+  ok(r.texto === "Auditoría de Asignaciones cerrada definitivamente.", "mensaje de cierre exitoso");
+}
+async function test_control1_cierre_cancelado_no_llama_al_backend() {
+  console.log("\n[12E.6] CERRAR AUDITORÍA cancelado: cero llamadas al backend");
+  const r = await _clickControl1("btn-mensual-control1-cerrar", { resultado: "OK", estado_control1: "CERRADO" }, false);
+  ok(r.confirmaciones.length === 1, "se pidió confirmación");
+  ok(r.bodies.length === 0, "cancelar NO llama a /control1");
+}
+async function test_control1_mensajes_de_cierre_bloqueado_y_ya_cerrado() {
+  console.log("\n[12E.6] Mensajes de cierre bloqueado / ya cerrado");
+  const b = await _clickControl1("btn-mensual-control1-cerrar", { resultado: "OK", estado_control1: "CIERRE_BLOQUEADO_PENDIENTES" }, true);
+  ok(b.texto === "No se puede cerrar: existen alertas pendientes o correcciones incompletas." && b.clase.indexOf("error") !== -1, "cierre bloqueado por pendientes");
+  const y = await _clickControl1("btn-mensual-control1-cerrar", { resultado: "OK", estado_control1: "YA_CERRADO" }, true);
+  ok(y.texto.indexOf("ya estaba cerrada") !== -1, "segundo cierre: ya cerrada");
+}
+async function test_global_bloqueado_post_cierre_muestra_mensaje_funcional() {
+  console.log("\n[12E.6] GENERAR GLOBAL bloqueado tras el cierre: mensaje funcional, sin error Python crudo");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function () {};
+  window.fetch = function (url) {
+    if (url.indexOf("/global") !== -1) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "ERROR", codigo: "RuntimeError", mensaje: "PERIODO_CERRADO_CONTROL1: la Auditoría de Asignaciones de 2026-09 ya fue cerrada definitivamente; ..." }) });
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "ERROR", publication_mode: "official" }) });
+  };
+  await waitFor(() => window.document.getElementById("in-mensual-anio") && window.document.getElementById("in-mensual-anio").value !== "");
+  window.document.getElementById("btn-mensual-global").click();
+  await waitFor(() => window.document.getElementById("mensual-resultado").className.indexOf("error") !== -1, 3000);
+  ok(window.document.getElementById("mensual-resultado").textContent === "El periodo ya fue cerrado por Auditoría de Asignaciones. El GLOBAL no puede regenerarse.", "mensaje funcional de GLOBAL bloqueado");
   dom.window.close();
 }
 
@@ -970,6 +1047,11 @@ async function test_flujo_diario_nunca_llama_endpoints_mensuales() {
   await test_boton_control1_llama_una_vez();
   await test_boton_control3_llama_una_vez();
   await test_mensual_error_se_muestra_claramente();
+  await test_control1_preliminar_manda_modo_preliminar_sin_confirmar();
+  await test_control1_cierre_confirmado_manda_cerrar_y_confirmacion();
+  await test_control1_cierre_cancelado_no_llama_al_backend();
+  await test_control1_mensajes_de_cierre_bloqueado_y_ya_cerrado();
+  await test_global_bloqueado_post_cierre_muestra_mensaje_funcional();
   await test_flujo_diario_nunca_llama_endpoints_mensuales();
 
   console.log("\n=========================================");

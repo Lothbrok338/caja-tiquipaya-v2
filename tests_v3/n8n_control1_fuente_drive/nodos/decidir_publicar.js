@@ -8,12 +8,16 @@ const rc = $('RESOLVER control1 (periodo y carpetas)').first().json;
 // Revision, detalle e historico: solo cuando la logica de CONTROL 1 los escribio en ESTA corrida.
 const hayRevision = r.revision_actualizada === true && typeof r.ruta_revision === 'string' && r.ruta_revision.split('/').pop() === rc.nombre_revision;
 const hayDetalle = typeof r.detalle_json === 'string' && r.detalle_json.split('/').pop() === rc.nombre_detalle;
-const hayHistorico = r.historico_actualizado === true;
+// PRELIMINAR (mes abierto): solo artefactos del periodo (revision + detalle). El historico maestro y el
+// GLOBAL solo se publican tras un CIERRE DEFINITIVO explicito.
+const esCierre = r.modo_control1 === 'cerrar';
+const hayHistorico = esCierre && r.historico_actualizado === true;
 
 // GLOBAL corregido: solo si CONTROL 1 realmente lo modifico como resultado autorizado
 // (validacion del auditor cerrada), es el MISMO GLOBAL oficial descargado en esta corrida
 // (mismo nombre/periodo, SHA original distinto del final) y no es simulacro.
-const publicarGlobal = r.global_modificado === true
+const publicarGlobal = esCierre
+  && r.global_modificado === true
   && r.estado_validacion === 'CERRADO_CON_VALIDACION_AUDITOR'
   && Number(r.correcciones_aplicadas) > 0
   && r.dry_run !== true

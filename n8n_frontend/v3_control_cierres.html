@@ -442,6 +442,8 @@
   .form-hint { font-size: 10.5px; color: var(--muted2); margin-top: -2px; }
   .form-error { color: var(--red); font-size: 11.5px; margin-top: 6px; }
   .form-ok { color: var(--green); font-size: 11.5px; margin-top: 6px; }
+  button.cerrar-auditoria { background: var(--red); border-color: var(--red); color: #fff; }
+  button.cerrar-auditoria:hover { filter: none; background: #8C1D18; border-color: #8C1D18; }
   button.publicar { background: var(--green); border-color: var(--green); color: #fff; }
   button.publicar:hover { filter: none; background: #17603A; border-color: #17603A; }
   .badge-publicado {
@@ -563,7 +565,8 @@
       </div>
       <div class="field grow"></div>
       <button class="primary" id="btn-mensual-global" title="Regenerable mientras el mes esté abierto">GENERAR GLOBAL</button>
-      <button class="primary" id="btn-mensual-control1">AUDITORÍA DE ASIGNACIONES</button>
+      <button class="primary" id="btn-mensual-control1" title="Revisión preliminar: el periodo sigue abierto">AUDITORÍA DE ASIGNACIONES</button>
+      <button class="cerrar-auditoria" id="btn-mensual-control1-cerrar" title="Cierre definitivo del periodo (pide confirmación)">CERRAR AUDITORÍA DE ASIGNACIONES</button>
       <button class="primary" id="btn-mensual-control3">AUDITORÍA CxC / CxP</button>
     </div>
     <div style="font-size:0.85em;opacity:0.75;margin-top:2px;">GENERAR GLOBAL: regenerable mientras el mes esté abierto.</div>
@@ -752,7 +755,20 @@
     el.className = "mensual-resultado" + (tipo ? " " + tipo : "");
   }
 
-  function ejecutarAccionMensual(endpoint, etiqueta, formatearOk) {
+  // Mensajes funcionales para errores conocidos del backend (sin exponer texto Python crudo).
+  function mensajeFuncionalError(msg) {
+    var m = String(msg || "");
+    if (m.indexOf("PERIODO_CERRADO_CONTROL1") !== -1) {
+      return "El periodo ya fue cerrado por Auditoría de Asignaciones. El GLOBAL no puede regenerarse.";
+    }
+    if (m.indexOf("ERROR_CONFIRMACION_CIERRE_REQUERIDA") !== -1) {
+      return "El cierre requiere confirmación explícita. No se cerró nada.";
+    }
+    return null;
+  }
+
+  // formatearOk puede devolver un string (tipo "ok") o {texto, tipo}.
+  function ejecutarAccionMensual(endpoint, etiqueta, formatearOk, extraBody) {
     var anio = parseInt(qs("#in-mensual-anio").value, 10);
     var mes = parseInt(qs("#in-mensual-mes").value, 10);
     if (!anio || !mes || mes < 1 || mes > 12) {
@@ -760,12 +776,17 @@
       return;
     }
     mostrarResultadoMensual(etiqueta + " en curso… (modo " + state.publicationMode + ")", "cargando");
-    apiPost(endpoint, { anio: anio, mes: mes, modo: state.publicationMode })
+    var body = { anio: anio, mes: mes, modo: state.publicationMode };
+    Object.keys(extraBody || {}).forEach(function (k) { body[k] = extraBody[k]; });
+    apiPost(endpoint, body)
       .then(function (resp) {
-        mostrarResultadoMensual(formatearOk(resp), "ok");
+        var out = formatearOk(resp);
+        if (out && typeof out === "object") mostrarResultadoMensual(out.texto, out.tipo || "ok");
+        else mostrarResultadoMensual(out, "ok");
       })
       .catch(function (err) {
-        mostrarResultadoMensual(etiqueta + ": " + (err.message || String(err)), "error");
+        var funcional = mensajeFuncionalError(err && err.message);
+        mostrarResultadoMensual(funcional || (etiqueta + ": " + ((err && err.message) || String(err))), "error");
       });
   }
 
@@ -782,10 +803,39 @@
     });
   }
 
+  // AUDITORÍA DE ASIGNACIONES: SIEMPRE modo preliminar (mes abierto; no cierra nada).
   function ejecutarControl1Mensual() {
     ejecutarAccionMensual(ENDPOINTS.control1, "AUDITORÍA DE ASIGNACIONES", function (r) {
-      return "AUDITORÍA DE ASIGNACIONES: " + r.estado + "." + sufijoPublicacionOficial(r);
-    });
+      if (r.estado_control1 === "YA_CERRADO") {
+        return { texto: "El periodo ya fue cerrado por Auditoría de Asignaciones. No se modificó nada.", tipo: "ok" };
+      }
+      if (r.estado_control1 === "ERROR") {
+        return { texto: "AUDITORÍA DE ASIGNACIONES: no se pudo completar (" + ((r.problemas || []).join(", ") || r.estado) + ").", tipo: "error" };
+      }
+      var texto = "Auditoría preliminar actualizada. El periodo sigue abierto.";
+      if (r.estado_control1 === "PRELIMINAR_PENDIENTE") texto += " Revisión pendiente de validación del auditor.";
+      return texto + sufijoPublicacionOficial(r);
+    }, { modo_control1: "preliminar" });
+  }
+
+  var TEXTO_CONFIRMAR_CIERRE_CONTROL1 =
+    "Esta acción cerrará el periodo, actualizará el histórico maestro y aplicará las correcciones autorizadas al GLOBAL. " +
+    "Después del cierre, el GLOBAL del periodo quedará protegido contra regeneración.\n\n¿Cerrar definitivamente la Auditoría de Asignaciones?";
+
+  // CIERRE DEFINITIVO: solo tras confirmación humana explícita; cancelar NO llama al backend.
+  function cerrarControl1Mensual() {
+    if (!window.confirm(TEXTO_CONFIRMAR_CIERRE_CONTROL1)) return;
+    ejecutarAccionMensual(ENDPOINTS.control1, "CERRAR AUDITORÍA DE ASIGNACIONES", function (r) {
+      var e = r.estado_control1;
+      if (e === "CERRADO") return { texto: "Auditoría de Asignaciones cerrada definitivamente." + sufijoPublicacionOficial(r), tipo: "ok" };
+      if (e === "YA_CERRADO") return { texto: "La Auditoría de Asignaciones de este periodo ya estaba cerrada. No se modificó nada.", tipo: "ok" };
+      if (e === "CIERRE_BLOQUEADO_GLOBAL_DISTINTO_DEL_CERRADO") {
+        return { texto: "No se puede cerrar: el GLOBAL actual difiere del GLOBAL ya cerrado. Requiere decisión humana; no se modificó nada.", tipo: "error" };
+      }
+      if (e === "CIERRE_SIMULACRO") return { texto: "Simulacro de cierre completado. No se cerró nada.", tipo: "ok" };
+      if (e === "ERROR") return { texto: "CERRAR AUDITORÍA DE ASIGNACIONES: no se pudo completar (" + ((r.problemas || []).join(", ") || r.estado) + ").", tipo: "error" };
+      return { texto: "No se puede cerrar: existen alertas pendientes o correcciones incompletas.", tipo: "error" };
+    }, { modo_control1: "cerrar", confirmacion_cierre: true });
   }
 
   function ejecutarControl3Mensual() {
@@ -1493,6 +1543,7 @@
     initMensual();
     qs("#btn-mensual-global").addEventListener("click", generarGlobalMensual);
     qs("#btn-mensual-control1").addEventListener("click", ejecutarControl1Mensual);
+    qs("#btn-mensual-control1-cerrar").addEventListener("click", cerrarControl1Mensual);
     qs("#btn-mensual-control3").addEventListener("click", ejecutarControl3Mensual);
     qs("#demo-banner").style.display = DEMO ? "block" : "none";
     // FASE 11A.2: el modo se pinta primero con el valor por defecto

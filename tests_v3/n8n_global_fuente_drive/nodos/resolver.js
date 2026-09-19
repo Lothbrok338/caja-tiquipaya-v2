@@ -26,6 +26,7 @@ return [{
   json: {
     anio: anio, mes: mes, periodo: periodo,
     carpeta_sap_id: carpetaSapId, dir_entrada: dirEntrada,
+    carpeta_controles_id: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB', nombre_historico: 'HISTORICO_ASIGNACIONES.csv',
     input_b64: Buffer.from(JSON.stringify(payloadPrep), 'utf8').toString('base64'),
     ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_global_input_' + executionId + '.json',
     ruta_output_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_global_output_' + executionId + '.json',

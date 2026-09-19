@@ -72,7 +72,7 @@ def validar_modo(modo, confirmacion_cierre=False):
     if modo not in (PRELIMINAR, CERRAR):
         raise ValueError(f"MODO_CONTROL1_INVALIDO: {modo!r} (use 'preliminar' o 'cerrar')")
     if modo == CERRAR and confirmacion_cierre is not True:
-        raise ValueError("CIERRE_SIN_CONFIRMACION: el cierre definitivo requiere confirmacion_cierre=true explícito")
+        raise ValueError("ERROR_CONFIRMACION_CIERRE_REQUERIDA: el cierre definitivo requiere confirmacion_cierre=true explícito")
     return modo
 
 

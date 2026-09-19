@@ -3,12 +3,12 @@
   "name": "TIQ V3 · BACKEND DEV (webhooks)",
   "active": true,
   "isArchived": false,
-  "versionId": "1699bba5-a09b-47de-8db5-207a8d9e52fd",
-  "activeVersionId": "1699bba5-a09b-47de-8db5-207a8d9e52fd",
+  "versionId": "2fe6eb17-6ca0-4050-8fbb-94e9a6c2c91d",
+  "activeVersionId": "2fe6eb17-6ca0-4050-8fbb-94e9a6c2c91d",
   "triggerCount": 10,
-  "nodeCount": 131,
+  "nodeCount": 137,
   "createdAt": "2026-09-14T04:52:50.018Z",
-  "updatedAt": "2026-09-18T20:27:43.829Z",
+  "updatedAt": "2026-09-19T01:19:53.773Z",
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": true
@@ -1180,17 +1180,6 @@
         ]
       ]
     },
-    "RESTAURAR - Item del webhook global": {
-      "main": [
-        [
-          {
-            "node": "CONSTRUIR payload global",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "RESOLVER control1 (periodo y carpetas)": {
       "main": [
         [
@@ -1335,6 +1324,90 @@
         [
           {
             "node": "CONSTRUIR - Lista publicaciones CONTROL1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RESTAURAR - Item del webhook global": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR historico CONTROL1 (guardia de cierre)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR historico CONTROL1 (guardia de cierre)": {
+      "main": [
+        [
+          {
+            "node": "VERIFICAR historico (guardia de cierre)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VERIFICAR historico (guardia de cierre)": {
+      "main": [
+        [
+          {
+            "node": "IF - Hay historico CONTROL1 (guardia)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Hay historico CONTROL1 (guardia)": {
+      "main": [
+        [
+          {
+            "node": "DESCARGAR - historico CONTROL1 (guardia)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RESTAURAR 2 - Item del webhook global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - historico CONTROL1 (guardia)": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR - historico a global_entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR - historico a global_entrada": {
+      "main": [
+        [
+          {
+            "node": "RESTAURAR 2 - Item del webhook global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RESTAURAR 2 - Item del webhook global": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload global",
             "type": "main",
             "index": 0
           }
@@ -2638,7 +2711,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const t = $('WEBHOOK control1').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (ejecutar_control1) -- Python es la unica\n// autoridad. Opera sobre el GLOBAL OFICIAL que este backend acaba de\n// descargar de Drive a control1_entrada/<periodo>/ (nunca sobre un GLOBAL\n// local). Cero logica contable aqui.\nconst payload = { anio: t.body.anio, mes: t.body.mes, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', ruta_revision_json: t.body.ruta_revision_json || null, dry_run: t.body.dry_run || false };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];\n"
+        "jsCode": "const t = $('WEBHOOK control1').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (ejecutar_control1) -- Python es la unica\n// autoridad. Opera sobre el GLOBAL OFICIAL que este backend acaba de\n// descargar de Drive a control1_entrada/<periodo>/ (nunca sobre un GLOBAL\n// local). Cero logica contable aqui.\n// MODO: PRELIMINAR (mes abierto) por defecto; el cierre definitivo solo viaja\n// si el frontend envia modo_control1='cerrar' Y confirmacion_cierre=true (tras\n// la confirmacion humana). Aqui NUNCA se infiere el cierre.\nconst payload = { anio: t.body.anio, mes: t.body.mes, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', ruta_revision_json: t.body.ruta_revision_json || null, dry_run: t.body.dry_run || false, modo_control1: t.body.modo_control1 || 'preliminar', confirmacion_cierre: t.body.confirmacion_cierre === true };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
       }
     },
     {
@@ -3009,7 +3082,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const modo = (($('WEBHOOK control1').first().json.body) || {}).modo || 'dev';\nconst r = $json.data || {};\nif (modo !== 'official') {\n  return [{ json: { debe_publicar: false, hay_revision: false, hay_detalle: false, hay_historico: false, publicar_global: false, ruta_revision: null } }];\n}\nconst rc = $('RESOLVER control1 (periodo y carpetas)').first().json;\n\n// Revision, detalle e historico: solo cuando la logica de CONTROL 1 los escribio en ESTA corrida.\nconst hayRevision = r.revision_actualizada === true && typeof r.ruta_revision === 'string' && r.ruta_revision.split('/').pop() === rc.nombre_revision;\nconst hayDetalle = typeof r.detalle_json === 'string' && r.detalle_json.split('/').pop() === rc.nombre_detalle;\nconst hayHistorico = r.historico_actualizado === true;\n\n// GLOBAL corregido: solo si CONTROL 1 realmente lo modifico como resultado autorizado\n// (validacion del auditor cerrada), es el MISMO GLOBAL oficial descargado en esta corrida\n// (mismo nombre/periodo, SHA original distinto del final) y no es simulacro.\nconst publicarGlobal = r.global_modificado === true\n  && r.estado_validacion === 'CERRADO_CON_VALIDACION_AUDITOR'\n  && Number(r.correcciones_aplicadas) > 0\n  && r.dry_run !== true\n  && r.archivo_global === rc.nombre_global\n  && r.periodo === (rc.mes_nombre + '_' + rc.anio)\n  && typeof r.sha256_global_original === 'string' && typeof r.sha256_global_final === 'string'\n  && r.sha256_global_original !== r.sha256_global_final;\n\nreturn [{ json: { debe_publicar: hayRevision || hayDetalle || hayHistorico || publicarGlobal, hay_revision: hayRevision, hay_detalle: hayDetalle, hay_historico: hayHistorico, publicar_global: publicarGlobal, ruta_revision: hayRevision ? r.ruta_revision : null } }];\n"
+        "jsCode": "const modo = (($('WEBHOOK control1').first().json.body) || {}).modo || 'dev';\nconst r = $json.data || {};\nif (modo !== 'official') {\n  return [{ json: { debe_publicar: false, hay_revision: false, hay_detalle: false, hay_historico: false, publicar_global: false, ruta_revision: null } }];\n}\nconst rc = $('RESOLVER control1 (periodo y carpetas)').first().json;\n\n// Revision, detalle e historico: solo cuando la logica de CONTROL 1 los escribio en ESTA corrida.\nconst hayRevision = r.revision_actualizada === true && typeof r.ruta_revision === 'string' && r.ruta_revision.split('/').pop() === rc.nombre_revision;\nconst hayDetalle = typeof r.detalle_json === 'string' && r.detalle_json.split('/').pop() === rc.nombre_detalle;\n// PRELIMINAR (mes abierto): solo artefactos del periodo (revision + detalle). El historico maestro y el\n// GLOBAL solo se publican tras un CIERRE DEFINITIVO explicito.\nconst esCierre = r.modo_control1 === 'cerrar';\nconst hayHistorico = esCierre && r.historico_actualizado === true;\n\n// GLOBAL corregido: solo si CONTROL 1 realmente lo modifico como resultado autorizado\n// (validacion del auditor cerrada), es el MISMO GLOBAL oficial descargado en esta corrida\n// (mismo nombre/periodo, SHA original distinto del final) y no es simulacro.\nconst publicarGlobal = esCierre\n  && r.global_modificado === true\n  && r.estado_validacion === 'CERRADO_CON_VALIDACION_AUDITOR'\n  && Number(r.correcciones_aplicadas) > 0\n  && r.dry_run !== true\n  && r.archivo_global === rc.nombre_global\n  && r.periodo === (rc.mes_nombre + '_' + rc.anio)\n  && typeof r.sha256_global_original === 'string' && typeof r.sha256_global_final === 'string'\n  && r.sha256_global_original !== r.sha256_global_final;\n\nreturn [{ json: { debe_publicar: hayRevision || hayDetalle || hayHistorico || publicarGlobal, hay_revision: hayRevision, hay_detalle: hayDetalle, hay_historico: hayHistorico, publicar_global: publicarGlobal, ruta_revision: hayRevision ? r.ruta_revision : null } }];"
       }
     },
     {
@@ -3329,7 +3402,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// FASE 12E.3 -- fuente real de GLOBAL = carpeta SAP oficial del periodo en Drive.\nconst t = $('WEBHOOK global').first().json;\nconst body = t.body || {};\nconst anio = body.anio;\nconst mes = body.mes;\nif (!Number.isInteger(anio) || anio < 2000 || anio > 2100 || !Number.isInteger(mes) || mes < 1 || mes > 12) {\n  throw new Error('PERIODO_INVALIDO: anio/mes deben ser enteros validos (recibido anio=' + anio + ', mes=' + mes + ').');\n}\nconst periodo = anio + '-' + String(mes).padStart(2, '0');\n\n// Carpeta SAP oficial (04_SALIDAS/<anio>/<periodo>/SAP) por periodo. Es configuracion,\n// no logica: cada mes nuevo agrega aqui su carpeta. Un periodo sin carpeta configurada\n// falla explicito (nunca se cae a estado local).\nconst CARPETAS_SAP_OFICIALES = { '2026-09': '1mid4gUHnCmZbISlsAYMwWta3RudTSE13' };\nconst carpetaSapId = CARPETAS_SAP_OFICIALES[periodo];\nif (!carpetaSapId) {\n  throw new Error('CARPETA_SAP_OFICIAL_NO_CONFIGURADA: no hay carpeta SAP oficial de Drive configurada para el periodo ' + periodo + '.');\n}\n\nconst baseDirDev = '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir';\nconst dirEntrada = baseDirDev + '/global_entrada/' + periodo;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst payloadPrep = { anio: anio, mes: mes, base_dir_dev: baseDirDev };\n\nreturn [{\n  json: {\n    anio: anio, mes: mes, periodo: periodo,\n    carpeta_sap_id: carpetaSapId, dir_entrada: dirEntrada,\n    input_b64: Buffer.from(JSON.stringify(payloadPrep), 'utf8').toString('base64'),\n    ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_global_input_' + executionId + '.json',\n    ruta_output_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_global_output_' + executionId + '.json',\n  },\n}];\n"
+        "jsCode": "// FASE 12E.3 -- fuente real de GLOBAL = carpeta SAP oficial del periodo en Drive.\nconst t = $('WEBHOOK global').first().json;\nconst body = t.body || {};\nconst anio = body.anio;\nconst mes = body.mes;\nif (!Number.isInteger(anio) || anio < 2000 || anio > 2100 || !Number.isInteger(mes) || mes < 1 || mes > 12) {\n  throw new Error('PERIODO_INVALIDO: anio/mes deben ser enteros validos (recibido anio=' + anio + ', mes=' + mes + ').');\n}\nconst periodo = anio + '-' + String(mes).padStart(2, '0');\n\n// Carpeta SAP oficial (04_SALIDAS/<anio>/<periodo>/SAP) por periodo. Es configuracion,\n// no logica: cada mes nuevo agrega aqui su carpeta. Un periodo sin carpeta configurada\n// falla explicito (nunca se cae a estado local).\nconst CARPETAS_SAP_OFICIALES = { '2026-09': '1mid4gUHnCmZbISlsAYMwWta3RudTSE13' };\nconst carpetaSapId = CARPETAS_SAP_OFICIALES[periodo];\nif (!carpetaSapId) {\n  throw new Error('CARPETA_SAP_OFICIAL_NO_CONFIGURADA: no hay carpeta SAP oficial de Drive configurada para el periodo ' + periodo + '.');\n}\n\nconst baseDirDev = '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir';\nconst dirEntrada = baseDirDev + '/global_entrada/' + periodo;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst payloadPrep = { anio: anio, mes: mes, base_dir_dev: baseDirDev };\n\nreturn [{\n  json: {\n    anio: anio, mes: mes, periodo: periodo,\n    carpeta_sap_id: carpetaSapId, dir_entrada: dirEntrada,\n    carpeta_controles_id: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB', nombre_historico: 'HISTORICO_ASIGNACIONES.csv',\n    input_b64: Buffer.from(JSON.stringify(payloadPrep), 'utf8').toString('base64'),\n    ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_global_input_' + executionId + '.json',\n    ruta_output_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_global_output_' + executionId + '.json',\n  },\n}];"
       }
     },
     {
@@ -3791,6 +3864,143 @@
             "nombre_carpeta": "={{ $('RESOLVER control1 (periodo y carpetas)').first().json.periodo }}"
           }
         }
+      }
+    },
+    {
+      "id": "ce8ca19c-9798-4916-bbfb-677bfb639967",
+      "name": "BUSCAR historico CONTROL1 (guardia de cierre)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1980,
+        3450
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "={{ $('RESOLVER carpeta SAP oficial').first().json.nombre_historico }}",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER carpeta SAP oficial').first().json.carpeta_controles_id }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "c9b81da9-a1b0-458a-9b4a-619ac3782228",
+      "name": "VERIFICAR historico (guardia de cierre)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        3450
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Guardia de cierre: historico maestro de CONTROL 1 en la raiz de 05_CONTROLES. 0 = nunca se ha cerrado nada\n// (GLOBAL regenerable); 1 = se descarga para que Python decida si ESTE periodo ya esta cerrado; >1 = ambiguo.\nconst r = $('RESOLVER carpeta SAP oficial').first().json;\nconst hist = $('BUSCAR historico CONTROL1 (guardia de cierre)').all()\n  .map(function (i) { return i.json; })\n  .filter(function (j) { return j && j.id && j.name === r.nombre_historico; });\nif (hist.length > 1) {\n  throw new Error('ERROR_AMBIGUO_HISTORICO: hay ' + hist.length + ' archivos \"' + r.nombre_historico + '\" en 05_CONTROLES. No se elige ninguno.');\n}\nreturn [{ json: { hay_historico: hist.length === 1, historico_id: hist.length === 1 ? String(hist[0].id) : null } }];"
+      }
+    },
+    {
+      "id": "f881f350-489c-4e02-b5d0-d50a70942a76",
+      "name": "IF - Hay historico CONTROL1 (guardia)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2420,
+        3450
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hay_historico }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "691c678b-227e-4336-a7c2-637e7f443616",
+      "name": "DESCARGAR - historico CONTROL1 (guardia)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2640,
+        3350
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.historico_id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "eecf02f4-ed6d-4fdd-a3bb-d3710e08e654",
+      "name": "ESCRIBIR - historico a global_entrada",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        2860,
+        3350
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('RESOLVER carpeta SAP oficial').first().json.dir_entrada + '/' + $('RESOLVER carpeta SAP oficial').first().json.nombre_historico }}",
+        "dataPropertyName": "data",
+        "options": {}
+      }
+    },
+    {
+      "id": "399c7884-52cf-488d-a311-d6c3bcd72425",
+      "name": "RESTAURAR 2 - Item del webhook global",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3080,
+        3450
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Devuelve el item original del webhook: CONSTRUIR payload global sigue leyendo t.body.anio/mes sin cambios.\nreturn [{ json: $('WEBHOOK global').first().json }];\n"
       }
     }
   ],

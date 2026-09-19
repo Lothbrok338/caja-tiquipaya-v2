@@ -145,7 +145,7 @@ test('restaurar/construir_payload usan $(...).first() (no .item) y leen body.ani
   assert.ok(!/\.item\b/.test(cargar('construir_payload')) && !/\.item\b/.test(cargar('decidir_publicar')));
 });
 
-const RESULT_BASE = { estado: 'REVISAR_DUPLICADOS_ENCONTRADOS', estado_validacion: 'PENDIENTE_VALIDACION_AUDITOR', archivo_global: G, periodo: 'SEPTIEMBRE_2026',
+const RESULT_BASE = { modo_control1: 'cerrar', estado: 'REVISAR_DUPLICADOS_ENCONTRADOS', estado_validacion: 'PENDIENTE_VALIDACION_AUDITOR', archivo_global: G, periodo: 'SEPTIEMBRE_2026',
   global_modificado: false, correcciones_aplicadas: 0, dry_run: false, historico_actualizado: false, revision_actualizada: true,
   ruta_revision: RC.dir_entrada + '/' + R, detalle_json: RC.dir_entrada + '/' + RC.nombre_detalle, sha256_global_original: 'a'.repeat(64), sha256_global_final: 'a'.repeat(64) };
 const decidir = function (r, modo) {
@@ -170,6 +170,24 @@ test('GLOBAL NO se publica si: sin cerrar, sin cambio de SHA, dry_run, otro peri
    { archivo_global: 'SAP_GLOBAL_TIQ_OCTUBRE_2026.xlsx' }, { correcciones_aplicadas: 0 }, { global_modificado: false }, { sha256_global_original: undefined }].forEach(function (mut) {
     assert.strictEqual(decidir(Object.assign({}, ok, mut)).publicar_global, false, JSON.stringify(mut));
   });
+});
+test('PRELIMINAR: aunque el resultado (falso) traiga historico/GLOBAL modificados, solo se publican revision y detalle', function () {
+  const prelim = Object.assign({}, RESULT_BASE, { modo_control1: 'preliminar', estado_control1: 'PRELIMINAR_LISTO_PARA_CERRAR', historico_actualizado: true,
+    global_modificado: true, correcciones_aplicadas: 2, estado_validacion: 'CERRADO_CON_VALIDACION_AUDITOR', sha256_global_final: 'b'.repeat(64) });
+  const d = decidir(prelim);
+  assert.deepStrictEqual([d.debe_publicar, d.hay_revision, d.hay_detalle, d.hay_historico, d.publicar_global], [true, true, true, false, false]);
+  const sinModo = Object.assign({}, prelim); delete sinModo.modo_control1;
+  assert.deepStrictEqual([decidir(sinModo).hay_historico, decidir(sinModo).publicar_global], [false, false]);
+});
+test('payload: modo preliminar por defecto; cierre solo con modo_control1=cerrar; confirmacion solo si es true', function () {
+  const payload = function (body) {
+    const p = ejecutar(cargar('construir_payload'), WH(Object.assign({ anio: 2026, mes: 9, modo: 'official' }, body)))[0].json;
+    return JSON.parse(Buffer.from(p.input_b64, 'base64').toString('utf8'));
+  };
+  assert.deepStrictEqual([payload({}).modo_control1, payload({}).confirmacion_cierre], ['preliminar', false]);
+  assert.deepStrictEqual([payload({ modo_control1: 'cerrar' }).modo_control1, payload({ modo_control1: 'cerrar' }).confirmacion_cierre], ['cerrar', false]);
+  assert.deepStrictEqual([payload({ modo_control1: 'cerrar', confirmacion_cierre: true }).modo_control1, payload({ modo_control1: 'cerrar', confirmacion_cierre: true }).confirmacion_cierre], ['cerrar', true]);
+  assert.strictEqual(payload({ modo_control1: 'cerrar', confirmacion_cierre: 'true' }).confirmacion_cierre, false);
 });
 test('resultado de error / modo dev -> nada se publica', function () {
   assert.strictEqual(decidir({ resultado: 'ERROR', codigo: 'RuntimeError', mensaje: 'x' }).debe_publicar, false);

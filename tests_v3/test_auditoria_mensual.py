@@ -1453,9 +1453,9 @@ def _corrida_preliminar(tmp_path, base, asignaciones, historico_src=None, revisi
 def test_modo_por_defecto_es_preliminar_y_cierre_exige_confirmacion_explicita(tmp_path):
     assert control1_modos.validar_modo(None) == "preliminar"
     assert control1_modos.validar_modo("") == "preliminar"
-    with pytest.raises(ValueError, match="CIERRE_SIN_CONFIRMACION"):
+    with pytest.raises(ValueError, match="ERROR_CONFIRMACION_CIERRE_REQUERIDA"):
         control1_modos.validar_modo("cerrar")
-    with pytest.raises(ValueError, match="CIERRE_SIN_CONFIRMACION"):
+    with pytest.raises(ValueError, match="ERROR_CONFIRMACION_CIERRE_REQUERIDA"):
         control1_modos.validar_modo("cerrar", confirmacion_cierre="true")     # solo el booleano True
     with pytest.raises(ValueError, match="MODO_CONTROL1_INVALIDO"):
         control1_modos.validar_modo("definitivo")
@@ -1579,7 +1579,7 @@ def test_cli_pasa_modo_y_confirmacion(tmp_path):
     assert jsonlib.loads(out.read_text())["modo_control1"] == "preliminar"
     ent.write_text(jsonlib.dumps({"anio": 2026, "mes": 9, "base_dir_dev": str(base), "modo_control1": "cerrar"}))
     dev_api.main(["--accion", "ejecutar_control1", "--input", str(ent), "--output", str(out)])
-    assert "CIERRE_SIN_CONFIRMACION" in out.read_text()
+    assert "ERROR_CONFIRMACION_CIERRE_REQUERIDA" in out.read_text()
 
 
 def _preparar_todo_validado(tmp_path, base, correcta="CORREGIDA"):

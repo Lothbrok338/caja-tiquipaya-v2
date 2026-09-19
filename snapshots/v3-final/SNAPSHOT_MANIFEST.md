@@ -35,7 +35,7 @@ Verificado con grep sobre los 14 archivos: cero coincidencias de
 | 11 | TIQ V3 · 07D PUBLICAR ARCHIVO OFICIAL (crear o actualizar) · DRIVE | `HhuQCVP2oCubavzY` | `HhuQCVP2oCubavzY_07d_publicar_oficial.json` | false | 12 | `9f9aab93e4654612e8a1b10005975fac88ecfc793024b51ba0bab9ddbf848f78` |
 | 12 | TIQ V3 · 07E BUSCAR O CREAR CARPETA OFICIAL · DRIVE | `Lht5xRinJ9nJpHCW` | `Lht5xRinJ9nJpHCW_07e_buscar_crear_carpeta.json` | false | 7 | `2b331e13b50c40d69eb46c06817b6f5aecdeca8d4a25af408274e11bd74cc15f` |
 | 13 | TIQ V3 · PREFLIGHT OFICIAL (solo lectura) | `sJVgoBRpBntc96vf` | `sJVgoBRpBntc96vf_preflight_oficial.json` | false | 12 | `dccdfb3711e06518bce4d73c73acbfaa4a687457212e946d5b85321cb1f782de` |
-| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 131 | `7f38427ab9a473a62b38c538e5fdc30ae6ad92ffbf2afb573474fe31c72c22e5` |
+| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 137 | `4b80727888ae6574520d72468bd0cccc03cee359d557c5d34ede6bd71755b86b` |
 
 **Estado `active` real en n8n al momento de esta actualización (2026-09-18):**
 7 workflows están activos — `aLs1f3GMqswbaENA` (BACKEND DEV), `CanZtkmnm0ukAC8c`
@@ -471,3 +471,31 @@ describió `$('WEBHOOK …').item` en un Code de modo "todos los items" como fal
 artefactos/snapshots por periodo, materialización limpia desde Drive). Hoy sigue con el patrón local.
 
 Commit de este fix: `fix: establish canonical control1 history and period folders`.
+
+
+### CONTROL 1: modos PRELIMINAR / CIERRE DEFINITIVO integrados en BACKEND DEV y frontend (2026-09-19)
+
+Capa Python (commit `32881f1`): `v3/control1_modos.py` + `v3/dev_api.py`. Esta fase la integra.
+
+- **BACKEND DEV (versión `2fe6eb17`, 137 nodos, publicada; no se ejecutó ningún webhook):**
+  - `/control1`: `CONSTRUIR payload control1` envía `modo_control1` (por defecto `preliminar`) y
+    `confirmacion_cierre` (solo `true` estricto). `cerrar` sin confirmación → Python responde
+    `ERROR_CONFIRMACION_CIERRE_REQUERIDA` (renombrado desde `CIERRE_SIN_CONFIRMACION`). Nunca se infiere el cierre.
+  - `DECIDIR - Publicar CONTROL1 oficial`: PRELIMINAR publica solo revisión + detalle del periodo; el histórico
+    (maestro y snapshot del periodo) y el GLOBAL corregido solo se publican con `modo_control1='cerrar'`.
+    Segundo cierre → `YA_CERRADO`, nada que publicar.
+  - `/global` (guardia post-cierre): 6 nodos nuevos entre `RESTAURAR - Item del webhook global` y
+    `CONSTRUIR payload global` — `BUSCAR historico CONTROL1 (guardia de cierre)` (raíz de 05_CONTROLES, por nombre
+    exacto) → `VERIFICAR historico` (0/1; >1 → `ERROR_AMBIGUO_HISTORICO`) → `IF` → descarga y
+    `ESCRIBIR - historico a global_entrada` → `RESTAURAR 2`. Python (`_verificar_periodo_no_cerrado`) bloquea con
+    `PERIODO_CERRADO_CONTROL1` si el histórico ya tiene filas de ese GLOBAL. Sin histórico en Drive → GLOBAL regenerable.
+    El directorio se limpia antes (`PREPARAR global_entrada limpio`), así que nunca se usa un histórico local residual.
+    Solo lectura de Drive. El consolidador ignora el CSV (no es un SAP).
+- **Frontend (`v3_control_cierres.html`):** `AUDITORÍA DE ASIGNACIONES` envía siempre `modo_control1='preliminar'`;
+  nuevo `CERRAR AUDITORÍA DE ASIGNACIONES` pide `window.confirm` con la explicación y solo si se acepta envía
+  `modo_control1='cerrar'` + `confirmacion_cierre=true` (cancelar no llama al backend). Mensajes funcionales para
+  preliminar, cierre bloqueado/exitoso/ya cerrado y GLOBAL bloqueado; sin errores Python crudos.
+- **Septiembre real:** no se ejecutó nada. Las decisiones del auditor se preservan por diseño (emparejamiento por
+  identidad de la alerta, no por fila/SHA) al reutilizar la revisión existente en `CONTROL_1_ASIGNACIONES/2026-09/`.
+- **Pendiente:** CONTROL 3 (mismo concepto), cierre mensual real, `V3_FINAL_STATE.md`, tag `v3.0-final`.
+

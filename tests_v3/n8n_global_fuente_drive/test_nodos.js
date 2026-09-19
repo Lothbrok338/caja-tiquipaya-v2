@@ -99,13 +99,28 @@ test('filtrar: carpeta vacia o item vacio ({}) -> hay_sap=false (nunca cuelga la
   const r = ejecutar(cargar('filtrar'), { 'RESOLVER carpeta SAP oficial': [{ json: SEP }] }, [{ json: {} }]).map(function (i) { return i.json; });
   assert.deepStrictEqual(r, [{ hay_sap: false, cantidad: 0 }]);
 });
+test('resolver: expone la carpeta 05_CONTROLES y el nombre del historico maestro (guardia de cierre)', function () {
+  const r = ejecutar(cargar('resolver'), webhook(2026, 9), [])[0].json;
+  assert.strictEqual(r.carpeta_controles_id, '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB');
+  assert.strictEqual(r.nombre_historico, 'HISTORICO_ASIGNACIONES.csv');
+});
+const verificarHist = function (items) {
+  return ejecutar(cargar('verificar_historico'), { 'RESOLVER carpeta SAP oficial': [{ json: Object.assign({ nombre_historico: 'HISTORICO_ASIGNACIONES.csv' }, SEP) }],
+    'BUSCAR historico CONTROL1 (guardia de cierre)': items }, [])[0].json;
+};
+test('guardia: historico 0 -> hay_historico=false; 1 -> id; >1 -> ERROR_AMBIGUO_HISTORICO; ignora otros nombres/vacio', function () {
+  assert.deepStrictEqual(verificarHist([{ json: {} }]), { hay_historico: false, historico_id: null });
+  assert.deepStrictEqual(verificarHist([{ json: { id: 'h1', name: 'HISTORICO_ASIGNACIONES.csv' } }, { json: { id: 'x', name: 'HISTORICO_ASIGNACIONES_old.csv' } }]),
+    { hay_historico: true, historico_id: 'h1' });
+  assert.throws(function () { verificarHist([{ json: { id: 'a', name: 'HISTORICO_ASIGNACIONES.csv' } }, { json: { id: 'b', name: 'HISTORICO_ASIGNACIONES.csv' } }]); }, /ERROR_AMBIGUO_HISTORICO/);
+});
 test('restaurar: devuelve el item original del webhook (body.anio/mes intactos)', function () {
   const w = webhook(2026, 9);
   const r = ejecutar(cargar('restaurar'), w, [{ json: { hay_sap: true } }]);
   assert.deepStrictEqual(r[0].json, w['WEBHOOK global'][0].json);
 });
 test('sin ninguna referencia a publicacion/sap ni $input.first() para elegir archivos', function () {
-  ['resolver', 'filtrar', 'restaurar'].forEach(function (n) {
+  ['resolver', 'filtrar', 'restaurar', 'verificar_historico'].forEach(function (n) {
     const c = cargar(n);
     assert.ok(!/publicacion/.test(c), n + ' no debe mencionar publicacion/');
   });
@@ -114,7 +129,8 @@ test('sin ninguna referencia a publicacion/sap ni $input.first() para elegir arc
 test('el codigo desplegado en el snapshot de BACKEND DEV coincide con estos archivos', function () {
   if (!fs.existsSync(snapshot)) { console.log('       (snapshot ausente: omitido)'); return; }
   const wf = JSON.parse(fs.readFileSync(snapshot, 'utf8')); const nodos = (wf.workflow || wf).nodes;
-  const mapa = { 'RESOLVER carpeta SAP oficial': 'resolver', 'FILTRAR - SAP diarios validos del periodo': 'filtrar', 'RESTAURAR - Item del webhook global': 'restaurar' };
+  const mapa = { 'RESOLVER carpeta SAP oficial': 'resolver', 'FILTRAR - SAP diarios validos del periodo': 'filtrar', 'RESTAURAR - Item del webhook global': 'restaurar',
+    'RESTAURAR 2 - Item del webhook global': 'restaurar', 'VERIFICAR historico (guardia de cierre)': 'verificar_historico' };
   Object.keys(mapa).forEach(function (nombre) {
     const nodo = nodos.find(function (n) { return n.name === nombre; });
     if (!nodo) { console.log('       (nodo ' + nombre + ' aun no esta en el snapshot)'); assert.fail('falta nodo ' + nombre); }
