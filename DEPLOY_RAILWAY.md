@@ -44,7 +44,7 @@ aplicación + el Postgres ya existente, nada más.
 | Archivo | Rol |
 |---|---|
 | `requirements.txt` | `openpyxl`, `pytest` — únicas dependencias reales (auditado por import en todo el repo) |
-| `Dockerfile` | Imagen `n8nio/n8n` + Python 3 vía `apk` + deps |
+| `Dockerfile` | Imagen `node:22-bookworm-slim` (Debian) + `npm install -g n8n` + Python 3 vía `apt-get` (la imagen oficial `n8nio/n8n` no sirve de base: su capa final `n8nio/base` es Alpine sin `apk` ni compilador por diseño — no se le puede instalar Python encima) |
 | `.dockerignore` | Excluye `.git`, `node_modules`, caches |
 | `railway.json` | Declara build por Dockerfile |
 | `scripts/railway_entrypoint.sh` | Arranca n8n (background) + `serve_v3_frontend.py` (foreground, proceso público) |
