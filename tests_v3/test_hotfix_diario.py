@@ -29,6 +29,7 @@ from v3.precheck_maestro import (  # noqa: E402
     evaluar_cobertura_maestro, MAESTRO_APTO, BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
     MACROS_NO_CUBRE_FECHA_DEPOSITO,
 )
+from v3.shadow_guard import PublicacionOficialBloqueadaError  # noqa: E402
 from test_publicacion import _cierre_procesado  # noqa: E402
 
 
@@ -219,7 +220,11 @@ def _lote_con_cierre(tmp_path, estado_local, sha="a" * 64):
     return base, r["lote_id"], p
 
 
-def test_A_D6_D7_solo_06b_publicado_oficial_cuenta_como_publicado(tmp_path):
+def test_A_D6_D7_solo_06b_publicado_oficial_cuenta_como_publicado(tmp_path, monkeypatch):
+    # Prueba la lógica de fusión de consolidar_publicacion_oficial() independientemente
+    # del entorno: TIQ_BLOCK_OFFICIAL_PUBLISH es una guarda de entorno (Railway shadow),
+    # no una regla de negocio — este test valida el contrato base sin ella.
+    monkeypatch.delenv("TIQ_BLOCK_OFFICIAL_PUBLISH", raising=False)
     base, lote_id, p = _lote_con_cierre(tmp_path, PUBLICACION_LOCAL_PREPARADA)
     drive = {"fecha": "2026-09-11", "sha256": "a" * 64, "estado_publicacion": "PUBLICADO_OFICIAL", "publicado": True,
              "drive_sap_file_id": "S", "drive_resultado_file_id": "R", "drive_marker_file_id": "M", "drive_entrada_file_id": "E", "mensaje": "ok"}
@@ -249,7 +254,9 @@ def test_A_D7_06b_con_sha_distinto_o_otra_fecha_no_confirma(tmp_path):
     assert r["publicados"][0]["estado_publicacion"] == "ERROR_PUBLICACION_OFICIAL"
 
 
-def test_A_D9_reintento_oficial_es_idempotente_marcador_de_drive_ya_existe(tmp_path):
+def test_A_D9_reintento_oficial_es_idempotente_marcador_de_drive_ya_existe(tmp_path, monkeypatch):
+    # Ver nota en test_A_D6_D7_...: contrato base, independiente de la guarda de entorno.
+    monkeypatch.delenv("TIQ_BLOCK_OFFICIAL_PUBLISH", raising=False)
     base, lote_id, p = _lote_con_cierre(tmp_path, PUBLICACION_LOCAL_PREPARADA)
     drive = {"fecha": "2026-09-11", "sha256": "a" * 64, "estado_publicacion": "YA_PUBLICADO", "publicado": False,
              "mensaje": "Marcador ya existe en Drive (oficial): no se republica (idempotencia SHA256)."}
@@ -264,8 +271,10 @@ def test_A_estado_de_error_real_de_publicacion_no_se_disfraza(tmp_path):
     assert r["publicados"][0]["estado_publicacion"] == "ERROR_PUBLICACION"
 
 
-def test_A_CLI_publicar_en_modo_oficial_prepara_pero_no_publica(tmp_path):
+def test_A_CLI_publicar_en_modo_oficial_prepara_pero_no_publica(tmp_path, monkeypatch):
     """publicar_seleccionados(modo_oficial=True) persiste PUBLICACION_LOCAL_PREPARADA en el lote (nunca PUBLICADO)."""
+    # Ver nota en test_A_D6_D7_...: contrato base, independiente de la guarda de entorno.
+    monkeypatch.delenv("TIQ_BLOCK_OFFICIAL_PUBLISH", raising=False)
     item = _cierre_procesado(tmp_path)
     base = str(tmp_path / "dev")
     r = dev_api.crear_lote_pendiente(item["fecha"], item["fecha"], "a", base)
@@ -279,8 +288,43 @@ def test_A_CLI_publicar_en_modo_oficial_prepara_pero_no_publica(tmp_path):
     assert res2["publicados"][0]["estado_publicacion"] in (PUBLICADO, YA_PUBLICADO)
 
 
+# ---------------------------------------------------------------------------
+# SHADOW — guarda de entorno TIQ_BLOCK_OFFICIAL_PUBLISH (migración Railway).
+# Deterministas: solo tmp_path/diccionarios en memoria, nada de Drive ni n8n.
+# ---------------------------------------------------------------------------
+
+def test_shadow_publicar_seleccionados_modo_oficial_lanza_bloqueada(tmp_path, monkeypatch):
+    """Con TIQ_BLOCK_OFFICIAL_PUBLISH=true, modo_oficial=True se rechaza siempre,
+    sin importar el estado del lote — ver v3/shadow_guard.py."""
+    monkeypatch.setenv("TIQ_BLOCK_OFFICIAL_PUBLISH", "true")
+    item = _cierre_procesado(tmp_path)
+    base = str(tmp_path / "dev")
+    r = dev_api.crear_lote_pendiente(item["fecha"], item["fecha"], "a", base)
+    lote = dev_api._leer_lote(r["lote_id"], base)
+    lote["cierres"] = [item]
+    dev_api._escribir_lote(lote, base)
+    with pytest.raises(PublicacionOficialBloqueadaError):
+        dev_api.publicar_seleccionados(r["lote_id"], [item["fecha"]], base, "a", modo_oficial=True)
+
+
+def test_shadow_consolidar_publicacion_oficial_ignora_evidencia_drive_simulada(tmp_path, monkeypatch):
+    """Con TIQ_BLOCK_OFFICIAL_PUBLISH=true, ninguna evidencia de 06B/Drive —ni siquiera
+    PUBLICADO_OFICIAL/publicado=true simulada— puede resultar en PUBLICADO_OFICIAL."""
+    monkeypatch.setenv("TIQ_BLOCK_OFFICIAL_PUBLISH", "true")
+    base, lote_id, p = _lote_con_cierre(tmp_path, PUBLICACION_LOCAL_PREPARADA)
+    drive = {"fecha": "2026-09-11", "sha256": "a" * 64, "estado_publicacion": "PUBLICADO_OFICIAL", "publicado": True,
+             "drive_sap_file_id": "S", "drive_resultado_file_id": "R", "drive_marker_file_id": "M", "drive_entrada_file_id": "E", "mensaje": "ok"}
+    r = dev_api.consolidar_publicacion_oficial({"resultado": "OK", "publicados": [dict(p)], "publicados_drive_oficial": [drive]}, lote_id, base)
+    x = r["publicados"][0]
+    assert x["estado_publicacion"] == "ERROR_PUBLICACION_OFICIAL" and x["publicado"] is False
+    assert r["publicacion_oficial_confirmada"] == []
+
+
 def test_D10_v2_y_modulos_mensuales_sin_cambios():
+    import shutil
     import subprocess
+    if shutil.which("git") is None or not os.path.isdir(os.path.join(RAIZ, ".git")):
+        pytest.skip("repo-integrity check requires a Git checkout; runtime container has no .git")
     intactos = ["consolidador_mensual.py", "control_asignaciones.py", "control_cxc_cxp.py", "run_batch.py", "excel_io.py",
                 "correcciones_tiquipaya.py", "motor_tiquipaya.py", "pipeline_tiquipaya.py", "v3/control1_modos.py", "v3/control3_modos.py"]
     r = subprocess.run(["git", "diff", "HEAD", "--stat", "--"] + [os.path.join(RAIZ, p) for p in intactos],

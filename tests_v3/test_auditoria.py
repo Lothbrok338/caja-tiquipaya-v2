@@ -221,7 +221,7 @@ def test_auditoria_no_publica_nada(tmp_path):
     item = _item_completo(estado_final="LISTO_PARA_PUBLICAR", estado_publicacion=None, publicado=None)
     consolidar_auditoria_cierre(item, base_dir_dev)
     assert glob.glob(os.path.join(base_dir_dev, "**", "PROCESADO_*.json"), recursive=True) == []
-    assert glob.glob(os.path.join(base_dir_dev, "publicacion", "**"), recursive=True) == []
+    assert not os.path.exists(os.path.join(base_dir_dev, "publicacion"))  # publicacion/ NO fue creado
 
 
 # 17) fallo de auditoria de un cierre no altera otros cierres

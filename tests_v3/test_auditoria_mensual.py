@@ -1697,8 +1697,11 @@ def test_O_generar_global_se_bloquea_tras_el_cierre_y_sigue_libre_mientras_esta_
 
 
 def test_P_Q_v2_y_control3_permanecen_sin_cambios():
+    import shutil
     import subprocess
     raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if shutil.which("git") is None or not os.path.isdir(os.path.join(raiz, ".git")):
+        pytest.skip("repo-integrity check requires a Git checkout; runtime container has no .git")
     intactos = ["consolidador_mensual.py", "control_asignaciones.py", "control_cxc_cxp.py", "run_batch.py",
                 "excel_io.py", "correcciones_tiquipaya.py"]
     r = subprocess.run(["git", "diff", "HEAD", "--stat", "--"] + [os.path.join(raiz, p) for p in intactos],

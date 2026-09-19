@@ -181,7 +181,7 @@ def test_e2e_002_sin_archivo_no_avanza(tmp_path):
     assert r["procesados"][0]["estado_motor"] == "NO_PROCESADO"
     assert final["estado_final"] == SIN_ARCHIVO
     assert final.get("estado_publicacion") is None  # nunca se intento publicar
-    assert glob.glob(str(tmp_path / "dev" / "publicacion" / "**"), recursive=True) == []
+    assert not os.path.exists(str(tmp_path / "dev" / "publicacion"))  # publicacion/ NO fue creado
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +211,7 @@ def test_e2e_003_ambiguo_regla_g_no_publica(tmp_path):
     assert final["requiere_revision"] is True
     # sin correccion aportada (AMBIGUO no es un campo corregible via 05) -> nunca se publica
     assert final.get("estado_publicacion") is None
-    assert glob.glob(str(tmp_path / "dev" / "publicacion" / "**"), recursive=True) == []
+    assert not os.path.exists(str(tmp_path / "dev" / "publicacion"))  # publicacion/ NO fue creado
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +274,7 @@ def test_e2e_005_bloqueo_contable_sin_correccion_no_publica(tmp_path):
     assert final["correccion_aplicada"] is False
     assert "pendiente de decisión del auditor" in final["mensaje"]
     assert final.get("estado_publicacion") is None
-    assert glob.glob(str(tmp_path / "dev" / "publicacion" / "**"), recursive=True) == []
+    assert not os.path.exists(str(tmp_path / "dev" / "publicacion"))  # publicacion/ NO fue creado
 
 
 # ---------------------------------------------------------------------------
