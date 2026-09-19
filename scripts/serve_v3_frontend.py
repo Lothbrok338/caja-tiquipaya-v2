@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """serve_v3_frontend.py — proxy temporal para la interfaz V3.
 
-Sirve n8n_frontend/v3_control_cierres.html en el puerto 8090 y reenvia
-/webhook/* a localhost:5678 (n8n), porque el HTML usa rutas RELATIVAS
+Sirve n8n_frontend/v3_control_cierres.html y reenvia /webhook/* a n8n
+(por defecto localhost:5678), porque el HTML usa rutas RELATIVAS
 (/webhook/tiq-v3-dev/*) y por lo tanto necesita compartir origen con n8n.
 No contiene logica de negocio: solo sirve archivos estaticos y reenvia
 bytes tal cual.
+
+Portabilidad (migración Railway, 2026-09): el puerto y el origen de n8n
+ahora se leen de variables de entorno (PORT / TIQ_N8N_ORIGIN) en vez de
+estar fijos en el codigo. Railway inyecta PORT automaticamente para el
+proceso publico del servicio; n8n sigue corriendo en el mismo contenedor
+en localhost:5678 (ver scripts/start_n8n.sh), asi que TIQ_N8N_ORIGIN no
+hace falta fijarla ahi. Sin ninguna de las dos variables, el
+comportamiento es identico al de antes (8090 / localhost:5678).
 """
 import http.server
 import os
@@ -14,7 +22,8 @@ import urllib.request
 
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "n8n_frontend"))
 
-N8N_ORIGIN = "http://localhost:5678"
+N8N_ORIGIN = os.environ.get("TIQ_N8N_ORIGIN", "http://localhost:5678")
+LISTEN_PORT = int(os.environ.get("PORT", "8090"))
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -56,4 +65,4 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    http.server.HTTPServer(("0.0.0.0", 8090), Handler).serve_forever()
+    http.server.HTTPServer(("0.0.0.0", LISTEN_PORT), Handler).serve_forever()

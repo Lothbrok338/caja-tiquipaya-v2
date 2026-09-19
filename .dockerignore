@@ -1,0 +1,5 @@
+.git
+__pycache__/
+*.pyc
+tests_v3/frontend/node_modules
+dev_workdir/

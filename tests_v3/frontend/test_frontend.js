@@ -6,7 +6,10 @@ const fs = require("fs");
 const path = require("path");
 const { JSDOM } = require("jsdom");
 
-const HTML_PATH = path.join("/workspaces/caja-tiquipaya-v2", "n8n_frontend", "v3_control_cierres.html");
+// Portabilidad (migración Railway 2026-09): antes hardcodeaba
+// "/workspaces/caja-tiquipaya-v2" (ruta fija del Codespace). Resuelto
+// relativo a este archivo para funcionar en cualquier checkout.
+const HTML_PATH = path.join(__dirname, "..", "..", "n8n_frontend", "v3_control_cierres.html");
 const html = fs.readFileSync(HTML_PATH, "utf-8");
 
 let failures = 0;

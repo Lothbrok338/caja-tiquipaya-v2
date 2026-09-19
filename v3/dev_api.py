@@ -58,6 +58,7 @@ import consolidador_mensual  # noqa: E402  (reutilizado tal cual — solo para n
 import control_asignaciones as _ctrl1_v2  # noqa: E402  (V2, sin cambios — solo lectura del historico para la guardia de cierre)
 from v3 import control1_modos  # noqa: E402
 from v3 import control3_modos  # noqa: E402
+from v3.shadow_guard import bloqueo_publicacion_oficial_activo, exigir_no_bloqueo_para_publicacion_oficial  # noqa: E402
 
 
 PROCESANDO = "PROCESANDO"
@@ -435,6 +436,8 @@ def aplicar_correccion(lote_id, fecha, correccion_parcial, base_dir_dev):
 # ---------------------------------------------------------------------------
 
 def publicar_seleccionados(lote_id, fechas, base_dir_dev, usuario_auditor, modo_oficial=False):
+    if modo_oficial:
+        exigir_no_bloqueo_para_publicacion_oficial()
     lote = _leer_lote(lote_id, base_dir_dev)
     fechas = set(fechas)
     elegibles, omitidos, indices = [], [], {}
@@ -480,8 +483,16 @@ def consolidar_publicacion_oficial(respuesta, lote_id, base_dir_dev):
     YA_PUBLICADO local, estado del motor, 06B ausente o sin evidencia— es
     ERROR_PUBLICACION_OFICIAL (publicado=False): el cierre sigue publicable.
     El resultado se persiste en el lote para que /datos no muestre un estado
-    distinto tras recargar."""
-    drive = respuesta.get("publicados_drive_oficial") or []
+    distinto tras recargar.
+
+    Defensa en profundidad SHADOW MODE: con TIQ_BLOCK_OFFICIAL_PUBLISH=true,
+    esta función nunca acepta evidencia de Drive como confirmación oficial
+    (`drive` se fuerza a vacío), sin importar qué haya devuelto 06B — ver
+    v3/shadow_guard.py. Así ningún cierre puede quedar PUBLICADO_OFICIAL
+    en un entorno sombra aunque el guard de entrada (publicar_seleccionados)
+    se hubiera saltado por algún camino no previsto. Inactiva por defecto:
+    no cambia el comportamiento fuera de un entorno que fije esa variable."""
+    drive = [] if bloqueo_publicacion_oficial_activo() else (respuesta.get("publicados_drive_oficial") or [])
     lote = _leer_lote(lote_id, base_dir_dev)
     indices = {c.get("fecha"): i for i, c in enumerate(lote["cierres"])}
     confirmadas = []
