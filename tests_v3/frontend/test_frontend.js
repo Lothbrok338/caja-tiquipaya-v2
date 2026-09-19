@@ -967,6 +967,60 @@ async function test_global_bloqueado_post_cierre_muestra_mensaje_funcional() {
   dom.window.close();
 }
 
+
+// FASE 12E.7 — CONTROL 3: modo preliminar / cierre definitivo desde la interfaz.
+async function _clickControl3(idBoton, respuesta, confirmar) {
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function () {};
+  const confirmaciones = [];
+  window.confirm = function (m) { confirmaciones.push(m); return confirmar; };
+  const bodies = [];
+  window.fetch = function (url, opts) {
+    if (url.indexOf("/control3") !== -1) { bodies.push(JSON.parse(opts.body)); return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(respuesta) }); }
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "ERROR", publication_mode: "official" }) });
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+  await waitFor(() => window.document.getElementById("in-mensual-anio") && window.document.getElementById("in-mensual-anio").value !== "");
+  window.document.getElementById(idBoton).click();
+  await new Promise((r) => setTimeout(r, confirmar === false ? 300 : 0));
+  if (confirmar !== false) await waitFor(() => /ok|error/.test(window.document.getElementById("mensual-resultado").className), 3000);
+  const res = { bodies, confirmaciones, texto: window.document.getElementById("mensual-resultado").textContent, clase: window.document.getElementById("mensual-resultado").className };
+  dom.window.close();
+  return res;
+}
+
+async function test_control3_preliminar_manda_modo_preliminar_sin_confirmar() {
+  console.log("\n[12E.7] AUDITORÍA CxC / CxP manda modo_control3=preliminar, sin confirmación");
+  const r = await _clickControl3("btn-mensual-control3", { resultado: "OK", estado: "OK", estado_control3: "PRELIMINAR_OK", advertencias: ["1 llave(s) en REVISAR"] }, true);
+  ok(r.bodies.length === 1 && r.bodies[0].modo_control3 === "preliminar", "envía modo_control3=preliminar");
+  ok(r.bodies[0].confirmacion_cierre === undefined, "el preliminar NO envía confirmacion_cierre");
+  ok(r.confirmaciones.length === 0, "el preliminar no pide confirmación");
+  ok(r.texto.indexOf("Auditoría CxC / CxP preliminar actualizada. El periodo sigue abierto.") !== -1 && r.texto.indexOf("1 llave(s) en REVISAR") !== -1, "mensaje preliminar con hallazgos");
+}
+async function test_control3_cierre_confirmado_manda_cerrar_y_confirmacion() {
+  console.log("\n[12E.7] CERRAR AUDITORÍA CxC / CxP: confirma y manda modo_control3=cerrar + confirmacion_cierre=true");
+  const r = await _clickControl3("btn-mensual-control3-cerrar", { resultado: "OK", estado_control3: "CERRADO" }, true);
+  ok(r.confirmaciones.length === 1 && r.confirmaciones[0] === "Esta acción cerrará el periodo y actualizará los históricos maestros de CxC/CxP. ¿Deseas continuar?", "muestra el texto de confirmación");
+  ok(r.bodies.length === 1 && r.bodies[0].modo_control3 === "cerrar" && r.bodies[0].confirmacion_cierre === true, "envía cerrar + confirmacion_cierre=true");
+  ok(r.texto === "Auditoría CxC / CxP cerrada definitivamente.", "mensaje de cierre exitoso");
+}
+async function test_control3_cierre_cancelado_no_llama_al_backend() {
+  console.log("\n[12E.7] CERRAR AUDITORÍA CxC / CxP cancelado: cero llamadas al backend");
+  const r = await _clickControl3("btn-mensual-control3-cerrar", { resultado: "OK", estado_control3: "CERRADO" }, false);
+  ok(r.confirmaciones.length === 1, "se pidió confirmación");
+  ok(r.bodies.length === 0, "cancelar NO llama a /control3");
+}
+async function test_control3_mensajes_de_cierre_bloqueado_y_ya_cerrado() {
+  console.log("\n[12E.7] Mensajes de cierre CxC/CxP bloqueado / ya cerrado / preliminar sobre periodo cerrado");
+  const b = await _clickControl3("btn-mensual-control3-cerrar", { resultado: "OK", estado_control3: "CIERRE_BLOQUEADO_OBSERVACIONES" }, true);
+  ok(b.texto.indexOf("No se puede cerrar") === 0 && b.clase.indexOf("error") !== -1, "cierre bloqueado por observaciones");
+  const y = await _clickControl3("btn-mensual-control3-cerrar", { resultado: "OK", estado_control3: "YA_CERRADO" }, true);
+  ok(y.texto.indexOf("ya estaba cerrada") !== -1, "segundo cierre: ya cerrada");
+  const p = await _clickControl3("btn-mensual-control3", { resultado: "OK", estado_control3: "YA_CERRADO" }, true);
+  ok(p.texto.indexOf("ya fue cerrado") !== -1 && p.bodies[0].modo_control3 === "preliminar", "preliminar sobre periodo cerrado: mensaje funcional");
+}
+
 async function test_mensual_error_se_muestra_claramente() {
   console.log("\n[12B] Error en GLOBAL/CONTROL se muestra claro en el área de resultado");
   const dom = makeDom("http://localhost/v3_control_cierres.html");
@@ -1051,6 +1105,10 @@ async function test_flujo_diario_nunca_llama_endpoints_mensuales() {
   await test_control1_cierre_confirmado_manda_cerrar_y_confirmacion();
   await test_control1_cierre_cancelado_no_llama_al_backend();
   await test_control1_mensajes_de_cierre_bloqueado_y_ya_cerrado();
+  await test_control3_preliminar_manda_modo_preliminar_sin_confirmar();
+  await test_control3_cierre_confirmado_manda_cerrar_y_confirmacion();
+  await test_control3_cierre_cancelado_no_llama_al_backend();
+  await test_control3_mensajes_de_cierre_bloqueado_y_ya_cerrado();
   await test_global_bloqueado_post_cierre_muestra_mensaje_funcional();
   await test_flujo_diario_nunca_llama_endpoints_mensuales();
 

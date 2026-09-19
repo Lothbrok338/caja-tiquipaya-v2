@@ -567,7 +567,8 @@
       <button class="primary" id="btn-mensual-global" title="Regenerable mientras el mes esté abierto">GENERAR GLOBAL</button>
       <button class="primary" id="btn-mensual-control1" title="Revisión preliminar: el periodo sigue abierto">AUDITORÍA DE ASIGNACIONES</button>
       <button class="cerrar-auditoria" id="btn-mensual-control1-cerrar" title="Cierre definitivo del periodo (pide confirmación)">CERRAR AUDITORÍA DE ASIGNACIONES</button>
-      <button class="primary" id="btn-mensual-control3">AUDITORÍA CxC / CxP</button>
+      <button class="primary" id="btn-mensual-control3" title="Revisión preliminar: el periodo sigue abierto">AUDITORÍA CxC / CxP</button>
+      <button class="cerrar-auditoria" id="btn-mensual-control3-cerrar" title="Cierre definitivo del periodo (pide confirmación)">CERRAR AUDITORÍA CxC / CxP</button>
     </div>
     <div style="font-size:0.85em;opacity:0.75;margin-top:2px;">GENERAR GLOBAL: regenerable mientras el mes esté abierto.</div>
     <div id="mensual-resultado" class="mensual-resultado">Sin ejecutar todavía.</div>
@@ -838,10 +839,44 @@
     }, { modo_control1: "cerrar", confirmacion_cierre: true });
   }
 
+  // AUDITORÍA CxC / CxP: SIEMPRE modo preliminar (mes abierto; no toca los históricos maestros ni cierra nada).
   function ejecutarControl3Mensual() {
     ejecutarAccionMensual(ENDPOINTS.control3, "AUDITORÍA CxC / CxP", function (r) {
-      return "AUDITORÍA CxC / CxP: " + r.estado + "." + sufijoPublicacionOficial(r);
-    });
+      if (r.estado_control3 === "YA_CERRADO") {
+        return { texto: "El periodo ya fue cerrado por Auditoría CxC / CxP. No se modificó nada.", tipo: "ok" };
+      }
+      if (r.estado_control3 === "CIERRE_PENDIENTE_DE_RECUPERAR") {
+        return { texto: "Un cierre anterior quedó a medias: use CERRAR AUDITORÍA CxC / CxP para completarlo.", tipo: "error" };
+      }
+      if (r.estado_control3 === "ERROR" || r.estado_control3 === "PRELIMINAR_BLOQUEADO") {
+        return { texto: "AUDITORÍA CxC / CxP: no se pudo completar (" + ((r.problemas || []).join(", ") || r.estado) + ").", tipo: "error" };
+      }
+      var texto = "Auditoría CxC / CxP preliminar actualizada. El periodo sigue abierto.";
+      if (r.advertencias && r.advertencias.length) texto += " Por revisar: " + r.advertencias.join("; ") + ".";
+      return texto + sufijoPublicacionOficial(r);
+    }, { modo_control3: "preliminar" });
+  }
+
+  var TEXTO_CONFIRMAR_CIERRE_CONTROL3 =
+    "Esta acción cerrará el periodo y actualizará los históricos maestros de CxC/CxP. ¿Deseas continuar?";
+
+  // CIERRE DEFINITIVO: solo tras confirmación humana explícita; cancelar NO llama al backend.
+  function cerrarControl3Mensual() {
+    if (!window.confirm(TEXTO_CONFIRMAR_CIERRE_CONTROL3)) return;
+    ejecutarAccionMensual(ENDPOINTS.control3, "CERRAR AUDITORÍA CxC / CxP", function (r) {
+      var e = r.estado_control3;
+      if (e === "CERRADO") return { texto: "Auditoría CxC / CxP cerrada definitivamente." + sufijoPublicacionOficial(r), tipo: "ok" };
+      if (e === "YA_CERRADO") return { texto: "La Auditoría CxC / CxP de este periodo ya estaba cerrada. No se modificó nada.", tipo: "ok" };
+      if (e === "CIERRE_SIMULACRO") return { texto: "Simulacro de cierre completado. No se cerró nada.", tipo: "ok" };
+      if (e === "CIERRE_BLOQUEADO_GLOBAL_DISTINTO_DEL_CERRADO") {
+        return { texto: "No se puede cerrar: el GLOBAL actual difiere del GLOBAL ya cerrado. Requiere decisión humana; no se modificó nada.", tipo: "error" };
+      }
+      if (e === "CIERRE_BLOQUEADO_OBSERVACIONES") {
+        return { texto: "No se puede cerrar: las observaciones del auditor no son válidas. No se modificó nada.", tipo: "error" };
+      }
+      if (e === "ERROR") return { texto: "CERRAR AUDITORÍA CxC / CxP: no se pudo completar (" + ((r.problemas || []).join(", ") || r.estado) + ").", tipo: "error" };
+      return { texto: "No se puede cerrar: el control no pudo completarse. No se modificó nada.", tipo: "error" };
+    }, { modo_control3: "cerrar", confirmacion_cierre: true });
   }
 
   // -----------------------------------------------------------------------
@@ -1545,6 +1580,7 @@
     qs("#btn-mensual-control1").addEventListener("click", ejecutarControl1Mensual);
     qs("#btn-mensual-control1-cerrar").addEventListener("click", cerrarControl1Mensual);
     qs("#btn-mensual-control3").addEventListener("click", ejecutarControl3Mensual);
+    qs("#btn-mensual-control3-cerrar").addEventListener("click", cerrarControl3Mensual);
     qs("#demo-banner").style.display = DEMO ? "block" : "none";
     // FASE 11A.2: el modo se pinta primero con el valor por defecto
     // (seguro) y, salvo en modo demo (que NUNCA llama al backend), se

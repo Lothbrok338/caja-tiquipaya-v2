@@ -35,7 +35,7 @@ Verificado con grep sobre los 14 archivos: cero coincidencias de
 | 11 | TIQ V3 · 07D PUBLICAR ARCHIVO OFICIAL (crear o actualizar) · DRIVE | `HhuQCVP2oCubavzY` | `HhuQCVP2oCubavzY_07d_publicar_oficial.json` | false | 12 | `9f9aab93e4654612e8a1b10005975fac88ecfc793024b51ba0bab9ddbf848f78` |
 | 12 | TIQ V3 · 07E BUSCAR O CREAR CARPETA OFICIAL · DRIVE | `Lht5xRinJ9nJpHCW` | `Lht5xRinJ9nJpHCW_07e_buscar_crear_carpeta.json` | false | 7 | `2b331e13b50c40d69eb46c06817b6f5aecdeca8d4a25af408274e11bd74cc15f` |
 | 13 | TIQ V3 · PREFLIGHT OFICIAL (solo lectura) | `sJVgoBRpBntc96vf` | `sJVgoBRpBntc96vf_preflight_oficial.json` | false | 12 | `dccdfb3711e06518bce4d73c73acbfaa4a687457212e946d5b85321cb1f782de` |
-| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 137 | `4b80727888ae6574520d72468bd0cccc03cee359d557c5d34ede6bd71755b86b` |
+| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 149 | `6e4345698630240614aef000480f4b02c695365663eca83f02443de2aceb7ae2` |
 
 **Estado `active` real en n8n al momento de esta actualización (2026-09-18):**
 7 workflows están activos — `aLs1f3GMqswbaENA` (BACKEND DEV), `CanZtkmnm0ukAC8c`
@@ -498,4 +498,42 @@ Capa Python (commit `32881f1`): `v3/control1_modos.py` + `v3/dev_api.py`. Esta f
 - **Septiembre real:** no se ejecutó nada. Las decisiones del auditor se preservan por diseño (emparejamiento por
   identidad de la alerta, no por fila/SHA) al reutilizar la revisión existente en `CONTROL_1_ASIGNACIONES/2026-09/`.
 - **Pendiente:** CONTROL 3 (mismo concepto), cierre mensual real, `V3_FINAL_STATE.md`, tag `v3.0-final`.
+
+
+### CONTROL 3 (AUDITORÍA CxC / CxP): Drive como fuente + modos PRELIMINAR / CIERRE DEFINITIVO (2026-09-19)
+
+**Diagnóstico de Drive (solo lectura, workflow temporal `9jQShCnbDUL74jLr`, ya archivado):** los maestros de la raíz
+de `05_CONTROLES` SÍ son el histórico real — no hubo migración. `HISTORICO_CXC_CXP.csv` (id `1m7DsJGev6…`, 1,314 B,
+4 filas, todas `AGOSTO_2026`, ABIERTO: CAF y FORTALEZA en 110201003; FORTALEZA y GASTOS ADM. en 110201004; esquema de
+15 columnas, sin `cierre_manual`/`periodo_cierre_manual`, que V2 rellena vacías al reescribir) y
+`HISTORICO_CXC_CXP_PERIODOS.json` (id `1WpxdCKC6…`, 186 B, `AGOSTO_2026` APLICADO 2026-09-10). Carpeta
+`CONTROL_3_CXC_CXP/` (id `15IYQDdpy…`): solo `2026-08/` con `CONTROL_CXC_CXP_AGOSTO_2026.xlsx/.json`; ningún archivo
+mensual suelto en la raíz. Septiembre no tiene carpeta ni reporte todavía.
+
+**Qué audita (sin cambios):** `control_cxc_cxp.py` (V2, intacto): 6 cuentas (CxC 110201002/003/004, CxP 210103002/003/004),
+llave CUENTA+ASIGNACION, saldo acumulado entre meses (CxC debe−haber, CxP haber−debe) → ABIERTO / CERRADO / REVISAR,
+cierre manual por observación del auditor, reporte Excel + histórico técnico. Nunca modifica el GLOBAL.
+
+**Capa V3:** `v3/control3_modos.py` + `v3/dev_api.py` (`control3_entrada/<YYYY-MM>/`, `preparar_control3_entrada`).
+- Materialización aislada: `ejecutar_control3()` lee SOLO `control3_entrada/<periodo>/` (GLOBAL oficial obligatorio, maestros y
+  reporte previo opcionales); ya no usa `dev_workdir/global/`. El directorio se limpia antes de cada corrida.
+- PRELIMINAR (defecto): corre V2 sobre una copia de trabajo de los maestros (`_preliminar_tmp`, descartada) → no modifica
+  histórico ni libro, no cierra, repetible; solo escribe el reporte del periodo. Conserva `OBSERVACION_AUDITOR` del reporte
+  previo re-anclándola al GLOBAL actual; las de llaves que desaparecen pasan a la hoja `OBSERVACIONES_NO_VIGENTES`.
+- CIERRE (`modo_control3='cerrar'` + `confirmacion_cierre=true`, si no `ERROR_CONFIRMACION_CIERRE_REQUERIDA`): verificación en
+  seco (V2 `dry_run`) y luego V2 real (PENDIENTE → histórico → APLICADO). Bloquea por GLOBAL ilegible/no canónico,
+  observaciones inválidas o periodo ya sellado con otro GLOBAL. REVISAR / partidas sin asignación se informan como
+  `advertencias` y NO bloquean (CONTROL 3 no tiene flujo de "revisión pendiente"; se resuelven con OBSERVACION_AUDITOR).
+  Segundo cierre → `YA_CERRADO`. Recupera una publicación interrumpida (histórico ya con el periodo, libro sin sellar) sin reacumular.
+- Nombre del reporte: `CONTROL_CXC_CXP_<MES>_<AÑO>.xlsx/.json` (el que ya usa Drive para agosto; antes el código escribía
+  `CONTROL3_CXC_CXP_…` y nunca se había publicado).
+- **BACKEND DEV (versión `977945d1`, 149 nodos, publicada; ningún webhook ejecutado):** `/control3` materializa desde Drive
+  (GLOBAL en `05_CONTROLES/GLOBAL`, maestros en la raíz, reporte en `CONTROL_3_CXC_CXP/<YYYY-MM>/`; `ERROR_AMBIGUO_*` si hay >1;
+  `MAESTROS_CXC_CXP_INCOMPLETOS` si falta uno de los dos maestros). Preliminar publica solo reporte xlsx+json en la carpeta
+  del periodo (07E la crea si no existe). Cierre publica además snapshots de ambos maestros en esa carpeta y luego el histórico
+  y, SIEMPRE al final, el libro de periodos maestros. Se eliminaron `CONSTRUIR - Descarga historico CONTROL3` y su 07C.
+- **Frontend:** `AUDITORÍA CxC / CxP` envía siempre `modo_control3='preliminar'`; nuevo `CERRAR AUDITORÍA CxC / CxP` pide
+  confirmación y solo entonces envía `cerrar` + `confirmacion_cierre=true`; cancelar no llama al backend.
+- **Septiembre sigue abierto; no se ejecutó CONTROL 3.** CONTROL 1, V2 y GLOBAL sin cambios.
+- **Pendiente:** primera corrida real preliminar (la hace el auditor), cierre mensual real, `V3_FINAL_STATE.md`, tag `v3.0-final`.
 

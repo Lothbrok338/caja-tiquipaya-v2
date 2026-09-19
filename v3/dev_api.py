@@ -57,6 +57,7 @@ from v3.auditoria import (  # noqa: E402
 import consolidador_mensual  # noqa: E402  (reutilizado tal cual — solo para nombre_sap_global)
 import control_asignaciones as _ctrl1_v2  # noqa: E402  (V2, sin cambios — solo lectura del historico para la guardia de cierre)
 from v3 import control1_modos  # noqa: E402
+from v3 import control3_modos  # noqa: E402
 
 
 PROCESANDO = "PROCESANDO"
@@ -659,25 +660,72 @@ def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=
     return resultado
 
 
-def ejecutar_control3(anio, mes, base_dir_dev, ruta_observaciones_json=None, dry_run=False):
-    """Cierre MENSUAL — paso 3 (CONTROL 3). Lee el MISMO GLOBAL del año/mes
-    (ya corregido por CONTROL 1 si aplicó). Reporte (CONTROL3_CXC_CXP_
-    <PERIODO>.xlsx/.json) e histórico técnico quedan en
-    `base_dir_dev/global/` — antes de FASE 12D `ruta_salida_xlsx`/
-    `ruta_salida_json` no se pasaban y control_cxc_cxp.ejecutar_control()
-    nunca escribia el reporte (solo el histórico); esta es la única
-    diferencia con el comportamiento previo, sin tocar control_cxc_cxp.py."""
-    global_dir = os.path.join(base_dir_dev, "global")
-    ruta_global = _ruta_global(base_dir_dev, anio, mes)
-    ruta_historico = os.path.join(global_dir, "HISTORICO_CXC_CXP.csv")
-    periodo = _periodo(anio, mes)
-    ruta_salida_xlsx = os.path.join(global_dir, f"CONTROL3_CXC_CXP_{periodo}.xlsx")
-    ruta_salida_json = os.path.join(global_dir, f"CONTROL3_CXC_CXP_{periodo}.json")
-    return ejecutar_control3_mensual(
-        ruta_global, ruta_historico,
-        ruta_salida_xlsx=ruta_salida_xlsx, ruta_salida_json=ruta_salida_json,
-        ruta_observaciones_json=ruta_observaciones_json, dry_run=dry_run,
-    )
+def control3_entrada_dir(base_dir_dev, anio, mes):
+    """Materialización AISLADA de las entradas de CONTROL 3 para UN periodo:
+    `base_dir_dev/control3_entrada/<YYYY-MM>/`. Contiene, y solo contiene, lo que
+    el backend descargó de Drive en ESA corrida (SAP_GLOBAL oficial,
+    HISTORICO_CXC_CXP.csv y HISTORICO_CXC_CXP_PERIODOS.json maestros si existen,
+    y el reporte previo del periodo si existe) y lo que CONTROL 3 escribe encima.
+    Nunca `dev_workdir/global/` ni `publicacion/`."""
+    _validar_anio_mes(anio, mes)
+    return os.path.join(base_dir_dev, "control3_entrada", f"{anio:04d}-{mes:02d}")
+
+
+def preparar_control3_entrada(anio, mes, base_dir_dev):
+    """Deja `control3_entrada/<periodo>/` VACÍO antes de materializar desde
+    Drive: ningún histórico, libro, reporte o GLOBAL local de una corrida
+    anterior puede colarse en CONTROL 3."""
+    destino = control3_entrada_dir(base_dir_dev, anio, mes)
+    _limpiar_y_crear_dir_periodo(destino, base_dir_dev, "CONTROL3_ENTRADA")
+    return {"dir_entrada": os.path.abspath(destino), "periodo": f"{anio:04d}-{mes:02d}"}
+
+
+def ejecutar_control3(anio, mes, base_dir_dev, ruta_observaciones_json=None, dry_run=False,
+                      modo_control3=None, confirmacion_cierre=False):
+    """Cierre MENSUAL — paso 3 (AUDITORÍA CxC / CxP / CONTROL 3).
+
+    DRIVE OFICIAL = fuente de verdad; LOCAL = materialización temporal limpia.
+    Lee ÚNICAMENTE `control3_entrada/<YYYY-MM>/` (ver preparar_control3_entrada):
+    el GLOBAL oficial (obligatorio, sin sustituto local), los históricos
+    maestros HISTORICO_CXC_CXP.csv / HISTORICO_CXC_CXP_PERIODOS.json (opcionales:
+    primera ejecución legítima) y el reporte previo CONTROL_CXC_CXP_<PERIODO>.xlsx.
+
+    MODOS (FASE 12E.7, ver v3/control3_modos.py): `modo_control3` = "preliminar"
+    (por defecto, mes abierto: no toca históricos maestros ni cierra el periodo;
+    repetible) o "cerrar" (exige `confirmacion_cierre=True` explícito; actualiza
+    histórico y libro de periodos; idempotente: un segundo cierre → YA_CERRADO).
+
+    ESTRUCTURA EN DRIVE: los maestros viven en la raíz de `05_CONTROLES`; el
+    reporte (y, al cierre, una copia-snapshot de ambos) en
+    `05_CONTROLES/CONTROL_3_CXC_CXP/<YYYY-MM>/`. CONTROL 3 nunca modifica el GLOBAL."""
+    entrada = control3_entrada_dir(base_dir_dev, anio, mes)
+    if not os.path.isdir(entrada):
+        raise RuntimeError(
+            f"CONTROL3_ENTRADA_NO_MATERIALIZADA: {entrada} no existe; el backend debe "
+            f"materializar GLOBAL/históricos/reporte desde Drive antes de ejecutar CONTROL 3."
+        )
+    nombre_global = consolidador_mensual.nombre_sap_global(anio, mes)
+    ruta_global = os.path.join(entrada, nombre_global)
+    if not os.path.isfile(ruta_global):
+        raise RuntimeError(
+            f"GLOBAL_OFICIAL_NO_MATERIALIZADO: falta {nombre_global} en {entrada}; "
+            f"CONTROL 3 nunca usa un GLOBAL local como sustituto."
+        )
+    modo = control3_modos.validar_modo(modo_control3, confirmacion_cierre)
+    if modo == control3_modos.PRELIMINAR:
+        resultado = control3_modos.ejecutar_control3_preliminar(
+            ruta_global, entrada, dry_run=dry_run, ruta_observaciones_json=ruta_observaciones_json)
+    else:
+        resultado = control3_modos.ejecutar_control3_cierre(
+            ruta_global, entrada, dry_run=dry_run, ruta_observaciones_json=ruta_observaciones_json)
+    resultado["dir_entrada"] = os.path.abspath(entrada)
+    resultado["ruta_global_materializado"] = os.path.abspath(ruta_global)
+    periodo_esperado = _periodo(anio, mes)
+    if resultado.get("periodo") not in (None, periodo_esperado):
+        raise RuntimeError(
+            f"PERIODO_INCONSISTENTE: CONTROL 3 devolvió {resultado.get('periodo')!r} y se pidió {periodo_esperado!r}"
+        )
+    return resultado
 
 
 # ---------------------------------------------------------------------------
@@ -690,7 +738,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Backend DEV (API de lotes) de V3 — FASE 9.")
     parser.add_argument("--accion", required=True, choices=[
         "crear_lote_pendiente", "procesar_lote", "estado", "datos", "revisar", "corregir", "publicar",
-        "generar_global", "preparar_global_entrada", "preparar_control1_entrada", "ejecutar_control1", "ejecutar_control3",
+        "generar_global", "preparar_global_entrada", "preparar_control1_entrada", "preparar_control3_entrada", "ejecutar_control1", "ejecutar_control3",
     ])
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
@@ -734,6 +782,10 @@ def main(argv=None):
             salida = {"resultado": "OK", **preparar_control1_entrada(
                 datos["anio"], datos["mes"], datos["base_dir_dev"],
             )}
+        elif args.accion == "preparar_control3_entrada":
+            salida = {"resultado": "OK", **preparar_control3_entrada(
+                datos["anio"], datos["mes"], datos["base_dir_dev"],
+            )}
         elif args.accion == "ejecutar_control1":
             salida = {"resultado": "OK", **ejecutar_control1(
                 datos["anio"], datos["mes"], datos["base_dir_dev"],
@@ -744,6 +796,7 @@ def main(argv=None):
             salida = {"resultado": "OK", **ejecutar_control3(
                 datos["anio"], datos["mes"], datos["base_dir_dev"],
                 datos.get("ruta_observaciones_json"), datos.get("dry_run", False),
+                datos.get("modo_control3"), datos.get("confirmacion_cierre", False),
             )}
     except Exception as exc:
         salida = {"resultado": "ERROR", "codigo": type(exc).__name__, "mensaje": str(exc)}

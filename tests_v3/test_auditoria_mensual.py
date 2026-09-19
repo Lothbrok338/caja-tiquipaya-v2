@@ -379,6 +379,24 @@ def _materializar_control1(base_dir_dev, anio=2026, mes=9, historico_drive=None,
     return dir_c1
 
 
+def _materializar_control3(base_dir_dev, anio=2026, mes=9, historico_drive=None, periodos_drive=None, reporte_drive=None):
+    """Simula lo que el backend hace desde Drive antes de CONTROL 3: deja el GLOBAL
+    'oficial' (copia del GLOBAL recien generado) en control3_entrada/<periodo>/,
+    junto con los historicos maestros / reporte previo 'de Drive' si se indican."""
+    import shutil as _sh
+    base = str(base_dir_dev)
+    dir_c3 = dev_api.preparar_control3_entrada(anio, mes, base)["dir_entrada"]
+    nombre = cm.nombre_sap_global(anio, mes)
+    _sh.copyfile(os.path.join(base, "global", nombre), os.path.join(dir_c3, nombre))
+    if historico_drive:
+        _sh.copyfile(str(historico_drive), os.path.join(dir_c3, "HISTORICO_CXC_CXP.csv"))
+    if periodos_drive:
+        _sh.copyfile(str(periodos_drive), os.path.join(dir_c3, "HISTORICO_CXC_CXP_PERIODOS.json"))
+    if reporte_drive:
+        _sh.copyfile(str(reporte_drive), os.path.join(dir_c3, os.path.basename(str(reporte_drive))))
+    return dir_c3
+
+
 # ---------------------------------------------------------------------------
 # v3/dev_api.py — envoltorio con rutas fijas del lado servidor (base_dir_dev)
 # ---------------------------------------------------------------------------
@@ -400,12 +418,12 @@ def test_dev_api_generar_global_y_controles_usan_base_dir_dev(tmp_path):
     r_c1 = dev_api.ejecutar_control1(2026, 9, str(base_dir_dev), **_CIERRE)
     assert r_c1["estado"] == "OK_SIN_DUPLICADOS"
 
+    _materializar_control3(base_dir_dev)
     r_c3 = dev_api.ejecutar_control3(2026, 9, str(base_dir_dev))
     assert r_c3["estado"] not in ("ERROR_TECNICO", None)
-    # FASE 12D: antes de este fix, ejecutar_control3() no pasaba
-    # ruta_salida_xlsx/json y CONTROL 3 nunca escribia su reporte mensual
-    # (solo el HISTORICO). Ahora si debe quedar, listo para publicarse.
-    ruta_reporte_xlsx = os.path.join(str(base_dir_dev), "global", "CONTROL3_CXC_CXP_SEPTIEMBRE_2026.xlsx")
+    # El reporte mensual queda en la carpeta de materializacion del periodo (control3_entrada),
+    # con el nombre que ya usa Drive (CONTROL_CXC_CXP_<PERIODO>.xlsx), listo para publicarse.
+    ruta_reporte_xlsx = os.path.join(str(base_dir_dev), "control3_entrada", "2026-09", "CONTROL_CXC_CXP_SEPTIEMBRE_2026.xlsx")
     assert os.path.isfile(ruta_reporte_xlsx)
     assert r_c3["archivo_control_xlsx"] == ruta_reporte_xlsx
 
@@ -438,6 +456,7 @@ def test_cli_main_generar_global_y_controles_produce_json_valido(tmp_path):
     assert resultado_c1["resultado"] == "OK"
     assert resultado_c1["estado"] == "OK_SIN_DUPLICADOS"
 
+    _materializar_control3(base_dir_dev)
     dev_api.main(["--accion", "ejecutar_control3", "--input", str(entrada2), "--output", str(salida)])
     resultado_c3 = jsonlib.loads(salida.read_text(encoding="utf-8"))
     assert resultado_c3["resultado"] == "OK"
@@ -556,10 +575,11 @@ def test_dev_api_regenerar_global_no_afecta_historicos_de_controles(tmp_path):
     dev_api.generar_global(2026, 9, str(base_dir_dev), str(plantilla))
     _materializar_control1(base_dir_dev)
     dev_api.ejecutar_control1(2026, 9, str(base_dir_dev), **_CIERRE)
-    dev_api.ejecutar_control3(2026, 9, str(base_dir_dev))
+    _materializar_control3(base_dir_dev)
+    dev_api.ejecutar_control3(2026, 9, str(base_dir_dev), modo_control3="cerrar", confirmacion_cierre=True)
 
     ruta_hist_c1 = base_dir_dev / "control1_entrada" / "2026-09" / "HISTORICO_ASIGNACIONES.csv"
-    ruta_hist_c3 = base_dir_dev / "global" / "HISTORICO_CXC_CXP.csv"
+    ruta_hist_c3 = base_dir_dev / "control3_entrada" / "2026-09" / "HISTORICO_CXC_CXP.csv"
     assert os.path.isfile(ruta_hist_c1)
     assert os.path.isfile(ruta_hist_c3)
     hash_c1_antes = cm._sha256_archivo(str(ruta_hist_c1))
@@ -1687,3 +1707,265 @@ def test_P_Q_v2_y_control3_permanecen_sin_cambios():
     import inspect
     assert "modo_control1" not in inspect.signature(dev_api.ejecutar_control3).parameters
     assert "control1_modos" not in inspect.getsource(dev_api.ejecutar_control3)
+
+
+# ===========================================================================
+# FASE 12E.7 — CONTROL 3 (AUDITORÍA CxC / CxP): Drive como fuente, materialización
+# aislada, modo PRELIMINAR y CIERRE DEFINITIVO (v3/control3_modos.py).
+# ===========================================================================
+
+import hashlib as _hashlib  # noqa: E402
+import json as _json  # noqa: E402
+from v3 import control3_modos  # noqa: E402
+
+_REPORTE_C3_SEP = "CONTROL_CXC_CXP_SEPTIEMBRE_2026.xlsx"
+_CIERRE3 = dict(modo_control3="cerrar", confirmacion_cierre=True)
+
+
+def _sha(ruta):
+    return _hashlib.sha256(open(ruta, "rb").read()).hexdigest()
+
+
+def _mat3(base, global_src, anio=2026, mes=9, historico=None, periodos=None, reporte=None):
+    """Lo que hace el backend: limpiar control3_entrada/<periodo> y dejar ahi lo descargado de 'Drive'."""
+    d = dev_api.preparar_control3_entrada(anio, mes, str(base))["dir_entrada"]
+    _shutil.copyfile(str(global_src), os.path.join(d, cm.nombre_sap_global(anio, mes)))
+    for src, nombre in ((historico, "HISTORICO_CXC_CXP.csv"), (periodos, "HISTORICO_CXC_CXP_PERIODOS.json"),
+                        (reporte, None)):
+        if src:
+            _shutil.copyfile(str(src), os.path.join(d, nombre or os.path.basename(str(src))))
+    return d
+
+
+def _g3(ruta, asignaciones, cuenta="110201003", cargo=100):
+    _crear_global_con_filas(str(ruta), asignaciones, cuenta=cuenta, cargo=cargo)
+    return ruta
+
+
+def _cerrar_agosto(tmp_path, asignaciones=("AAA", "BBB")):
+    """Deja el 'Drive' con los maestros de agosto ya cerrados; devuelve (historico, periodos)."""
+    base = tmp_path / "ago"
+    os.makedirs(base / "global", exist_ok=True)
+    d = _mat3(base, _g3(tmp_path / "g_ago.xlsx", list(asignaciones)), mes=8)
+    r = dev_api.ejecutar_control3(2026, 8, str(base), **_CIERRE3)
+    assert r["estado_control3"] == "CERRADO", r
+    return os.path.join(d, "HISTORICO_CXC_CXP.csv"), os.path.join(d, "HISTORICO_CXC_CXP_PERIODOS.json")
+
+
+def _base3(tmp_path, nombre="dev"):
+    base = tmp_path / nombre
+    os.makedirs(base / "global", exist_ok=True)
+    return base
+
+
+def test_control3_A_B_lee_solo_el_global_de_control3_entrada_e_ignora_el_local(tmp_path):
+    base = _base3(tmp_path)
+    _g3(base / "global" / _NOMBRE_GLOBAL_SEP, ["RESIDUO1", "RESIDUO2"])       # GLOBAL local residual
+    with pytest.raises(RuntimeError, match="CONTROL3_ENTRADA_NO_MATERIALIZADA"):
+        dev_api.ejecutar_control3(2026, 9, str(base))
+    dev_api.preparar_control3_entrada(2026, 9, str(base))
+    with pytest.raises(RuntimeError, match="GLOBAL_OFICIAL_NO_MATERIALIZADO"):
+        dev_api.ejecutar_control3(2026, 9, str(base))
+    _mat3(base, _g3(tmp_path / "drive.xlsx", ["OFICIAL"]))
+    r = dev_api.ejecutar_control3(2026, 9, str(base))
+    assert r["llaves_evaluadas"] == 1                                            # el de Drive (1), no el local (2)
+    assert r["ruta_global_materializado"].endswith("control3_entrada/2026-09/" + _NOMBRE_GLOBAL_SEP)
+
+
+def test_control3_C_D_E_F_historicos_de_drive_se_usan_y_los_residuos_se_ignoran(tmp_path):
+    hist, periodos = _cerrar_agosto(tmp_path)
+    base = _base3(tmp_path, "sep")
+    _shutil.copyfile(hist, base / "global" / "HISTORICO_CXC_CXP.csv")           # residuos locales
+    (base / "global" / "HISTORICO_CXC_CXP_PERIODOS.json").write_text('{"SEPTIEMBRE_2026": {"estado": "APLICADO", "sha256_global": "x"}}')
+    viejo = dev_api.control3_entrada_dir(str(base), 2026, 9)
+    os.makedirs(viejo)
+    open(os.path.join(viejo, "basura_de_otra_corrida.txt"), "w").write("x")
+    d = _mat3(base, _g3(tmp_path / "g_sep.xlsx", ["CCC"]), historico=hist, periodos=periodos)
+    assert os.listdir(d).count("basura_de_otra_corrida.txt") == 0                 # F: materialización limpia
+    r = dev_api.ejecutar_control3(2026, 9, str(base))
+    assert r["estado_control3"] == "PRELIMINAR_OK", r                            # E: el libro local residual no cerró septiembre
+    assert r["llaves_evaluadas"] == 1
+    wb = openpyxl.load_workbook(os.path.join(d, _REPORTE_C3_SEP))
+    asigs = {row[3] for row in wb["CONTROL"].iter_rows(min_row=2, values_only=True)}
+    assert {"AAA", "BBB", "CCC"} <= asigs                                        # C: el histórico de Drive (agosto) se acumuló
+
+
+def test_control3_G_H_I_preliminar_no_toca_historico_ni_libro_y_es_repetible(tmp_path):
+    hist, periodos = _cerrar_agosto(tmp_path)
+    base = _base3(tmp_path, "sep")
+    d = _mat3(base, _g3(tmp_path / "g_sep.xlsx", ["CCC"]), historico=hist, periodos=periodos)
+    antes = (_sha(os.path.join(d, "HISTORICO_CXC_CXP.csv")), _sha(os.path.join(d, "HISTORICO_CXC_CXP_PERIODOS.json")))
+    ruta_global = os.path.join(d, _NOMBRE_GLOBAL_SEP)
+    sha_global = _sha(ruta_global)
+    r1 = dev_api.ejecutar_control3(2026, 9, str(base))
+    r2 = dev_api.ejecutar_control3(2026, 9, str(base))                            # I: repetible
+    for r in (r1, r2):
+        assert r["estado_control3"] == "PRELIMINAR_OK" and r["modo_control3"] == "preliminar"
+        assert r["periodo_cerrado"] is False and r["historico_actualizado"] is False and r["periodos_actualizado"] is False
+    assert (_sha(os.path.join(d, "HISTORICO_CXC_CXP.csv")), _sha(os.path.join(d, "HISTORICO_CXC_CXP_PERIODOS.json"))) == antes
+    assert "SEPTIEMBRE_2026" not in _json.load(open(os.path.join(d, "HISTORICO_CXC_CXP_PERIODOS.json")))   # H
+    assert _sha(ruta_global) == sha_global                                       # el GLOBAL no se altera
+    assert not os.path.exists(os.path.join(d, "_preliminar_tmp"))                # la copia de trabajo se descarta
+    assert os.path.isfile(os.path.join(d, _REPORTE_C3_SEP))
+    assert _json.load(open(r2["archivo_control_json"]))["historico_actualizado"] is False
+
+
+def test_control3_preliminar_sin_maestros_no_los_crea(tmp_path):
+    base = _base3(tmp_path)
+    d = _mat3(base, _g3(tmp_path / "g.xlsx", ["A1", "B2"]))
+    r = dev_api.ejecutar_control3(2026, 9, str(base))
+    assert r["estado_control3"] == "PRELIMINAR_OK" and r["llaves_evaluadas"] == 2
+    assert not os.path.exists(os.path.join(d, "HISTORICO_CXC_CXP.csv"))
+    assert not os.path.exists(os.path.join(d, "HISTORICO_CXC_CXP_PERIODOS.json"))
+
+
+def test_control3_J_reporte_previo_preserva_observaciones_y_las_no_vigentes(tmp_path):
+    base = _base3(tmp_path)
+    d = _mat3(base, _g3(tmp_path / "g1.xlsx", ["A1", "B2"]))
+    dev_api.ejecutar_control3(2026, 9, str(base))
+    ruta = os.path.join(d, _REPORTE_C3_SEP)
+    wb = openpyxl.load_workbook(ruta)
+    ws = wb["CONTROL"]
+    col = [c.value for c in ws[1]].index("OBSERVACION_AUDITOR") + 1
+    for fila in ws.iter_rows(min_row=2):
+        if fila[3].value == "A1":
+            ws.cell(row=fila[0].row, column=col).value = "Esperando transferencia"
+        if fila[3].value == "B2":
+            ws.cell(row=fila[0].row, column=col).value = "Nota de B2"
+    reporte_editado = tmp_path / _REPORTE_C3_SEP
+    wb.save(str(reporte_editado))
+    # GLOBAL distinto (otro SHA): A1 sigue, B2 desaparece, C3 es nueva.
+    d2 = _mat3(base, _g3(tmp_path / "g2.xlsx", ["A1", "C3"]), reporte=reporte_editado)
+    r = dev_api.ejecutar_control3(2026, 9, str(base))
+    assert r["estado_control3"] == "PRELIMINAR_OK" and r["observaciones_aplicadas"] == 1
+    wb2 = openpyxl.load_workbook(os.path.join(d2, _REPORTE_C3_SEP))
+    filas = {row[3]: row[11] for row in wb2["CONTROL"].iter_rows(min_row=2, values_only=True)}
+    assert filas["A1"] == "Esperando transferencia" and filas.get("C3") in (None, "")
+    assert "B2" not in filas
+    nv = [row for row in wb2["OBSERVACIONES_NO_VIGENTES"].iter_rows(min_row=2, values_only=True)]
+    assert len(nv) == 1 and nv[0][1] == "B2" and nv[0][2] == "Nota de B2"
+    # Si B2 reaparece, la nota se restaura y deja de ser no vigente.
+    _shutil.copyfile(os.path.join(d2, _REPORTE_C3_SEP), str(reporte_editado))
+    d3 = _mat3(base, _g3(tmp_path / "g3.xlsx", ["A1", "B2"]), reporte=reporte_editado)
+    dev_api.ejecutar_control3(2026, 9, str(base))
+    wb3 = openpyxl.load_workbook(os.path.join(d3, _REPORTE_C3_SEP))
+    filas3 = {row[3]: row[11] for row in wb3["CONTROL"].iter_rows(min_row=2, values_only=True)}
+    assert filas3["A1"] == "Esperando transferencia" and filas3["B2"] == "Nota de B2"
+    assert "OBSERVACIONES_NO_VIGENTES" not in wb3.sheetnames
+
+
+def test_control3_K_cierre_sin_confirmacion_se_bloquea_y_no_escribe(tmp_path):
+    base = _base3(tmp_path)
+    d = _mat3(base, _g3(tmp_path / "g.xlsx", ["A1"]))
+    with pytest.raises(ValueError, match="ERROR_CONFIRMACION_CIERRE_REQUERIDA"):
+        dev_api.ejecutar_control3(2026, 9, str(base), modo_control3="cerrar")
+    with pytest.raises(ValueError, match="ERROR_CONFIRMACION_CIERRE_REQUERIDA"):
+        dev_api.ejecutar_control3(2026, 9, str(base), modo_control3="cerrar", confirmacion_cierre="true")
+    with pytest.raises(ValueError, match="MODO_CONTROL3_INVALIDO"):
+        dev_api.ejecutar_control3(2026, 9, str(base), modo_control3="cerrado")
+    assert sorted(os.listdir(d)) == [_NOMBRE_GLOBAL_SEP]                          # nada se escribió
+
+
+def test_control3_L_M_N_O_P_cierre_actualiza_maestros_es_idempotente_y_no_duplica(tmp_path):
+    hist, periodos = _cerrar_agosto(tmp_path)
+    base = _base3(tmp_path, "sep")
+    d = _mat3(base, _g3(tmp_path / "g_sep.xlsx", ["AAA", "CCC"], cargo=50), historico=hist, periodos=periodos)
+    dev_api.ejecutar_control3(2026, 9, str(base))                                 # preliminares previos no acumulan
+    dev_api.ejecutar_control3(2026, 9, str(base))
+    r = dev_api.ejecutar_control3(2026, 9, str(base), **_CIERRE3)
+    assert r["estado_control3"] == "CERRADO" and r["periodo_cerrado"] is True
+    assert r["historico_actualizado"] is True and r["periodos_actualizado"] is True
+    libro = _json.load(open(os.path.join(d, "HISTORICO_CXC_CXP_PERIODOS.json")))
+    assert libro["AGOSTO_2026"]["estado"] == "APLICADO" and libro["SEPTIEMBRE_2026"]["estado"] == "APLICADO"   # M
+    filas = _filas_csv(os.path.join(d, "HISTORICO_CXC_CXP.csv"))                  # L / P: una fila por llave, sin duplicar
+    por_llave = {(f["cuenta"], f["asignacion"]): f for f in filas}
+    assert len(filas) == len(por_llave) == 3
+    assert por_llave[("110201003", "AAA")]["debe_acumulado"] == "150.00"          # agosto 100 + septiembre 50, una sola vez
+    assert por_llave[("110201003", "CCC")]["debe_acumulado"] == "50.00"
+    assert r["dir_entrada"].endswith("control3_entrada/2026-09")                  # O: carpeta del periodo
+    assert os.path.basename(r["archivo_control_xlsx"]) == _REPORTE_C3_SEP
+    antes = (_sha(os.path.join(d, "HISTORICO_CXC_CXP.csv")), _sha(os.path.join(d, "HISTORICO_CXC_CXP_PERIODOS.json")))
+    r2 = dev_api.ejecutar_control3(2026, 9, str(base), **_CIERRE3)                # N: segundo cierre
+    assert r2["estado_control3"] == "YA_CERRADO" and r2["historico_actualizado"] is False and r2["periodos_actualizado"] is False
+    assert (_sha(os.path.join(d, "HISTORICO_CXC_CXP.csv")), _sha(os.path.join(d, "HISTORICO_CXC_CXP_PERIODOS.json"))) == antes
+    r3 = dev_api.ejecutar_control3(2026, 9, str(base))                            # preliminar tras el cierre: no se ejecuta
+    assert r3["estado_control3"] == "YA_CERRADO" and r3["archivo_control_xlsx"] is None
+    # Un GLOBAL regenerado distinto tras el cierre no reabre ni reescribe nada.
+    _shutil.copyfile(os.path.join(d, "HISTORICO_CXC_CXP.csv"), str(tmp_path / "m_hist.csv"))            # "Drive" tras el cierre
+    _shutil.copyfile(os.path.join(d, "HISTORICO_CXC_CXP_PERIODOS.json"), str(tmp_path / "m_periodos.json"))
+    d2 = _mat3(base, _g3(tmp_path / "g_sep2.xlsx", ["AAA", "CCC", "DDD"], cargo=50),
+               historico=tmp_path / "m_hist.csv", periodos=tmp_path / "m_periodos.json")
+    r4 = dev_api.ejecutar_control3(2026, 9, str(base), **_CIERRE3)
+    assert r4["estado_control3"] == "CIERRE_BLOQUEADO_GLOBAL_DISTINTO_DEL_CERRADO"
+    assert (_sha(os.path.join(d2, "HISTORICO_CXC_CXP.csv")), _sha(os.path.join(d2, "HISTORICO_CXC_CXP_PERIODOS.json"))) == antes
+
+
+def test_control3_cierre_con_observaciones_invalidas_se_bloquea_sin_escribir(tmp_path):
+    base = _base3(tmp_path)
+    d = _mat3(base, _g3(tmp_path / "g.xlsx", ["A1"]))
+    puente = tmp_path / "obs.json"
+    puente.write_text(_json.dumps({"periodo": "SEPTIEMBRE_2026", "sha256_global": _sha(os.path.join(d, _NOMBRE_GLOBAL_SEP)),
+                                   "observaciones": [{"cuenta": "110201003", "asignacion": "NOEXISTE", "observacion_auditor": "x"}]}))
+    r = dev_api.ejecutar_control3(2026, 9, str(base), ruta_observaciones_json=str(puente), **_CIERRE3)
+    assert r["estado_control3"] == "CIERRE_BLOQUEADO_OBSERVACIONES" and r["periodo_cerrado"] is False
+    assert sorted(os.listdir(d)) == [_NOMBRE_GLOBAL_SEP]
+
+
+def test_control3_cierre_aplica_la_observacion_del_auditor_del_reporte(tmp_path):
+    base = _base3(tmp_path)
+    d = _mat3(base, _g3(tmp_path / "g.xlsx", ["A1"]))
+    dev_api.ejecutar_control3(2026, 9, str(base))
+    wb = openpyxl.load_workbook(os.path.join(d, _REPORTE_C3_SEP))
+    ws = wb["CONTROL"]
+    ws.cell(row=2, column=[c.value for c in ws[1]].index("OBSERVACION_AUDITOR") + 1).value = "Pendiente de cliente"
+    editado = tmp_path / _REPORTE_C3_SEP
+    wb.save(str(editado))
+    d2 = _mat3(base, _g3(tmp_path / "g.xlsx", ["A1"]), reporte=editado)
+    assert dev_api.ejecutar_control3(2026, 9, str(base), **_CIERRE3)["estado_control3"] == "CERRADO"
+    assert _filas_csv(os.path.join(d2, "HISTORICO_CXC_CXP.csv"))[0]["observacion_auditor"] == "Pendiente de cliente"
+
+
+def test_control3_cierre_recupera_publicacion_interrumpida_sin_reacumular(tmp_path):
+    """El histórico maestro ya trae el periodo pero el libro no llegó a Drive: se sella el libro, no se reacumula."""
+    base = _base3(tmp_path, "a")
+    d = _mat3(base, _g3(tmp_path / "g.xlsx", ["A1"], cargo=70))
+    dev_api.ejecutar_control3(2026, 9, str(base), **_CIERRE3)
+    hist = os.path.join(d, "HISTORICO_CXC_CXP.csv")
+    base2 = _base3(tmp_path, "b")
+    d2 = _mat3(base2, tmp_path / "g.xlsx", historico=hist)                         # sin libro: quedó en Drive el viejo
+    r = dev_api.ejecutar_control3(2026, 9, str(base2), **_CIERRE3)
+    assert r["estado_control3"] == "CERRADO" and r["recuperado"] is True
+    assert r["historico_actualizado"] is False and r["periodos_actualizado"] is True
+    assert _filas_csv(os.path.join(d2, "HISTORICO_CXC_CXP.csv"))[0]["debe_acumulado"] == "70.00"
+    assert _json.load(open(os.path.join(d2, "HISTORICO_CXC_CXP_PERIODOS.json")))["SEPTIEMBRE_2026"]["estado"] == "APLICADO"
+
+
+def test_control3_cierre_dry_run_no_escribe_nada(tmp_path):
+    base = _base3(tmp_path)
+    d = _mat3(base, _g3(tmp_path / "g.xlsx", ["A1"]))
+    r = dev_api.ejecutar_control3(2026, 9, str(base), dry_run=True, **_CIERRE3)
+    assert r["estado_control3"] == "CIERRE_SIMULACRO" and r["periodo_cerrado"] is False
+    assert sorted(os.listdir(d)) == [_NOMBRE_GLOBAL_SEP]
+
+
+def test_control3_cli_pasa_modo_y_confirmacion(tmp_path):
+    base = _base3(tmp_path)
+    _mat3(base, _g3(tmp_path / "g.xlsx", ["A1"]))
+    ent, out = tmp_path / "in.json", tmp_path / "out.json"
+    ent.write_text(_json.dumps({"anio": 2026, "mes": 9, "base_dir_dev": str(base)}))
+    dev_api.main(["--accion", "ejecutar_control3", "--input", str(ent), "--output", str(out)])
+    assert _json.loads(out.read_text())["modo_control3"] == "preliminar"
+    ent.write_text(_json.dumps({"anio": 2026, "mes": 9, "base_dir_dev": str(base), "modo_control3": "cerrar"}))
+    dev_api.main(["--accion", "ejecutar_control3", "--input", str(ent), "--output", str(out)])
+    assert "ERROR_CONFIRMACION_CIERRE_REQUERIDA" in out.read_text()
+    ent.write_text(_json.dumps({"anio": 2026, "mes": 9, "base_dir_dev": str(base)}))
+    dev_api.main(["--accion", "preparar_control3_entrada", "--input", str(ent), "--output", str(out)])
+    assert _json.loads(out.read_text())["resultado"] == "OK"
+
+
+def test_control3_Q_R_no_toca_v2_ni_control1():
+    import inspect
+    src = inspect.getsource(control3_modos)
+    assert "control1_modos" not in src and "control_asignaciones" not in src
+    assert "control3_modos" not in inspect.getsource(dev_api.ejecutar_control1)
+    assert "modo_control1" not in inspect.signature(dev_api.ejecutar_control3).parameters
