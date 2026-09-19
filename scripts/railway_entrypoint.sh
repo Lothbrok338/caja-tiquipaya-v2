@@ -19,6 +19,12 @@ if [ "${TIQ_BLOCK_OFFICIAL_PUBLISH:-}" != "true" ]; then
   echo "[railway_entrypoint] cajas-gabo-shadow, verifica las variables de entorno del servicio." >&2
 fi
 
+# FIX: n8n fallaba antes de invocar Python porque ${TIQ_BASE_DIR}/tiq_v3_tmp
+# (usado por los Code nodes de BACKEND para los archivos input/output del
+# Execute Command) no existia todavia en un contenedor nuevo -- se crea
+# aqui, antes de arrancar n8n, nunca dentro de un nodo del workflow.
+mkdir -p "${TIQ_BASE_DIR:-/app/dev_workdir}/tiq_v3_tmp"
+
 # n8n en background, en la red interna del contenedor unicamente.
 bash /app/scripts/start_n8n.sh &
 N8N_PID=$!
