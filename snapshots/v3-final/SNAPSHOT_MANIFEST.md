@@ -1,4 +1,9 @@
-# SNAPSHOT_MANIFEST.md — V3 FINAL (cierre formal)
+# SNAPSHOT_MANIFEST.md — CHECKPOINT V3 — MES ABIERTO (NO es el final cerrado)
+
+> **Estado del checkpoint (2026-09-19):** este snapshot refleja V3 con **septiembre 2026 todavía ABIERTO**: ni la Auditoría
+> de Asignaciones (CONTROL 1) ni la Auditoría CxC / CxP (CONTROL 3) se han cerrado, y **no existe** `V3_FINAL_STATE.md` ni el
+> tag `v3.0-final`. El nombre de la carpeta (`v3-final`) es histórico. Ver `V3_OPEN_MONTH_STATE.md` en la raíz del repo
+> y la sección final de este manifest ("CHECKPOINT V3 — MES ABIERTO").
 
 Fecha de captura inicial: **2026-09-17T20:55:26Z**
 Última actualización: **2026-09-18T21:00:00Z** — histórico canónico de CONTROL 1 migrado a la raíz de `05_CONTROLES` y
@@ -23,7 +28,7 @@ Verificado con grep sobre los 14 archivos: cero coincidencias de
 | # | Nombre | Workflow ID | Archivo | active | Nodos | SHA256 (archivo completo) |
 |---|---|---|---|---|---|---|
 | 1 | TIQ · CAJA TIQUIPAYA · V3 DEV (**principal**) | `E114Ntgz3kM8E4T5` | `E114Ntgz3kM8E4T5_principal.json` | false | 23 | `b31b7d269a765429e080e191f24217f5ee283b17cf0baa01b7c8223ad6cf7b25` |
-| 2 | TIQ V3 · 01 INGESTA · DEV | `CanZtkmnm0ukAC8c` | `CanZtkmnm0ukAC8c_01_ingesta.json` | false | 13 | `bf9f7837369a68f2e85e9a714e9a72ba5fe41051cf6693335ef28e97f3a962c5` |
+| 2 | TIQ V3 · 01 INGESTA · DEV | `CanZtkmnm0ukAC8c` | `CanZtkmnm0ukAC8c_01_ingesta.json` | **true** | 13 | `d0955c4f7dec29e316f7f681eca85fbe9b88e5a05fb0eb7798b96c66052b17c8` |
 | 3 | TIQ V3 · 02 MATERIALIZACION · DEV | `j88aiRsPF7g9kxhD` | `j88aiRsPF7g9kxhD_02_materializacion.json` | false | 25 | `1b123860feb289252d009cf55400406c9ba9af273337e29d8fa487e59abe8230` |
 | 4 | TIQ V3 · 03 MOTOR PYTHON · DEV | `mIawptMm4aUxbRNU` | `mIawptMm4aUxbRNU_03_motor.json` | false | 7 | `6b4f26c229304c345fc9520edb68981a242862e9cc6cc6725a8cde1ee54d3c57` |
 | 5 | TIQ V3 · 04 CLASIFICACION · DEV | `NQFcE3VD3PsVUNjW` | `NQFcE3VD3PsVUNjW_04_clasificacion.json` | false | 7 | `e7908795a9a1883daf5ef5808dcf1186e9d715ae75cd34dfd429349a5793a723` |
@@ -31,10 +36,10 @@ Verificado con grep sobre los 14 archivos: cero coincidencias de
 | 7 | TIQ V3 · 06 PUBLICACION · DEV | `sI3aQmzD0SZTWahF` | `sI3aQmzD0SZTWahF_06_publicacion.json` | false | 7 | `0e2aaf8eff2488462c52517ffb7f8ee5591689f8c9a4c1601af9c41ade637d2b` |
 | 8 | TIQ V3 · 06B PUBLICACION OFICIAL · DRIVE | `wcgxNei3duWfMDp1` | `wcgxNei3duWfMDp1_06b_publicacion_oficial.json` | **true** | 31 | `8c6a63063f6ee4537179bd1c1cdddeb9bc9e3a640ba86406f33f0dfa23c94a4a` |
 | 9 | TIQ V3 · 07 AUDITORIA · DEV | `Q81cDev3QSx5Zowc` | `Q81cDev3QSx5Zowc_07_auditoria.json` | false | 7 | `18ed3c9a516483ec481eba17d829d970dc4bed2e48de401588dc1453d1f095ce` |
-| 10 | TIQ V3 · 07C DESCARGAR ARCHIVO OFICIAL SI EXISTE · DRIVE | `fn7lLjHsiMd48DGK` | `fn7lLjHsiMd48DGK_07c_descargar_oficial.json` | false | 8 | `2dcda703148d885ac1a7070876b595fb1af6c786e197f2289c96ad9c26fd6714` |
-| 11 | TIQ V3 · 07D PUBLICAR ARCHIVO OFICIAL (crear o actualizar) · DRIVE | `HhuQCVP2oCubavzY` | `HhuQCVP2oCubavzY_07d_publicar_oficial.json` | false | 12 | `9f9aab93e4654612e8a1b10005975fac88ecfc793024b51ba0bab9ddbf848f78` |
-| 12 | TIQ V3 · 07E BUSCAR O CREAR CARPETA OFICIAL · DRIVE | `Lht5xRinJ9nJpHCW` | `Lht5xRinJ9nJpHCW_07e_buscar_crear_carpeta.json` | false | 7 | `2b331e13b50c40d69eb46c06817b6f5aecdeca8d4a25af408274e11bd74cc15f` |
-| 13 | TIQ V3 · PREFLIGHT OFICIAL (solo lectura) | `sJVgoBRpBntc96vf` | `sJVgoBRpBntc96vf_preflight_oficial.json` | false | 12 | `dccdfb3711e06518bce4d73c73acbfaa4a687457212e946d5b85321cb1f782de` |
+| 10 | TIQ V3 · 07C DESCARGAR ARCHIVO OFICIAL SI EXISTE · DRIVE | `fn7lLjHsiMd48DGK` | `fn7lLjHsiMd48DGK_07c_descargar_oficial.json` | **true** | 8 | `ae6c95d4210eb4a08743ee93cec205ba9849afd8607237c3d10273eca7425e4b` |
+| 11 | TIQ V3 · 07D PUBLICAR ARCHIVO OFICIAL (crear o actualizar) · DRIVE | `HhuQCVP2oCubavzY` | `HhuQCVP2oCubavzY_07d_publicar_oficial.json` | **true** | 12 | `5ee2c52c52ced254d0c3dc14355c0bf87eb0d682f0cdafab57be94c2236842f3` |
+| 12 | TIQ V3 · 07E BUSCAR O CREAR CARPETA OFICIAL · DRIVE | `Lht5xRinJ9nJpHCW` | `Lht5xRinJ9nJpHCW_07e_buscar_crear_carpeta.json` | **true** | 7 | `16e2b1c0445e1de87464f74e92e330e1b03cc1aa6085cc2e7c3324f471b8ca40` |
+| 13 | TIQ V3 · PREFLIGHT OFICIAL (solo lectura) | `sJVgoBRpBntc96vf` | `sJVgoBRpBntc96vf_preflight_oficial.json` | **true** | 12 | `0c881c553020952f935f1f658f0b9c49c25184bdefff16cc5bc6f89d8a90bce9` |
 | 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 149 | `6e4345698630240614aef000480f4b02c695365663eca83f02443de2aceb7ae2` |
 
 **Estado `active` real en n8n al momento de esta actualización (2026-09-18):**
@@ -46,9 +51,12 @@ activados para que el auditor pudiera operar el primer cierre oficial real
 `principal` + 02/03/04/05/06/07 · DEV) siguen `active=false`, sin cambios.
 **Los archivos de BACKEND DEV y 06B en este snapshot se re-exportaron**
 (son los únicos dos cuyo contenido cambió — los fixes de esta sección);
-los otros 5 archivos activados conservan el contenido/SHA256 capturado el
-2026-09-17 (su lógica no cambió, solo su bandera `active` en n8n, que este
-snapshot no vuelve a congelar por no ser parte de lo pedido).
+los otros 5 archivos activados conservaban el contenido capturado el 2026-09-17
+(su lógica no cambió, solo su bandera `active`). **Actualizado en el checkpoint del
+2026-09-19:** para esos 5 se verificó en vivo que el `versionId` publicado coincide con el del snapshot
+(01 `fb597976`, 07C `d65ae76c`, 07D `42599278`, 07E `9bb4a9af`, PREFLIGHT `000214de`) y se corrigieron en el JSON
+únicamente `active=true` y `activeVersionId=versionId` (metadatos; nodos y conexiones idénticos, por lo que sus hashes
+de la tabla cambiaron). 06B (`88f1df1c`) y BACKEND DEV (`977945d1`) ya estaban al día.
 
 ## Dos líneas de trabajo dentro de V3 (aclaración honesta)
 
@@ -536,4 +544,37 @@ cierre manual por observación del auditor, reporte Excel + histórico técnico.
   confirmación y solo entonces envía `cerrar` + `confirmacion_cierre=true`; cancelar no llama al backend.
 - **Septiembre sigue abierto; no se ejecutó CONTROL 3.** CONTROL 1, V2 y GLOBAL sin cambios.
 - **Pendiente:** primera corrida real preliminar (la hace el auditor), cierre mensual real, `V3_FINAL_STATE.md`, tag `v3.0-final`.
+
+
+## CHECKPOINT V3 — MES ABIERTO (2026-09-19)
+
+**NO es el cierre final.** Septiembre 2026 sigue abierto; CONTROL 1 y CONTROL 3 solo se ejecutaron en modo PRELIMINAR.
+
+Estado git de referencia: rama `v3-dev`; commits relevantes `32881f1` (capa Python CONTROL 1 modos), `714616d` (modos CONTROL 1 en
+BACKEND DEV + frontend), `42bd612` (CONTROL 3 Drive + modos), `0e42474` (ajuste solo visual de los botones del cierre mensual).
+
+Versiones publicadas verificadas en vivo contra este snapshot:
+
+| Workflow | ID | versionId | Nodos | active |
+|---|---|---|---|---|
+| BACKEND DEV | `aLs1f3GMqswbaENA` | `977945d1` | 149 | true |
+| 01 INGESTA | `CanZtkmnm0ukAC8c` | `fb597976` | 13 | true |
+| 06B PUBLICACION OFICIAL | `wcgxNei3duWfMDp1` | `88f1df1c` | 31 | true |
+| PREFLIGHT | `sJVgoBRpBntc96vf` | `000214de` | 12 | true |
+| 07C | `fn7lLjHsiMd48DGK` | `d65ae76c` | 8 | true |
+| 07D | `HhuQCVP2oCubavzY` | `42599278` | 12 | true |
+| 07E | `Lht5xRinJ9nJpHCW` | `9bb4a9af` | 7 | true |
+
+V2 (`LkS0RHu9KEbHCR4p`) sigue `active=true` y sin cambios. Los otros 7 workflows (línea exploratoria) siguen `active=false`.
+
+**CONTROL 3 — primera corrida PRELIMINAR real (ejecución 452 del backend, 2026-09-19 01:54, `modo_control3='preliminar'`):**
+`PRELIMINAR_OK`, 5 llaves (4 ABIERTO, 1 REVISAR: CxP EMPRESAS / POSGRADO AGOSTO, saldo −1.000, "sin apertura previa registrada"),
+`historico_actualizado=false`, `periodos_actualizado=false`, `periodo_cerrado=false`, GLOBAL sha `e069565d…` sin cambios. Publicó solo el
+reporte `CONTROL_CXC_CXP_SEPTIEMBRE_2026.xlsx/.json` (creados) en `CONTROL_3_CXC_CXP/2026-09/` (carpeta nueva `1rQVndMzcNj6q1Z63YKwEmMYeYbPvD1w7`);
+los maestros de la raíz quedaron intactos (copia local con el mismo sha que Drive: csv `92fac556…`, libro `37463976…`).
+
+**CONTROL 1 — corrida PRELIMINAR real (ejecución 446, 2026-09-19 01:28):** `PRELIMINAR_LISTO_PARA_CERRAR`, 3 decisiones del auditor conservadas
+(2 CORRECTA por mismo depósito, 1 CORRECTA FORTALEZA), histórico maestro de la raíz sin cambios (441 filas, solo agosto), GLOBAL sin cambios.
+
+Ningún cierre definitivo (CONTROL 1 ni CONTROL 3) se ha ejecutado en real. Ver `V3_OPEN_MONTH_STATE.md`.
 

@@ -1,20 +1,500 @@
 {
   "id": "sJVgoBRpBntc96vf",
   "name": "TIQ V3 · PREFLIGHT OFICIAL (solo lectura)",
-  "active": false,
+  "active": true,
   "isArchived": false,
   "versionId": "000214de-f942-4b18-a7fd-295cfd1d393f",
-  "activeVersionId": null,
+  "activeVersionId": "000214de-f942-4b18-a7fd-295cfd1d393f",
   "triggerCount": 0,
   "createdAt": "2026-09-15T21:38:28.441Z",
   "updatedAt": "2026-09-15T21:38:28.441Z",
-  "settings": {"executionOrder": "v1", "availableInMCP": true},
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
   "tags": [],
   "parentFolderId": null,
   "description": "FASE 11A.2 — verificación real de solo lectura antes del primer PUBLICAR oficial: 5 carpetas accesibles, cierre resoluble por fileId/nombre exacto, sin marker/SAP/resultado duplicados. Cero escrituras.",
-  "connections": {"ENTRADA (Execute Workflow Trigger)":{"main":[[{"node":"BUSCAR - Carpeta ENTRADA accesible","type":"main","index":0}]]},"BUSCAR - Carpeta ENTRADA accesible":{"main":[[{"node":"BUSCAR - Carpeta SAP accesible","type":"main","index":0}]]},"BUSCAR - Carpeta SAP accesible":{"main":[[{"node":"BUSCAR - Carpeta RESULTADOS accesible","type":"main","index":0}]]},"BUSCAR - Carpeta RESULTADOS accesible":{"main":[[{"node":"BUSCAR - Carpeta PROCESADOS accesible","type":"main","index":0}]]},"BUSCAR - Carpeta PROCESADOS accesible":{"main":[[{"node":"BUSCAR - Carpeta MARKERS accesible","type":"main","index":0}]]},"BUSCAR - Carpeta MARKERS accesible":{"main":[[{"node":"BUSCAR - Marker existente (preflight)","type":"main","index":0}]]},"BUSCAR - Marker existente (preflight)":{"main":[[{"node":"BUSCAR - Cierre exacto en ENTRADA (preflight)","type":"main","index":0}]]},"BUSCAR - Cierre exacto en ENTRADA (preflight)":{"main":[[{"node":"BUSCAR - SAP oficial existente (preflight)","type":"main","index":0}]]},"BUSCAR - SAP oficial existente (preflight)":{"main":[[{"node":"BUSCAR - Resultado oficial existente (preflight)","type":"main","index":0}]]},"BUSCAR - Resultado oficial existente (preflight)":{"main":[[{"node":"CONSTRUIR - Reporte preflight","type":"main","index":0}]]}},
-  "nodes": [{"id":"a5288d61-88db-4316-bc3f-5ec2c4eb9a3e","name":"ENTRADA (Execute Workflow Trigger)","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.2,"position":[0,0],"parameters":{"inputSource":"workflowInputs","workflowInputs":{"values":[{"name":"fecha","type":"string"},{"name":"archivo_esperado","type":"string"},{"name":"sha256","type":"string"},{"name":"drive_file_id","type":"string"},{"name":"ruta_sap_publicado","type":"string"},{"name":"ruta_resultado_publicado","type":"string"}]}}},{"id":"a364184a-5ed6-4d0c-b5cd-18e1624aef59","name":"BUSCAR - Carpeta ENTRADA accesible","type":"n8n-nodes-base.googleDrive","typeVersion":3,"position":[224,0],"parameters":{"resource":"fileFolder","operation":"search","queryString":"","limit":1,"filter":{"folderId":{"__rl":true,"mode":"id","value":"1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1"},"whatToSearch":"files","includeTrashed":false},"options":{}},"credentials":{"googleDriveOAuth2Api":{"id":"aoEcEAFQQ38XcwZg","name":"Google Drive account"}}},{"id":"44e6f7bf-f7ce-49e9-b767-ca8119dd018d","name":"BUSCAR - Carpeta SAP accesible","type":"n8n-nodes-base.googleDrive","typeVersion":3,"position":[448,0],"parameters":{"resource":"fileFolder","operation":"search","queryString":"","limit":1,"filter":{"folderId":{"__rl":true,"mode":"id","value":"1mid4gUHnCmZbISlsAYMwWta3RudTSE13"},"whatToSearch":"files","includeTrashed":false},"options":{}},"credentials":{"googleDriveOAuth2Api":{"id":"aoEcEAFQQ38XcwZg","name":"Google Drive account"}}},{"id":"ba715dd0-eb5f-495c-ad99-b95c2145f39b","name":"BUSCAR - Carpeta RESULTADOS accesible","type":"n8n-nodes-base.googleDrive","typeVersion":3,"position":[672,0],"parameters":{"resource":"fileFolder","operation":"search","queryString":"","limit":1,"filter":{"folderId":{"__rl":true,"mode":"id","value":"16Z7Uhf-NgiZ6YuqWLnReaIozRIiOg5HO"},"whatToSearch":"files","includeTrashed":false},"options":{}},"credentials":{"googleDriveOAuth2Api":{"id":"aoEcEAFQQ38XcwZg","name":"Google Drive account"}}},{"id":"520deed1-d69a-4b3e-aeb5-ea1899b21bfe","name":"BUSCAR - Carpeta PROCESADOS accesible","type":"n8n-nodes-base.googleDrive","typeVersion":3,"position":[896,0],"parameters":{"resource":"fileFolder","operation":"search","queryString":"","limit":1,"filter":{"folderId":{"__rl":true,"mode":"id","value":"1BkNC6lnonMM7YeWDKck-TM8WTyY2BJJP"},"whatToSearch":"files","includeTrashed":false},"options":{}},"credentials":{"googleDriveOAuth2Api":{"id":"aoEcEAFQQ38XcwZg","name":"Google Drive account"}}},{"id":"83b22e60-f632-4b66-95dd-4a2bab867178","name":"BUSCAR - Carpeta MARKERS accesible","type":"n8n-nodes-base.googleDrive","typeVersion":3,"position":[1120,0],"parameters":{"resource":"fileFolder","operation":"search","queryString":"","limit":1,"filter":{"folderId":{"__rl":true,"mode":"id","value":"1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu"},"whatToSearch":"files","includeTrashed":false},"options":{}},"credentials":{"googleDriveOAuth2Api":{"id":"aoEcEAFQQ38XcwZg","name":"Google Drive account"}}},{"id":"d7b8c263-8ba5-40eb-a5cf-e872ecb3b1d2","name":"BUSCAR - Marker existente (preflight)","type":"n8n-nodes-base.googleDrive","typeVersion":3,"position":[1344,0],"parameters":{"resource":"fileFolder","operation":"search","queryString":"={{ 'PROCESADO_' + $('ENTRADA (Execute Workflow Trigger)').item.json.sha256 + '.json' }}","limit":10,"filter":{"folderId":{"__rl":true,"mode":"id","value":"1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu"},"whatToSearch":"files","includeTrashed":false},"options":{}},"alwaysOutputData":true,"credentials":{"googleDriveOAuth2Api":{"id":"aoEcEAFQQ38XcwZg","name":"Google Drive account"}}},{"id":"0df3f376-7c1f-4b64-b4ca-0211f5b0d62b","name":"BUSCAR - Cierre exacto en ENTRADA (preflight)","type":"n8n-nodes-base.googleDrive","typeVersion":3,"position":[1568,0],"parameters":{"resource":"fileFolder","operation":"search","queryString":"={{ $('ENTRADA (Execute Workflow Trigger)').item.json.archivo_esperado }}","limit":10,"filter":{"folderId":{"__rl":true,"mode":"id","value":"1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1"},"whatToSearch":"files","includeTrashed":false},"options":{}},"alwaysOutputData":true,"credentials":{"googleDriveOAuth2Api":{"id":"aoEcEAFQQ38XcwZg","name":"Google Drive account"}}},{"id":"48ef1780-bbb0-45b3-8393-c46395e78d6d","name":"BUSCAR - SAP oficial existente (preflight)","type":"n8n-nodes-base.googleDrive","typeVersion":3,"position":[1792,0],"parameters":{"resource":"fileFolder","operation":"search","queryString":"={{ $('ENTRADA (Execute Workflow Trigger)').item.json.ruta_sap_publicado.split('/').pop() }}","limit":10,"filter":{"folderId":{"__rl":true,"mode":"id","value":"1mid4gUHnCmZbISlsAYMwWta3RudTSE13"},"whatToSearch":"files","includeTrashed":false},"options":{}},"alwaysOutputData":true,"credentials":{"googleDriveOAuth2Api":{"id":"aoEcEAFQQ38XcwZg","name":"Google Drive account"}}},{"id":"a76c5da4-1cc0-4a16-aadc-10122b3b2338","name":"BUSCAR - Resultado oficial existente (preflight)","type":"n8n-nodes-base.googleDrive","typeVersion":3,"position":[2016,0],"parameters":{"resource":"fileFolder","operation":"search","queryString":"={{ $('ENTRADA (Execute Workflow Trigger)').item.json.ruta_resultado_publicado.split('/').pop() }}","limit":10,"filter":{"folderId":{"__rl":true,"mode":"id","value":"16Z7Uhf-NgiZ6YuqWLnReaIozRIiOg5HO"},"whatToSearch":"files","includeTrashed":false},"options":{}},"alwaysOutputData":true,"credentials":{"googleDriveOAuth2Api":{"id":"aoEcEAFQQ38XcwZg","name":"Google Drive account"}}},{"id":"35b9d86b-67c4-4784-9f0f-786b1368cbce","name":"CONSTRUIR - Reporte preflight","type":"n8n-nodes-base.code","typeVersion":2,"position":[2240,0],"parameters":{"mode":"runOnceForAllItems","language":"javaScript","jsCode":"const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst marker = $('BUSCAR - Marker existente (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.id;});\nconst cierre = $('BUSCAR - Cierre exacto en ENTRADA (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.name === t.archivo_esperado && j.id;});\nconst sap = $('BUSCAR - SAP oficial existente (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.name === t.ruta_sap_publicado.split('/').pop() && j.id;});\nconst resultado = $('BUSCAR - Resultado oficial existente (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.name === t.ruta_resultado_publicado.split('/').pop() && j.id;});\n\nconst markerYaExiste = marker.length > 0;\nconst cierreAmbiguo = cierre.length > 1;\nconst cierreResuelto = cierre.length === 1;\nconst cierreFileIdCoincide = cierreResuelto && (!t.drive_file_id || cierre[0].id === t.drive_file_id);\nconst sapDuplicado = sap.length > 1;\nconst sapYaExiste = sap.length === 1;\nconst resultadoDuplicado = resultado.length > 1;\nconst resultadoYaExiste = resultado.length === 1;\n\nconst bloqueadores = [];\nif (markerYaExiste) bloqueadores.push('MARKER_YA_EXISTE');\nif (cierreAmbiguo) bloqueadores.push('CIERRE_AMBIGUO_EN_ENTRADA');\nif (!cierreResuelto && !markerYaExiste) bloqueadores.push('CIERRE_NO_RESUELTO_EN_ENTRADA');\nif (cierreResuelto && !cierreFileIdCoincide) bloqueadores.push('FILEID_INGESTA_NO_COINCIDE');\nif (sapDuplicado) bloqueadores.push('SAP_DUPLICADO');\nif (resultadoDuplicado) bloqueadores.push('RESULTADO_DUPLICADO');\n\nreturn [{ json: {\n  fecha: t.fecha, archivo_esperado: t.archivo_esperado, sha256: t.sha256,\n  carpetas_accesibles: true,\n  marker_ya_existe: markerYaExiste,\n  cierre_resuelto: cierreResuelto, cierre_ambiguo: cierreAmbiguo, cierre_fileid_coincide: cierreFileIdCoincide,\n  sap_ya_existe: sapYaExiste, sap_duplicado: sapDuplicado,\n  resultado_ya_existe: resultadoYaExiste, resultado_duplicado: resultadoDuplicado,\n  bloqueadores: bloqueadores,\n  apto_para_publicar: bloqueadores.length === 0,\n  mensaje: bloqueadores.length === 0\n    ? (markerYaExiste ? 'YA_PUBLICADO (idempotente): nada que bloquee, pero tampoco hay nada nuevo que publicar.' : 'Apto para publicar: carpetas accesibles, cierre resuelto, sin duplicados.')\n    : 'Bloqueado: ' + bloqueadores.join(', '),\n} }];"}},{"id":"c5e6fe5a-089b-4f52-901f-d0973a673921","name":"Sticky Note ad305b7b","type":"n8n-nodes-base.stickyNote","typeVersion":1,"position":[1056,0],"parameters":{"content":"## TIQ V3 · PREFLIGHT OFICIAL (solo lectura) -- FASE 11A.2\nVerificacion REAL pero de SOLO LECTURA antes del primer PUBLICAR oficial. Ningun nodo de este workflow escribe, sube, mueve ni crea nada en Drive -- todos son 'fileFolder'/'search' con limit bajo. Invocar UNA VEZ POR CIERRE (Execute Workflow, mode=each) con los mismos campos que recibe 06B.\n\nVerifica: 1-5) las 5 carpetas oficiales (ENTRADA/SAP/RESULTADOS/PROCESADOS/MARKERS) son accesibles -- si alguna no lo es, la ejecucion de n8n falla ahi mismo con un error claro (mismo criterio de fallo nativo que 06B, sin logica adicional). 6) el cierre puede resolverse por su fileId/nombre exacto en ENTRADA. 7) no existe ya un marker para este sha256. 8) no existe ya un SAP_TIQ_<fecha>.xlsx duplicado. 9) no existe ya un RESULTADO_TIQ_<fecha>.json duplicado. El reporte final indica apto_para_publicar.\n\nReutiliza la credencial 'Google Drive account' (aoEcEAFQQ38XcwZg), las mismas 5 carpetas oficiales de septiembre, y el MISMO criterio de coincidencia exacta que 06B (TIQ V3 06B PUBLICACION OFICIAL DRIVE, wcgxNei3duWfMDp1) -- nada nuevo se inventa aqui, solo se leen los mismos lugares que 06B leeria antes de escribir.","color":5}}],
+  "connections": {
+    "ENTRADA (Execute Workflow Trigger)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Carpeta ENTRADA accesible",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Carpeta ENTRADA accesible": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Carpeta SAP accesible",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Carpeta SAP accesible": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Carpeta RESULTADOS accesible",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Carpeta RESULTADOS accesible": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Carpeta PROCESADOS accesible",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Carpeta PROCESADOS accesible": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Carpeta MARKERS accesible",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Carpeta MARKERS accesible": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Marker existente (preflight)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Marker existente (preflight)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Cierre exacto en ENTRADA (preflight)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Cierre exacto en ENTRADA (preflight)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - SAP oficial existente (preflight)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - SAP oficial existente (preflight)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Resultado oficial existente (preflight)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Resultado oficial existente (preflight)": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Reporte preflight",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodes": [
+    {
+      "id": "a5288d61-88db-4316-bc3f-5ec2c4eb9a3e",
+      "name": "ENTRADA (Execute Workflow Trigger)",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "fecha",
+              "type": "string"
+            },
+            {
+              "name": "archivo_esperado",
+              "type": "string"
+            },
+            {
+              "name": "sha256",
+              "type": "string"
+            },
+            {
+              "name": "drive_file_id",
+              "type": "string"
+            },
+            {
+              "name": "ruta_sap_publicado",
+              "type": "string"
+            },
+            {
+              "name": "ruta_resultado_publicado",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a364184a-5ed6-4d0c-b5cd-18e1624aef59",
+      "name": "BUSCAR - Carpeta ENTRADA accesible",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "queryString": "",
+        "limit": 1,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "44e6f7bf-f7ce-49e9-b767-ca8119dd018d",
+      "name": "BUSCAR - Carpeta SAP accesible",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "queryString": "",
+        "limit": 1,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1mid4gUHnCmZbISlsAYMwWta3RudTSE13"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "ba715dd0-eb5f-495c-ad99-b95c2145f39b",
+      "name": "BUSCAR - Carpeta RESULTADOS accesible",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "queryString": "",
+        "limit": 1,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "16Z7Uhf-NgiZ6YuqWLnReaIozRIiOg5HO"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "520deed1-d69a-4b3e-aeb5-ea1899b21bfe",
+      "name": "BUSCAR - Carpeta PROCESADOS accesible",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "queryString": "",
+        "limit": 1,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1BkNC6lnonMM7YeWDKck-TM8WTyY2BJJP"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "83b22e60-f632-4b66-95dd-4a2bab867178",
+      "name": "BUSCAR - Carpeta MARKERS accesible",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "queryString": "",
+        "limit": 1,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "d7b8c263-8ba5-40eb-a5cf-e872ecb3b1d2",
+      "name": "BUSCAR - Marker existente (preflight)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1344,
+        0
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "queryString": "={{ 'PROCESADO_' + $('ENTRADA (Execute Workflow Trigger)').item.json.sha256 + '.json' }}",
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "0df3f376-7c1f-4b64-b4ca-0211f5b0d62b",
+      "name": "BUSCAR - Cierre exacto en ENTRADA (preflight)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1568,
+        0
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "queryString": "={{ $('ENTRADA (Execute Workflow Trigger)').item.json.archivo_esperado }}",
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "48ef1780-bbb0-45b3-8393-c46395e78d6d",
+      "name": "BUSCAR - SAP oficial existente (preflight)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1792,
+        0
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "queryString": "={{ $('ENTRADA (Execute Workflow Trigger)').item.json.ruta_sap_publicado.split('/').pop() }}",
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "1mid4gUHnCmZbISlsAYMwWta3RudTSE13"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "a76c5da4-1cc0-4a16-aadc-10122b3b2338",
+      "name": "BUSCAR - Resultado oficial existente (preflight)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2016,
+        0
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "queryString": "={{ $('ENTRADA (Execute Workflow Trigger)').item.json.ruta_resultado_publicado.split('/').pop() }}",
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "16Z7Uhf-NgiZ6YuqWLnReaIozRIiOg5HO"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "35b9d86b-67c4-4784-9f0f-786b1368cbce",
+      "name": "CONSTRUIR - Reporte preflight",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst marker = $('BUSCAR - Marker existente (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.id;});\nconst cierre = $('BUSCAR - Cierre exacto en ENTRADA (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.name === t.archivo_esperado && j.id;});\nconst sap = $('BUSCAR - SAP oficial existente (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.name === t.ruta_sap_publicado.split('/').pop() && j.id;});\nconst resultado = $('BUSCAR - Resultado oficial existente (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.name === t.ruta_resultado_publicado.split('/').pop() && j.id;});\n\nconst markerYaExiste = marker.length > 0;\nconst cierreAmbiguo = cierre.length > 1;\nconst cierreResuelto = cierre.length === 1;\nconst cierreFileIdCoincide = cierreResuelto && (!t.drive_file_id || cierre[0].id === t.drive_file_id);\nconst sapDuplicado = sap.length > 1;\nconst sapYaExiste = sap.length === 1;\nconst resultadoDuplicado = resultado.length > 1;\nconst resultadoYaExiste = resultado.length === 1;\n\nconst bloqueadores = [];\nif (markerYaExiste) bloqueadores.push('MARKER_YA_EXISTE');\nif (cierreAmbiguo) bloqueadores.push('CIERRE_AMBIGUO_EN_ENTRADA');\nif (!cierreResuelto && !markerYaExiste) bloqueadores.push('CIERRE_NO_RESUELTO_EN_ENTRADA');\nif (cierreResuelto && !cierreFileIdCoincide) bloqueadores.push('FILEID_INGESTA_NO_COINCIDE');\nif (sapDuplicado) bloqueadores.push('SAP_DUPLICADO');\nif (resultadoDuplicado) bloqueadores.push('RESULTADO_DUPLICADO');\n\nreturn [{ json: {\n  fecha: t.fecha, archivo_esperado: t.archivo_esperado, sha256: t.sha256,\n  carpetas_accesibles: true,\n  marker_ya_existe: markerYaExiste,\n  cierre_resuelto: cierreResuelto, cierre_ambiguo: cierreAmbiguo, cierre_fileid_coincide: cierreFileIdCoincide,\n  sap_ya_existe: sapYaExiste, sap_duplicado: sapDuplicado,\n  resultado_ya_existe: resultadoYaExiste, resultado_duplicado: resultadoDuplicado,\n  bloqueadores: bloqueadores,\n  apto_para_publicar: bloqueadores.length === 0,\n  mensaje: bloqueadores.length === 0\n    ? (markerYaExiste ? 'YA_PUBLICADO (idempotente): nada que bloquee, pero tampoco hay nada nuevo que publicar.' : 'Apto para publicar: carpetas accesibles, cierre resuelto, sin duplicados.')\n    : 'Bloqueado: ' + bloqueadores.join(', '),\n} }];"
+      }
+    },
+    {
+      "id": "c5e6fe5a-089b-4f52-901f-d0973a673921",
+      "name": "Sticky Note ad305b7b",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1056,
+        0
+      ],
+      "parameters": {
+        "content": "## TIQ V3 · PREFLIGHT OFICIAL (solo lectura) -- FASE 11A.2\nVerificacion REAL pero de SOLO LECTURA antes del primer PUBLICAR oficial. Ningun nodo de este workflow escribe, sube, mueve ni crea nada en Drive -- todos son 'fileFolder'/'search' con limit bajo. Invocar UNA VEZ POR CIERRE (Execute Workflow, mode=each) con los mismos campos que recibe 06B.\n\nVerifica: 1-5) las 5 carpetas oficiales (ENTRADA/SAP/RESULTADOS/PROCESADOS/MARKERS) son accesibles -- si alguna no lo es, la ejecucion de n8n falla ahi mismo con un error claro (mismo criterio de fallo nativo que 06B, sin logica adicional). 6) el cierre puede resolverse por su fileId/nombre exacto en ENTRADA. 7) no existe ya un marker para este sha256. 8) no existe ya un SAP_TIQ_<fecha>.xlsx duplicado. 9) no existe ya un RESULTADO_TIQ_<fecha>.json duplicado. El reporte final indica apto_para_publicar.\n\nReutiliza la credencial 'Google Drive account' (aoEcEAFQQ38XcwZg), las mismas 5 carpetas oficiales de septiembre, y el MISMO criterio de coincidencia exacta que 06B (TIQ V3 06B PUBLICACION OFICIAL DRIVE, wcgxNei3duWfMDp1) -- nada nuevo se inventa aqui, solo se leen los mismos lugares que 06B leeria antes de escribir.",
+        "color": 5
+      }
+    }
+  ],
   "nodeGroups": [],
   "activeVersion": null,
-  "meta": {"aiBuilderAssisted": true, "builderVariant": "mcp"}
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  }
 }

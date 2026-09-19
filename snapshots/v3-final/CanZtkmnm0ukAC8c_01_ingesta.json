@@ -1,20 +1,393 @@
 {
   "id": "CanZtkmnm0ukAC8c",
   "name": "TIQ V3 · 01 INGESTA · DEV",
-  "active": false,
+  "active": true,
   "isArchived": false,
   "versionId": "fb597976-9c53-4579-8e73-8b4cbb86d9cb",
-  "activeVersionId": null,
+  "activeVersionId": "fb597976-9c53-4579-8e73-8b4cbb86d9cb",
   "triggerCount": 0,
   "createdAt": "2026-09-13T20:11:21.617Z",
   "updatedAt": "2026-09-14T11:48:23.156Z",
-  "settings": {"executionOrder": "v1", "availableInMCP": true},
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
   "tags": [],
   "parentFolderId": null,
   "description": "Subworkflow DEV — modulo de Ingesta (busqueda/descarga exacta del CIERRE). Sin logica real, sin Drive productivo.",
-  "connections": {"ENTRADA (Execute Workflow Trigger)":{"main":[[{"node":"RUTEAR - source_mode (IF)","type":"main","index":0}]]},"TEST MANUAL (DEV - Drive readonly)":{"main":[[{"node":"SET - Parametros prueba manual (DEV)","type":"main","index":0}]]},"SET - Parametros prueba manual (DEV)":{"main":[[{"node":"RUTEAR - source_mode (IF)","type":"main","index":0}]]},"RUTEAR - source_mode (IF)":{"main":[[{"node":"BUSCAR - Listado real 00_ENTRADA_CIERRES (solo lectura)","type":"main","index":0}],[{"node":"PASAR - candidatos_por_fecha (fixture)","type":"main","index":0}]]},"BUSCAR - Listado real 00_ENTRADA_CIERRES (solo lectura)":{"main":[[{"node":"AGREGAR - Listado Drive crudo","type":"main","index":0}]]},"AGREGAR - Listado Drive crudo":{"main":[[{"node":"CONSTRUIR - Payload ingesta","type":"main","index":0}]]},"PASAR - candidatos_por_fecha (fixture)":{"main":[[{"node":"CONSTRUIR - Payload ingesta","type":"main","index":0}]]},"CONSTRUIR - Payload ingesta":{"main":[[{"node":"ESCRIBIR - Input ingesta","type":"main","index":0}]]},"ESCRIBIR - Input ingesta":{"main":[[{"node":"EJECUTAR - Ingesta (Python)","type":"main","index":0}]]},"EJECUTAR - Ingesta (Python)":{"main":[[{"node":"LEER - Resultado ingesta","type":"main","index":0}]]},"LEER - Resultado ingesta":{"main":[[{"node":"INTERPRETAR - Resultado ingesta","type":"main","index":0}]]}},
-  "nodes": [{"id":"bce9ce85-179d-405f-9f53-793c604ebaf1","name":"ENTRADA (Execute Workflow Trigger)","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.2,"position":[0,0],"parameters":{"inputSource":"workflowInputs","workflowInputs":{"values":[{"name":"fecha_inicio","type":"string"},{"name":"fecha_fin","type":"string"},{"name":"drive_folder_entrada","type":"string"},{"name":"candidatos_por_fecha","type":"object"},{"name":"source_mode","type":"string"}]}}},{"id":"80f0ba9f-3036-4a48-9979-95d11e061419","name":"Sticky Note 72fa2359","type":"n8n-nodes-base.stickyNote","typeVersion":1,"position":[160,0],"parameters":{"content":"## TIQ V3 · 01 INGESTA · DEV — FASE 10A: Drive real solo lectura\n**Proposito:** Dado un rango fecha_inicio/fecha_fin, decidir ENCONTRADO/SIN_ARCHIVO/AMBIGUO por REGLA G (busqueda EXACTA).\n\n**source_mode = fixture:** candidatos_por_fecha llega armado desde el trigger (DEV/tests), igual que FASE 5-9.\n**source_mode = drive_readonly:** este subworkflow hace UN listado de SOLO LECTURA (Google Drive, resource=fileFolder/search, sin filtro de nombre) de la carpeta `drive_folder_entrada`, y pasa ese listado COMPLETO (nombre+fileId) a Python -- nunca se filtra en n8n, nunca se usa $input.first().\n\n**DEBT-001 CERRADO (ver v3/TECHNICAL_DEBT.md):** ya NO hay REGLA G reimplementada en JavaScript. `CONSTRUIR - Payload ingesta` solo arma el JSON (fixture o drive_readonly) y `EJECUTAR - Ingesta (Python)` invoca `python3 -m v3.ingesta` (Execute Command, mismo patron que el modulo 02) -- Python es la UNICA autoridad para REGLA G.\n\n**TEST MANUAL (DEV):** Manual Trigger + Set SOLO para probar este subworkflow de forma aislada contra Drive real; el pipeline real sigue entrando por ENTRADA (Execute Workflow Trigger) con source_mode='fixture' salvo que el llamador pida drive_readonly explicitamente.\n\n**Contratos V2 respetados:** CONTRACT-010 (REGLA G), CONTRACT-005 (solo lectura de Drive, ninguna escritura en este camino).","color":6}},{"id":"6d98431d-27d3-448b-a78f-9d460c22cccd","name":"RUTEAR - source_mode (IF)","type":"n8n-nodes-base.if","typeVersion":2.3,"position":[224,0],"parameters":{"conditions":{"combinator":"and","options":{"caseSensitive":true,"leftValue":"","typeValidation":"strict","version":2},"conditions":[{"leftValue":"={{ $json.source_mode }}","rightValue":"drive_readonly","operator":{"type":"string","operation":"equals"}}]}}},{"id":"2362abed-eb96-49ad-b0f5-d73e6ee00da0","name":"BUSCAR - Listado real 00_ENTRADA_CIERRES (solo lectura)","type":"n8n-nodes-base.googleDrive","typeVersion":3,"position":[448,-120],"parameters":{"resource":"fileFolder","operation":"search","searchMethod":"name","queryString":"","returnAll":true,"filter":{"folderId":{"__rl":true,"mode":"id","value":"={{ $json.drive_folder_entrada }}"},"whatToSearch":"files","includeTrashed":false},"options":{"fields":["*"]}},"credentials":{"googleDriveOAuth2Api":{"id":"aoEcEAFQQ38XcwZg","name":"Google Drive account"}}},{"id":"96d5bb52-b414-435e-a71d-2e701248e4d2","name":"AGREGAR - Listado Drive crudo","type":"n8n-nodes-base.code","typeVersion":2,"position":[672,-120],"parameters":{"jsCode":"// Solo reestructura datos (agrega TODOS los items del listado real en un\n// unico array) -- NUNCA decide REGLA G aqui (eso lo hace v3.ingesta en\n// Python). Nunca usa $input.first()/\"primer resultado\" para elegir un\n// archivo: se reenvia el listado COMPLETO tal cual llego de Drive.\nconst params = $('RUTEAR - source_mode (IF)').first().json;\nconst items = $input.all().map((item) => item.json);\n\nreturn [{\n  json: {\n    fecha_inicio: params.fecha_inicio,\n    fecha_fin: params.fecha_fin,\n    source_mode: params.source_mode,\n    candidatos_drive_crudo: items,\n  },\n}];"}},{"id":"da15dc47-c214-4225-b692-0608fabd666c","name":"PASAR - candidatos_por_fecha (fixture)","type":"n8n-nodes-base.code","typeVersion":2,"position":[448,120],"parameters":{"jsCode":"// Modo fixture: candidatos_por_fecha ya viene armado desde el trigger,\n// sin tocar Drive. Ningun cambio de comportamiento respecto a FASE 5-9.\nconst params = $('RUTEAR - source_mode (IF)').first().json;\n\nreturn [{\n  json: {\n    fecha_inicio: params.fecha_inicio,\n    fecha_fin: params.fecha_fin,\n    source_mode: params.source_mode || 'fixture',\n    candidatos_por_fecha: params.candidatos_por_fecha || {},\n  },\n}];"}},{"id":"92be1bb5-be9f-4967-9365-3b728706710f","name":"CONSTRUIR - Payload ingesta","type":"n8n-nodes-base.code","typeVersion":2,"position":[896,0],"parameters":{"jsCode":"// Arma el payload para v3.ingesta (Python, unica autoridad -- ver\n// v3/TECHNICAL_DEBT.md DEBT-001, cerrado en FASE 10A). Este nodo NUNCA\n// decide REGLA G: solo reenvia lo que ya vino armado de la rama fixture o\n// drive_readonly.\nconst t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\nconst payload = {\n  fecha_inicio: t.fecha_inicio,\n  fecha_fin: t.fecha_fin,\n  source_mode: t.source_mode,\n};\nif (t.source_mode === 'drive_readonly') {\n  payload.candidatos_drive_crudo = t.candidatos_drive_crudo || [];\n} else {\n  payload.candidatos_por_fecha = t.candidatos_por_fecha || {};\n}\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_ingesta_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_ingesta_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"}},{"id":"3b033fd2-5b39-4156-a640-08fa1d3aba14","name":"ESCRIBIR - Input ingesta","type":"n8n-nodes-base.executeCommand","typeVersion":1,"position":[1120,0],"parameters":{"executeOnce":true,"command":"=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\""}},{"id":"6ec4a276-c910-4f9c-8e43-e6fa61335179","name":"EJECUTAR - Ingesta (Python)","type":"n8n-nodes-base.executeCommand","typeVersion":1,"position":[1344,0],"parameters":{"executeOnce":true,"command":"=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.ingesta --input \"{{ $('CONSTRUIR - Payload ingesta').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR - Payload ingesta').item.json.ruta_output_tmp }}\" ; true"}},{"id":"a068964a-b378-4f9e-b4e0-1dd0d0142435","name":"LEER - Resultado ingesta","type":"n8n-nodes-base.readWriteFile","typeVersion":1.1,"position":[1568,0],"parameters":{"operation":"read","fileSelector":"={{ $('CONSTRUIR - Payload ingesta').item.json.ruta_output_tmp }}"}},{"id":"ae8c1c43-85b0-4c56-9ddb-ad84b7a2060e","name":"INTERPRETAR - Resultado ingesta","type":"n8n-nodes-base.extractFromFile","typeVersion":1.1,"position":[1792,0],"parameters":{"operation":"fromJson"}},{"id":"937b570f-ec9d-4a27-ab32-423a15c4f32c","name":"TEST MANUAL (DEV - Drive readonly)","type":"n8n-nodes-base.manualTrigger","typeVersion":1,"position":[0,-320],"parameters":{}},{"id":"b4f61af1-643a-41fb-aef5-8ee00f36881d","name":"SET - Parametros prueba manual (DEV)","type":"n8n-nodes-base.code","typeVersion":2,"position":[0,-200],"parameters":{"jsCode":"// SOLO para pruebas manuales reales de este subworkflow de forma aislada\n// (FASE 10A) -- el pipeline real (llamado desde el workflow principal)\n// SIEMPRE usa \"ENTRADA (Execute Workflow Trigger)\". Ajustar aqui el rango\n// y el source_mode antes de ejecutar manualmente desde n8n.\nreturn [{\n  json: {\n    fecha_inicio: '2026-09-01',\n    fecha_fin: '2026-09-30',\n    source_mode: 'drive_readonly',\n    drive_folder_entrada: '1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1',\n    candidatos_por_fecha: {},\n  },\n}];"}}],
+  "connections": {
+    "ENTRADA (Execute Workflow Trigger)": {
+      "main": [
+        [
+          {
+            "node": "RUTEAR - source_mode (IF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TEST MANUAL (DEV - Drive readonly)": {
+      "main": [
+        [
+          {
+            "node": "SET - Parametros prueba manual (DEV)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SET - Parametros prueba manual (DEV)": {
+      "main": [
+        [
+          {
+            "node": "RUTEAR - source_mode (IF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RUTEAR - source_mode (IF)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Listado real 00_ENTRADA_CIERRES (solo lectura)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PASAR - candidatos_por_fecha (fixture)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Listado real 00_ENTRADA_CIERRES (solo lectura)": {
+      "main": [
+        [
+          {
+            "node": "AGREGAR - Listado Drive crudo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AGREGAR - Listado Drive crudo": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Payload ingesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PASAR - candidatos_por_fecha (fixture)": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Payload ingesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR - Payload ingesta": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR - Input ingesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR - Input ingesta": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR - Ingesta (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR - Ingesta (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER - Resultado ingesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER - Resultado ingesta": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR - Resultado ingesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodes": [
+    {
+      "id": "bce9ce85-179d-405f-9f53-793c604ebaf1",
+      "name": "ENTRADA (Execute Workflow Trigger)",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "fecha_inicio",
+              "type": "string"
+            },
+            {
+              "name": "fecha_fin",
+              "type": "string"
+            },
+            {
+              "name": "drive_folder_entrada",
+              "type": "string"
+            },
+            {
+              "name": "candidatos_por_fecha",
+              "type": "object"
+            },
+            {
+              "name": "source_mode",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "80f0ba9f-3036-4a48-9979-95d11e061419",
+      "name": "Sticky Note 72fa2359",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        160,
+        0
+      ],
+      "parameters": {
+        "content": "## TIQ V3 · 01 INGESTA · DEV — FASE 10A: Drive real solo lectura\n**Proposito:** Dado un rango fecha_inicio/fecha_fin, decidir ENCONTRADO/SIN_ARCHIVO/AMBIGUO por REGLA G (busqueda EXACTA).\n\n**source_mode = fixture:** candidatos_por_fecha llega armado desde el trigger (DEV/tests), igual que FASE 5-9.\n**source_mode = drive_readonly:** este subworkflow hace UN listado de SOLO LECTURA (Google Drive, resource=fileFolder/search, sin filtro de nombre) de la carpeta `drive_folder_entrada`, y pasa ese listado COMPLETO (nombre+fileId) a Python -- nunca se filtra en n8n, nunca se usa $input.first().\n\n**DEBT-001 CERRADO (ver v3/TECHNICAL_DEBT.md):** ya NO hay REGLA G reimplementada en JavaScript. `CONSTRUIR - Payload ingesta` solo arma el JSON (fixture o drive_readonly) y `EJECUTAR - Ingesta (Python)` invoca `python3 -m v3.ingesta` (Execute Command, mismo patron que el modulo 02) -- Python es la UNICA autoridad para REGLA G.\n\n**TEST MANUAL (DEV):** Manual Trigger + Set SOLO para probar este subworkflow de forma aislada contra Drive real; el pipeline real sigue entrando por ENTRADA (Execute Workflow Trigger) con source_mode='fixture' salvo que el llamador pida drive_readonly explicitamente.\n\n**Contratos V2 respetados:** CONTRACT-010 (REGLA G), CONTRACT-005 (solo lectura de Drive, ninguna escritura en este camino).",
+        "color": 6
+      }
+    },
+    {
+      "id": "6d98431d-27d3-448b-a78f-9d460c22cccd",
+      "name": "RUTEAR - source_mode (IF)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.source_mode }}",
+              "rightValue": "drive_readonly",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "2362abed-eb96-49ad-b0f5-d73e6ee00da0",
+      "name": "BUSCAR - Listado real 00_ENTRADA_CIERRES (solo lectura)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        448,
+        -120
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $json.drive_folder_entrada }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {
+          "fields": [
+            "*"
+          ]
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "96d5bb52-b414-435e-a71d-2e701248e4d2",
+      "name": "AGREGAR - Listado Drive crudo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -120
+      ],
+      "parameters": {
+        "jsCode": "// Solo reestructura datos (agrega TODOS los items del listado real en un\n// unico array) -- NUNCA decide REGLA G aqui (eso lo hace v3.ingesta en\n// Python). Nunca usa $input.first()/\"primer resultado\" para elegir un\n// archivo: se reenvia el listado COMPLETO tal cual llego de Drive.\nconst params = $('RUTEAR - source_mode (IF)').first().json;\nconst items = $input.all().map((item) => item.json);\n\nreturn [{\n  json: {\n    fecha_inicio: params.fecha_inicio,\n    fecha_fin: params.fecha_fin,\n    source_mode: params.source_mode,\n    candidatos_drive_crudo: items,\n  },\n}];"
+      }
+    },
+    {
+      "id": "da15dc47-c214-4225-b692-0608fabd666c",
+      "name": "PASAR - candidatos_por_fecha (fixture)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Modo fixture: candidatos_por_fecha ya viene armado desde el trigger,\n// sin tocar Drive. Ningun cambio de comportamiento respecto a FASE 5-9.\nconst params = $('RUTEAR - source_mode (IF)').first().json;\n\nreturn [{\n  json: {\n    fecha_inicio: params.fecha_inicio,\n    fecha_fin: params.fecha_fin,\n    source_mode: params.source_mode || 'fixture',\n    candidatos_por_fecha: params.candidatos_por_fecha || {},\n  },\n}];"
+      }
+    },
+    {
+      "id": "92be1bb5-be9f-4967-9365-3b728706710f",
+      "name": "CONSTRUIR - Payload ingesta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Arma el payload para v3.ingesta (Python, unica autoridad -- ver\n// v3/TECHNICAL_DEBT.md DEBT-001, cerrado en FASE 10A). Este nodo NUNCA\n// decide REGLA G: solo reenvia lo que ya vino armado de la rama fixture o\n// drive_readonly.\nconst t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\nconst payload = {\n  fecha_inicio: t.fecha_inicio,\n  fecha_fin: t.fecha_fin,\n  source_mode: t.source_mode,\n};\nif (t.source_mode === 'drive_readonly') {\n  payload.candidatos_drive_crudo = t.candidatos_drive_crudo || [];\n} else {\n  payload.candidatos_por_fecha = t.candidatos_por_fecha || {};\n}\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_ingesta_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_ingesta_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+      }
+    },
+    {
+      "id": "3b033fd2-5b39-4156-a640-08fa1d3aba14",
+      "name": "ESCRIBIR - Input ingesta",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\""
+      }
+    },
+    {
+      "id": "6ec4a276-c910-4f9c-8e43-e6fa61335179",
+      "name": "EJECUTAR - Ingesta (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        0
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.ingesta --input \"{{ $('CONSTRUIR - Payload ingesta').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR - Payload ingesta').item.json.ruta_output_tmp }}\" ; true"
+      }
+    },
+    {
+      "id": "a068964a-b378-4f9e-b4e0-1dd0d0142435",
+      "name": "LEER - Resultado ingesta",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('CONSTRUIR - Payload ingesta').item.json.ruta_output_tmp }}"
+      }
+    },
+    {
+      "id": "ae8c1c43-85b0-4c56-9ddb-ad84b7a2060e",
+      "name": "INTERPRETAR - Resultado ingesta",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1792,
+        0
+      ],
+      "parameters": {
+        "operation": "fromJson"
+      }
+    },
+    {
+      "id": "937b570f-ec9d-4a27-ab32-423a15c4f32c",
+      "name": "TEST MANUAL (DEV - Drive readonly)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -320
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "b4f61af1-643a-41fb-aef5-8ee00f36881d",
+      "name": "SET - Parametros prueba manual (DEV)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -200
+      ],
+      "parameters": {
+        "jsCode": "// SOLO para pruebas manuales reales de este subworkflow de forma aislada\n// (FASE 10A) -- el pipeline real (llamado desde el workflow principal)\n// SIEMPRE usa \"ENTRADA (Execute Workflow Trigger)\". Ajustar aqui el rango\n// y el source_mode antes de ejecutar manualmente desde n8n.\nreturn [{\n  json: {\n    fecha_inicio: '2026-09-01',\n    fecha_fin: '2026-09-30',\n    source_mode: 'drive_readonly',\n    drive_folder_entrada: '1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1',\n    candidatos_por_fecha: {},\n  },\n}];"
+      }
+    }
+  ],
   "nodeGroups": [],
   "activeVersion": null,
-  "meta": {"aiBuilderAssisted": true, "builderVariant": "mcp"}
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  }
 }

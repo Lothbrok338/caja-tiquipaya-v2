@@ -1,20 +1,256 @@
 {
   "id": "Lht5xRinJ9nJpHCW",
   "name": "TIQ V3 · 07E BUSCAR O CREAR CARPETA OFICIAL · DRIVE",
-  "active": false,
+  "active": true,
   "isArchived": false,
   "versionId": "9bb4a9af-8af2-4486-b651-7306c57265a2",
-  "activeVersionId": null,
+  "activeVersionId": "9bb4a9af-8af2-4486-b651-7306c57265a2",
   "triggerCount": 0,
   "createdAt": "2026-09-17T18:30:24.750Z",
   "updatedAt": "2026-09-17T18:37:08.274Z",
-  "settings": {"executionOrder": "v1", "availableInMCP": true},
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
   "tags": [],
   "parentFolderId": null,
   "description": "FASE 12D — subworkflow reutilizable: busca una subcarpeta por nombre exacto dentro de una carpeta Drive dada; 0 coincidencias la crea, 1 coincidencia la reutiliza, mas de 1 ERROR_AMBIGUO. Usado para crear 05_CONTROLES/GLOBAL/ la primera vez, sin duplicarla despues.",
-  "connections": {"ENTRADA (Execute Workflow Trigger)":{"main":[[{"node":"BUSCAR - Subcarpeta por nombre","type":"main","index":0}]]},"BUSCAR - Subcarpeta por nombre":{"main":[[{"node":"VERIFICAR - Coincidencia exacta","type":"main","index":0}]]},"VERIFICAR - Coincidencia exacta":{"main":[[{"node":"IF - Existe la carpeta","type":"main","index":0}]]},"CREAR - Subcarpeta":{"main":[[{"node":"CONSTRUIR - Salida creada","type":"main","index":0}]]},"IF - Existe la carpeta":{"main":[[{"node":"CONSTRUIR - Salida reutilizada","type":"main","index":0}],[{"node":"CREAR - Subcarpeta","type":"main","index":0}]]}},
-  "nodes": [{"id":"cee7aafd-c8b1-4f51-be73-2a657e889f2a","name":"ENTRADA (Execute Workflow Trigger)","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.2,"position":[0,0],"parameters":{"inputSource":"workflowInputs","workflowInputs":{"values":[{"name":"carpeta_padre_id","type":"string"},{"name":"nombre_carpeta","type":"string"}]}}},{"id":"806506f2-b884-4f17-964a-23f7a55cff7d","name":"BUSCAR - Subcarpeta por nombre","type":"n8n-nodes-base.googleDrive","typeVersion":3,"position":[224,0],"parameters":{"resource":"fileFolder","operation":"search","searchMethod":"name","queryString":"={{ $json.nombre_carpeta }}","limit":10,"filter":{"folderId":{"__rl":true,"mode":"id","value":"={{ $json.carpeta_padre_id }}"},"whatToSearch":"folders","includeTrashed":false},"options":{},"alwaysOutputData":true},"credentials":{"googleDriveOAuth2Api":{"id":"aoEcEAFQQ38XcwZg","name":"Google Drive account"}}},{"id":"ae4a3431-2845-42f5-b2c2-79cdb708a45c","name":"VERIFICAR - Coincidencia exacta","type":"n8n-nodes-base.code","typeVersion":2,"position":[448,0],"parameters":{"mode":"runOnceForAllItems","language":"javaScript","jsCode":"const items = $input.all();\nconst t = $('ENTRADA (Execute Workflow Trigger)').item.json;\nconst exactos = items.filter(function(it){ return it.json && it.json.name === t.nombre_carpeta && it.json.id; });\nif (exactos.length > 1) {\n  throw new Error('ERROR_AMBIGUO_CARPETA: se encontraron ' + exactos.length + ' carpetas llamadas \"' + t.nombre_carpeta + '\" dentro de ' + t.carpeta_padre_id + '. No se crea ni se usa ninguna hasta resolver el duplicado manualmente.');\n}\nreturn [{ json: { existe: exactos.length === 1, carpeta_id: exactos.length === 1 ? exactos[0].json.id : null } }];"}},{"id":"70892fc4-e91f-47ce-8ce7-d1108f53a72a","name":"IF - Existe la carpeta","type":"n8n-nodes-base.if","typeVersion":2.3,"position":[672,0],"parameters":{"conditions":{"options":{"caseSensitive":true,"leftValue":"","typeValidation":"loose"},"conditions":[{"leftValue":"={{ $json.existe }}","operator":{"type":"boolean","operation":"true"},"rightValue":""}],"combinator":"and"}}},{"id":"7992f1bc-3103-4fff-8359-ab9d0df9f85c","name":"CONSTRUIR - Salida reutilizada","type":"n8n-nodes-base.code","typeVersion":2,"position":[896,-96],"parameters":{"mode":"runOnceForAllItems","language":"javaScript","jsCode":"return [{ json: { accion: 'reutilizada', carpeta_id: $json.carpeta_id } }];"}},{"id":"b6bb22c9-aa48-46e9-a132-7dfe2b8c3e90","name":"CREAR - Subcarpeta","type":"n8n-nodes-base.googleDrive","typeVersion":3,"position":[896,96],"parameters":{"resource":"folder","operation":"create","name":"={{ $('ENTRADA (Execute Workflow Trigger)').item.json.nombre_carpeta }}","driveId":{"__rl":true,"mode":"list","value":"My Drive"},"folderId":{"__rl":true,"mode":"id","value":"={{ $('ENTRADA (Execute Workflow Trigger)').item.json.carpeta_padre_id }}"},"options":{}},"credentials":{"googleDriveOAuth2Api":{"id":"aoEcEAFQQ38XcwZg","name":"Google Drive account"}}},{"id":"4850554d-1ced-4c7e-aa19-a99015702e2d","name":"CONSTRUIR - Salida creada","type":"n8n-nodes-base.code","typeVersion":2,"position":[1120,96],"parameters":{"mode":"runOnceForAllItems","language":"javaScript","jsCode":"return [{ json: { accion: 'creada', carpeta_id: $json.id } }];"}}],
+  "connections": {
+    "ENTRADA (Execute Workflow Trigger)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Subcarpeta por nombre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Subcarpeta por nombre": {
+      "main": [
+        [
+          {
+            "node": "VERIFICAR - Coincidencia exacta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VERIFICAR - Coincidencia exacta": {
+      "main": [
+        [
+          {
+            "node": "IF - Existe la carpeta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CREAR - Subcarpeta": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Salida creada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Existe la carpeta": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Salida reutilizada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CREAR - Subcarpeta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodes": [
+    {
+      "id": "cee7aafd-c8b1-4f51-be73-2a657e889f2a",
+      "name": "ENTRADA (Execute Workflow Trigger)",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "carpeta_padre_id",
+              "type": "string"
+            },
+            {
+              "name": "nombre_carpeta",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "806506f2-b884-4f17-964a-23f7a55cff7d",
+      "name": "BUSCAR - Subcarpeta por nombre",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "={{ $json.nombre_carpeta }}",
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $json.carpeta_padre_id }}"
+          },
+          "whatToSearch": "folders",
+          "includeTrashed": false
+        },
+        "options": {},
+        "alwaysOutputData": true
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "ae4a3431-2845-42f5-b2c2-79cdb708a45c",
+      "name": "VERIFICAR - Coincidencia exacta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const items = $input.all();\nconst t = $('ENTRADA (Execute Workflow Trigger)').item.json;\nconst exactos = items.filter(function(it){ return it.json && it.json.name === t.nombre_carpeta && it.json.id; });\nif (exactos.length > 1) {\n  throw new Error('ERROR_AMBIGUO_CARPETA: se encontraron ' + exactos.length + ' carpetas llamadas \"' + t.nombre_carpeta + '\" dentro de ' + t.carpeta_padre_id + '. No se crea ni se usa ninguna hasta resolver el duplicado manualmente.');\n}\nreturn [{ json: { existe: exactos.length === 1, carpeta_id: exactos.length === 1 ? exactos[0].json.id : null } }];"
+      }
+    },
+    {
+      "id": "70892fc4-e91f-47ce-8ce7-d1108f53a72a",
+      "name": "IF - Existe la carpeta",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.existe }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "7992f1bc-3103-4fff-8359-ab9d0df9f85c",
+      "name": "CONSTRUIR - Salida reutilizada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { accion: 'reutilizada', carpeta_id: $json.carpeta_id } }];"
+      }
+    },
+    {
+      "id": "b6bb22c9-aa48-46e9-a132-7dfe2b8c3e90",
+      "name": "CREAR - Subcarpeta",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        896,
+        96
+      ],
+      "parameters": {
+        "resource": "folder",
+        "operation": "create",
+        "name": "={{ $('ENTRADA (Execute Workflow Trigger)').item.json.nombre_carpeta }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('ENTRADA (Execute Workflow Trigger)').item.json.carpeta_padre_id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "4850554d-1ced-4c7e-aa19-a99015702e2d",
+      "name": "CONSTRUIR - Salida creada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { accion: 'creada', carpeta_id: $json.id } }];"
+      }
+    }
+  ],
   "nodeGroups": [],
   "activeVersion": null,
-  "meta": {"aiBuilderAssisted": true, "builderVariant": "mcp"}
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  }
 }
