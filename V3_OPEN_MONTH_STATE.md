@@ -40,7 +40,7 @@ Modo `official` (viene del backend, `publication_mode`) escribe en Drive; modo `
 
 ## 3. Workflows n8n (V3)
 
-Activos (7): BACKEND DEV `aLs1f3GMqswbaENA` (v `977945d1`, 149 nodos) · 01 INGESTA `CanZtkmnm0ukAC8c` (`fb597976`) · 06B PUBLICACION OFICIAL
+Activos (7): BACKEND DEV `aLs1f3GMqswbaENA` (v `def3df19`, 162 nodos, hotfix diario 2026-09-19) · 01 INGESTA `CanZtkmnm0ukAC8c` (`fb597976`) · 06B PUBLICACION OFICIAL
 `wcgxNei3duWfMDp1` (`88f1df1c`) · PREFLIGHT `sJVgoBRpBntc96vf` (`000214de`) · 07C descargar-si-existe `fn7lLjHsiMd48DGK` (`d65ae76c`) ·
 07D publicar crear/actualizar `HhuQCVP2oCubavzY` (`42599278`) · 07E buscar-o-crear carpeta `Lht5xRinJ9nJpHCW` (`9bb4a9af`).
 Inactivos (7, línea exploratoria FASE 1-8, no están en el camino productivo): principal `E114Ntgz3kM8E4T5`, 02–07 DEV.
@@ -106,9 +106,12 @@ Los históricos por periodo NUNCA son fuente maestra; solo evidencia. Nada mensu
 
 **Solo visual (ya hecho):** ajuste de alineación de los botones del cierre mensual (`0e42474`) — CSS + un `div` contenedor; sin cambios de lógica, ids, handlers ni endpoints.
 
+**Hotfix diario (2026-09-19):** `/procesar` descarga el MACROS oficial y los cierres de Drive en cada corrida (`procesar_entrada/<lote>/`) y el precheck exige cobertura de MACROS
+sobre las fechas de depósito; en modo oficial "Publicado" solo con 06B (`PUBLICADO_OFICIAL`). Detalle en `snapshots/v3-final/SNAPSHOT_MANIFEST.md` (sección HOTFIX DIARIO).
+
 ## 7. Tests de referencia (últimos resultados registrados)
 
-`tests_v3` + `parity_v3`: 296 · tests V2 (`tests/`): 432 · frontend (jsdom): 120 · JS n8n: control1 32, global 15, control3 19, publicación mensual 11, publicación oficial 12.
+`tests_v3` + `parity_v3`: 315 · tests V2 (`tests/`): 432 · frontend (jsdom): 134 · JS n8n: control1 32, global 15, control3 19, publicación mensual 11, publicación oficial 12, hotfix diario 12.
 Comandos: `/workspaces/.venv-caja/bin/python3 -m pytest tests_v3 parity_v3 -q` · `python -m pytest tests -q` · `node tests_v3/<dir>/test_nodos.js` · `cd tests_v3/frontend && node test_frontend.js`.
 (El Python correcto es el venv `/workspaces/.venv-caja`; el `python3` del sistema no trae `pytest`/`openpyxl`.)
 
@@ -123,7 +126,7 @@ Comandos: `/workspaces/.venv-caja/bin/python3 -m pytest tests_v3 parity_v3 -q` �
 ## 9. Cómo retomar (pasos exactos)
 
 1. `git status` (debe estar limpio en `v3-dev`) y `git log -3`.
-2. n8n arriba: `curl -s localhost:5678/healthz`; si no, `bash scripts/start_n8n.sh`. Verificar BACKEND DEV `active=true` versión `977945d1`, y V2 activo.
+2. n8n arriba: `curl -s localhost:5678/healthz`; si no, `bash scripts/start_n8n.sh`. Verificar BACKEND DEV `active=true` versión `def3df19`, y V2 activo.
 3. Proxy: `python3 scripts/serve_v3_frontend.py` → `http://localhost:8090/v3_control_cierres.html`.
 4. Si la interfaz da error de Drive: reconectar la credencial "Google Drive account" en n8n (ya ocurrió una vez con "needs to be reconnected").
 5. Continuar con "Pendiente para el cierre definitivo".

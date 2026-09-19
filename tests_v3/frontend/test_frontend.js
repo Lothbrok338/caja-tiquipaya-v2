@@ -450,7 +450,7 @@ async function test_publicacion() {
   window.fetch = function (url, opts) {
     calls.push({ url: url, opts: opts });
     if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-4", estado_lote: "PROCESANDO" }) });
-    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION", publication_mode: "dev" }) });
     if (url.indexOf("/datos") !== -1) return Promise.resolve({
       ok: true, json: () => Promise.resolve({
         resultado: "OK", cierres: [{ fecha: "2026-09-04", archivo_esperado: "CIERRE 04-09-2026.xlsm", estado_final: "LISTO_PARA_PUBLICAR", requiere_revision: false, publicado: false, mensajes: [] }],
@@ -507,7 +507,7 @@ async function test_cierre_ya_publicado_no_ofrece_boton_ni_infla_historial() {
   const mensajeIdempotente = "Marcador ya existente en publicacion/markers/: no se republica (idempotencia SHA256).";
   window.fetch = function (url) {
     if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-6", estado_lote: "PROCESANDO" }) });
-    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION", publication_mode: "dev" }) });
     if (url.indexOf("/datos") !== -1) return Promise.resolve({
       ok: true, json: () => Promise.resolve({
         resultado: "OK", cierres: [{
@@ -1021,6 +1021,77 @@ async function test_control3_mensajes_de_cierre_bloqueado_y_ya_cerrado() {
   ok(p.texto.indexOf("ya fue cerrado") !== -1 && p.bodies[0].modo_control3 === "preliminar", "preliminar sobre periodo cerrado: mensaje funcional");
 }
 
+
+// HOTFIX 2026-09-19 — en modo OFICIAL "Publicado" solo con la confirmación real de 06B/Drive.
+async function _flujoOficial(cierreDatos, respuestaPublicar) {
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  const alertas = [];
+  window.alert = function (msg) { alertas.push(msg); };
+  window.confirm = function () { return true; };
+  let publicarCalls = 0;
+  window.fetch = function (url) {
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-of", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION", publication_mode: "official" }) });
+    if (url.indexOf("/datos") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", cierres: [Object.assign({ fecha: "2026-09-11", archivo_esperado: "CIERRE 11-09-2026.xlsm", estado_final: "LISTO_PARA_PUBLICAR", requiere_revision: false, publicado: false, mensajes: [] }, cierreDatos)] }) });
+    if (url.indexOf("/publicar") !== -1) {
+      publicarCalls++;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", omitidos: [], publicados: [Object.assign({ fecha: "2026-09-11", archivo_esperado: "CIERRE 11-09-2026.xlsm", estado_final: "LISTO_PARA_PUBLICAR", requiere_revision: false, sha256: "abc123", mensajes: [] }, respuestaPublicar)] }) });
+    }
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+  await waitFor(() => window.document.getElementById("in-fecha-desde") && window.document.getElementById("in-fecha-desde").value !== "");
+  window.document.getElementById("btn-procesar").click();
+  await waitFor(() => window.document.querySelector("#tabla-body tr[data-hash]"), 5000);
+  return { window, dom, alertas, publicarCalls: () => publicarCalls };
+}
+
+async function test_oficial_residuo_local_ya_publicado_no_muestra_publicado_y_permite_publicar() {
+  console.log("\n[Hotfix] OFICIAL: YA_PUBLICADO local (residuo DEV, caso 11/09) NO es 'Publicado' y el botón sigue disponible");
+  const f = await _flujoOficial({ estado_publicacion: "YA_PUBLICADO", publicado: false, sha256: "abc123", ruta_marker: "/dev/publicacion/markers/PROCESADO_abc123.json" }, {});
+  ok(f.window.document.querySelector(".badge-publicado") === null, "la fila NO muestra el badge 'Publicado' por un YA_PUBLICADO local");
+  ok(!!f.window.document.querySelector("#tabla-body tr[data-hash] button.publicar"), "el cierre sigue ofreciendo PUBLICAR");
+  f.dom.window.close();
+}
+async function test_oficial_artefactos_locales_no_son_publicacion() {
+  console.log("\n[Hotfix] OFICIAL: PUBLICADO/PUBLICACION_LOCAL_PREPARADA con SAP, resultado y marcador locales NO es 'Publicado'");
+  for (const est of ["PUBLICADO", "PUBLICACION_LOCAL_PREPARADA"]) {
+    const f = await _flujoOficial({ estado_publicacion: est, publicado: est === "PUBLICADO", ruta_sap_publicado: "/dev/publicacion/sap/SAP_11-09-2026.xlsx", ruta_resultado_publicado: "/dev/r.json", ruta_marker: "/dev/m.json" }, {});
+    ok(f.window.document.querySelector(".badge-publicado") === null, est + ": sin badge 'Publicado'");
+    ok(!!f.window.document.querySelector("#tabla-body tr[data-hash] button.publicar"), est + ": el botón PUBLICAR sigue disponible");
+    f.dom.window.close();
+  }
+}
+async function test_oficial_publicado_solo_con_publicado_oficial() {
+  console.log("\n[Hotfix] OFICIAL: tras publicar, 'Publicado' SOLO con PUBLICADO_OFICIAL + publicado=true");
+  const f = await _flujoOficial({}, { estado_publicacion: "PUBLICADO_OFICIAL", publicado: true, mensaje: "Cierre publicado oficialmente en Drive." });
+  f.window.document.querySelector("#tabla-body tr[data-hash] button.publicar").click();
+  await waitFor(() => f.publicarCalls() === 1 && f.window.document.querySelector(".badge-publicado"), 3000);
+  ok(!!f.window.document.querySelector(".badge-publicado"), "PUBLICADO_OFICIAL con publicado=true muestra 'Publicado'");
+  ok(f.window.document.querySelector("#tabla-body button.publicar") === null, "ya no se ofrece publicar");
+  ok(f.alertas.length === 0, "sin alertas de error");
+  f.dom.window.close();
+}
+async function test_oficial_error_publicacion_oficial_no_publicado_y_avisa() {
+  console.log("\n[Hotfix] OFICIAL: ERROR_PUBLICACION_OFICIAL (06B ausente/fallido) NO muestra 'Publicado', avisa y permite reintentar");
+  const msg = "La publicación oficial no se completó: no hay confirmación de Drive (06B) para este cierre.";
+  const f = await _flujoOficial({}, { estado_publicacion: "ERROR_PUBLICACION_OFICIAL", publicado: false, mensaje: msg });
+  f.window.document.querySelector("#tabla-body tr[data-hash] button.publicar").click();
+  await waitFor(() => f.publicarCalls() === 1 && f.alertas.length > 0, 3000);
+  await new Promise((r) => setTimeout(r, 100));
+  ok(f.window.document.querySelector(".badge-publicado") === null, "NO aparece el badge 'Publicado'");
+  ok(!!f.window.document.querySelector("#tabla-body tr[data-hash] button.publicar"), "el botón PUBLICAR sigue disponible para reintentar");
+  ok(f.alertas[0].indexOf("NO se completó") !== -1 && f.alertas[0].indexOf("no hay confirmación de Drive") !== -1, "se avisa con un mensaje funcional");
+  f.dom.window.close();
+}
+async function test_oficial_ya_publicado_oficial_es_idempotente() {
+  console.log("\n[Hotfix] OFICIAL: YA_PUBLICADO_OFICIAL (marcador en Drive) se muestra como ya publicado");
+  const f = await _flujoOficial({ estado_publicacion: "YA_PUBLICADO_OFICIAL", publicado: false }, {});
+  ok(!!f.window.document.querySelector(".badge-publicado"), "muestra 'Publicado'");
+  ok(f.window.document.querySelector("#tabla-body tr[data-hash] button.publicar") === null, "no ofrece publicar de nuevo");
+  f.dom.window.close();
+}
+
 async function test_mensual_error_se_muestra_claramente() {
   console.log("\n[12B] Error en GLOBAL/CONTROL se muestra claro en el área de resultado");
   const dom = makeDom("http://localhost/v3_control_cierres.html");
@@ -1101,6 +1172,11 @@ async function test_flujo_diario_nunca_llama_endpoints_mensuales() {
   await test_boton_control1_llama_una_vez();
   await test_boton_control3_llama_una_vez();
   await test_mensual_error_se_muestra_claramente();
+  await test_oficial_residuo_local_ya_publicado_no_muestra_publicado_y_permite_publicar();
+  await test_oficial_artefactos_locales_no_son_publicacion();
+  await test_oficial_publicado_solo_con_publicado_oficial();
+  await test_oficial_error_publicacion_oficial_no_publicado_y_avisa();
+  await test_oficial_ya_publicado_oficial_es_idempotente();
   await test_control1_preliminar_manda_modo_preliminar_sin_confirmar();
   await test_control1_cierre_confirmado_manda_cerrar_y_confirmacion();
   await test_control1_cierre_cancelado_no_llama_al_backend();

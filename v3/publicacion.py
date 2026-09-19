@@ -48,6 +48,10 @@ from v3.clasificacion import LISTO_PARA_PUBLICAR, YA_PROCESADO  # noqa: E402
 
 PUBLICADO = "PUBLICADO"
 YA_PUBLICADO = "YA_PUBLICADO"
+# Modo OFICIAL: la copia local (SAP/resultado/procesado/marcador) es solo la PREPARACIÓN que 06B sube a Drive.
+# Nunca cuenta como publicación: PUBLICADO solo puede salir de la confirmación real de 06B/Drive
+# (PUBLICADO_OFICIAL, ver v3.dev_api.consolidar_publicacion_oficial).
+PUBLICACION_LOCAL_PREPARADA = "PUBLICACION_LOCAL_PREPARADA"
 NO_PUBLICABLE = "NO_PUBLICABLE"
 ERROR_PUBLICACION = "ERROR_PUBLICACION"
 
@@ -113,7 +117,7 @@ def _salida(item, estado_publicacion, publicado, mensaje, usuario_auditor=None, 
     return base
 
 
-def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None):
+def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=False):
     """`item`: registro combinado (01-05) para UN cierre. Debe traer
     `estado_final` (del Módulo 04) o, si vino de una corrección aplicada
     en el Módulo 05, `resultado_reproceso` — ambos usan los MISMOS 5
@@ -124,6 +128,13 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None):
     YA_PROCESADO respeta la idempotencia de V2 sin intentar nada nuevo;
     para cualquier otro estado (ERROR_REVISAR/SIN_ARCHIVO/ERROR_TECNICO/
     AMBIGUO/bloqueado) rechaza sin tocar nada — CONTRACT-011.
+
+    `modo_oficial=True` (backend en modo official): la publicación local es solo
+    la PREPARACIÓN de los archivos que 06B sube a Drive. Un marcador local
+    previo (residuo de una publicación DEV) NO cuenta como publicación ni
+    corta el flujo: los archivos se preparan de nuevo y la idempotencia real la
+    decide 06B contra el marcador de Drive. El resultado nunca es PUBLICADO
+    sino PUBLICACION_LOCAL_PREPARADA (publicado=False).
 
     Nunca lanza: cualquier problema se refleja en el resultado de ESTE
     cierre (ver publicar_lote() para el aislamiento de lote)."""
@@ -156,7 +167,7 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None):
 
         nombre_sap_oficial = _nombre_sap_oficial(item.get("fecha"))
 
-        if os.path.isfile(ruta_marker):
+        if os.path.isfile(ruta_marker) and not modo_oficial:
             # CONTRACT-008/009: idempotencia — el marcador ya existe, NUNCA
             # se duplica SAP/resultado/cierre procesado/marker.
             ruta_sap_existente = os.path.join(dirs["sap"], nombre_sap_oficial)
@@ -200,11 +211,20 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None):
             sap_publicado_por_usuario=True, sap_verificado_en_drive=True,
             resultado_publicado=True, cierre_movido_a_procesados=True,
             archivo_sap=os.path.basename(ruta_sap_dest),
-            observaciones=f"Publicado en DEV (V3) por {usuario_auditor or 'auditor.dev'}",
+            observaciones=(f"Publicación oficial V3 (Drive) solicitada por {usuario_auditor or 'auditor'}" if modo_oficial
+                           else f"Publicado en DEV (V3) por {usuario_auditor or 'auditor.dev'}"),
         )
         with open(ruta_marker, "w", encoding="utf-8") as f:
             json.dump(contenido_marker, f, ensure_ascii=False, indent=2)
 
+        if modo_oficial:
+            return _salida(
+                item, PUBLICACION_LOCAL_PREPARADA, False,
+                "Publicación local preparada (SAP + resultado + procesado + marcador): pendiente de la confirmación oficial de Drive (06B).",
+                usuario_auditor,
+                sha256=sha256, ruta_sap_publicado=ruta_sap_dest, ruta_resultado_publicado=ruta_resultado_dest,
+                ruta_cierre_procesado=ruta_cierre_dest, ruta_marker=ruta_marker,
+            )
         return _salida(
             item, PUBLICADO, True,
             "Cierre publicado en DEV: SAP + resultado + procesado + marcador.",
@@ -219,7 +239,7 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None):
         return _salida(item, ERROR_PUBLICACION, False, f"{type(exc).__name__}: {exc}", usuario_auditor)
 
 
-def publicar_lote(cierres, base_dir_dev, usuario_auditor=None):
+def publicar_lote(cierres, base_dir_dev, usuario_auditor=None, modo_oficial=False):
     """Aplica publicar_cierre_dev() a cada cierre de la lista — LA MISMA
     función que se usa para publicar un único cierre (ver docstring del
     módulo: no existen dos caminos de lógica). Un error en UNO nunca
@@ -227,7 +247,7 @@ def publicar_lote(cierres, base_dir_dev, usuario_auditor=None):
     resultados = []
     for item in cierres:
         try:
-            resultados.append(publicar_cierre_dev(item, base_dir_dev, usuario_auditor))
+            resultados.append(publicar_cierre_dev(item, base_dir_dev, usuario_auditor, modo_oficial))
         except Exception as exc:  # red de seguridad adicional a nivel de lote
             resultados.append(_salida(item, ERROR_PUBLICACION, False, f"{type(exc).__name__}: {exc}", usuario_auditor))
     return resultados

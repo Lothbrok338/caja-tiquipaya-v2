@@ -434,7 +434,7 @@ def aplicar_correccion(lote_id, fecha, correccion_parcial, base_dir_dev):
 # se publica sin que el Módulo 04/05 ya lo haya habilitado).
 # ---------------------------------------------------------------------------
 
-def publicar_seleccionados(lote_id, fechas, base_dir_dev, usuario_auditor):
+def publicar_seleccionados(lote_id, fechas, base_dir_dev, usuario_auditor, modo_oficial=False):
     lote = _leer_lote(lote_id, base_dir_dev)
     fechas = set(fechas)
     elegibles, omitidos, indices = [], [], {}
@@ -449,13 +449,107 @@ def publicar_seleccionados(lote_id, fechas, base_dir_dev, usuario_auditor):
         else:
             omitidos.append({"fecha": c.get("fecha"), "motivo": f"Estado '{estado}' no habilita publicación (CONTRACT-011)."})
 
-    publicados = publicar_lote(elegibles, base_dir_dev, usuario_auditor) if elegibles else []
+    publicados = publicar_lote(elegibles, base_dir_dev, usuario_auditor, modo_oficial) if elegibles else []
     for p in publicados:
         lote["cierres"][indices[p["fecha"]]] = p
 
     auditoria = consolidar_auditoria_lote(lote["cierres"], base_dir_dev, usuario_auditor)
     _escribir_lote(lote, base_dir_dev)
     return {"publicados": publicados, "omitidos": omitidos, "ruta_auditoria_lote": auditoria["ruta_lote"]}
+
+
+# ---------------------------------------------------------------------------
+# PUBLICACIÓN OFICIAL — estado real (hotfix 2026-09-19)
+# ---------------------------------------------------------------------------
+
+PUBLICADO_OFICIAL = "PUBLICADO_OFICIAL"
+YA_PUBLICADO_OFICIAL = "YA_PUBLICADO_OFICIAL"
+ERROR_PUBLICACION_OFICIAL = "ERROR_PUBLICACION_OFICIAL"
+_ESTADOS_LOCALES_NO_OFICIALES = ("PUBLICADO", "YA_PUBLICADO", "PUBLICACION_LOCAL_PREPARADA")
+
+
+def consolidar_publicacion_oficial(respuesta, lote_id, base_dir_dev):
+    """Estado de publicación en modo OFICIAL. `respuesta` es la salida de /publicar
+    ya combinada por n8n: `publicados` (resultado local de publicar_seleccionados,
+    solo PREPARACIÓN de archivos) + `publicados_drive_oficial` (salidas de 06B).
+
+    Regla única: un cierre queda PUBLICADO_OFICIAL (publicado=True) SOLO si 06B
+    devolvió estado_publicacion=PUBLICADO_OFICIAL con publicado=true para esa
+    fecha (y mismo SHA256). Marcador de Drive ya existente (06B YA_PUBLICADO) →
+    YA_PUBLICADO_OFICIAL. Cualquier otro caso —SAP/resultado/marcador locales,
+    YA_PUBLICADO local, estado del motor, 06B ausente o sin evidencia— es
+    ERROR_PUBLICACION_OFICIAL (publicado=False): el cierre sigue publicable.
+    El resultado se persiste en el lote para que /datos no muestre un estado
+    distinto tras recargar."""
+    drive = respuesta.get("publicados_drive_oficial") or []
+    lote = _leer_lote(lote_id, base_dir_dev)
+    indices = {c.get("fecha"): i for i, c in enumerate(lote["cierres"])}
+    confirmadas = []
+    for p in respuesta.get("publicados") or []:
+        fecha = p.get("fecha")
+        d = next((x for x in drive if x.get("fecha") == fecha
+                  and (not x.get("sha256") or not p.get("sha256") or x.get("sha256") == p.get("sha256"))), None)
+        local = p.get("estado_publicacion")
+        p["estado_publicacion_local"] = local
+        if d and d.get("estado_publicacion") == PUBLICADO_OFICIAL and d.get("publicado") is True:
+            p.update({"estado_publicacion": PUBLICADO_OFICIAL, "publicado": True,
+                      "mensaje": d.get("mensaje") or "Cierre publicado oficialmente en Drive.",
+                      "drive_sap_file_id": d.get("drive_sap_file_id"), "drive_resultado_file_id": d.get("drive_resultado_file_id"),
+                      "drive_marker_file_id": d.get("drive_marker_file_id"), "drive_entrada_file_id": d.get("drive_entrada_file_id")})
+            confirmadas.append(fecha)
+        elif d and d.get("estado_publicacion") == "YA_PUBLICADO":
+            p.update({"estado_publicacion": YA_PUBLICADO_OFICIAL, "publicado": False,
+                      "mensaje": d.get("mensaje") or "El marcador ya existe en Drive: el cierre ya fue publicado oficialmente."})
+            confirmadas.append(fecha)
+        elif local in ("ERROR_PUBLICACION", "NO_PUBLICABLE"):
+            pass  # el motivo real ya viene en `mensaje`; no es una publicación
+        else:
+            p.update({"estado_publicacion": ERROR_PUBLICACION_OFICIAL, "publicado": False,
+                      "mensaje": ("La publicación oficial no se completó: no hay confirmación de Drive (06B) para este cierre "
+                                  f"(estado local: {local}). Un archivo, resultado o marcador local NO equivale a una publicación oficial. "
+                                  "El cierre sigue disponible para publicar de nuevo.")})
+        mensajes = list(p.get("mensajes") or [])
+        if not mensajes or mensajes[-1] != p.get("mensaje"):
+            mensajes.append(p.get("mensaje"))
+        p["mensajes"] = mensajes
+        if fecha in indices:
+            lote["cierres"][indices[fecha]] = dict(p)
+    _escribir_lote(lote, base_dir_dev)
+    respuesta["publicacion_oficial_confirmada"] = confirmadas
+    return respuesta
+
+
+# ---------------------------------------------------------------------------
+# PROCESAR — entradas materializadas desde Drive por corrida (hotfix 2026-09-19)
+# ---------------------------------------------------------------------------
+
+def procesar_entrada_dir(base_dir_dev, lote_id):
+    """`base_dir_dev/procesar_entrada/<lote_id>/`: MACROS oficial vigente y cierres
+    exactos descargados de Drive en ESTA corrida (y solo esos). Un directorio
+    nuevo por lote: nunca se reutiliza un MACROS o un cierre de una corrida anterior."""
+    if not isinstance(lote_id, str) or not lote_id.isalnum():
+        raise ValueError(f"LOTE_ID_INVALIDO: {lote_id!r}")
+    return os.path.join(base_dir_dev, "procesar_entrada", lote_id)
+
+
+def marcar_lote_error(lote_id, mensaje, base_dir_dev):
+    """Deja el lote en ERROR con un mensaje funcional (p. ej. MACROS oficial no
+    encontrado/ambiguo en Drive) para que la interfaz lo muestre en vez de esperar
+    indefinidamente un lote que nunca terminará."""
+    lote = _leer_lote(lote_id, base_dir_dev)
+    lote["estado_lote"] = ERROR_LOTE
+    lote["mensaje_error"] = str(mensaje)
+    _escribir_lote(lote, base_dir_dev)
+    return {"lote_id": lote_id, "estado_lote": ERROR_LOTE, "mensaje_error": lote["mensaje_error"]}
+
+
+def preparar_procesar_entrada(lote_id, base_dir_dev):
+    """Deja `procesar_entrada/<lote_id>/` VACÍO (más su subcarpeta `cierres/`) antes de
+    materializar desde Drive."""
+    destino = procesar_entrada_dir(base_dir_dev, lote_id)
+    _limpiar_y_crear_dir_periodo(destino, base_dir_dev, "PROCESAR_ENTRADA")
+    os.makedirs(os.path.join(destino, "cierres"))
+    return {"dir_entrada": os.path.abspath(destino), "dir_cierres": os.path.abspath(os.path.join(destino, "cierres")), "lote_id": lote_id}
 
 
 # ---------------------------------------------------------------------------
@@ -738,6 +832,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Backend DEV (API de lotes) de V3 — FASE 9.")
     parser.add_argument("--accion", required=True, choices=[
         "crear_lote_pendiente", "procesar_lote", "estado", "datos", "revisar", "corregir", "publicar",
+        "consolidar_publicacion_oficial", "preparar_procesar_entrada", "marcar_lote_error",
         "generar_global", "preparar_global_entrada", "preparar_control1_entrada", "preparar_control3_entrada", "ejecutar_control1", "ejecutar_control3",
     ])
     parser.add_argument("--input", required=True)
@@ -768,7 +863,16 @@ def main(argv=None):
         elif args.accion == "corregir":
             salida = {"resultado": "OK", "cierre": aplicar_correccion(datos["lote_id"], datos["fecha"], datos["correccion"], datos["base_dir_dev"])}
         elif args.accion == "publicar":
-            salida = {"resultado": "OK", **publicar_seleccionados(datos["lote_id"], datos["fechas"], datos["base_dir_dev"], datos.get("usuario_auditor"))}
+            salida = {"resultado": "OK", **publicar_seleccionados(
+                datos["lote_id"], datos["fechas"], datos["base_dir_dev"], datos.get("usuario_auditor"),
+                datos.get("modo_oficial", False))}
+        elif args.accion == "consolidar_publicacion_oficial":
+            salida = consolidar_publicacion_oficial(datos["respuesta"], datos["lote_id"], datos["base_dir_dev"])
+            salida.setdefault("resultado", "OK")
+        elif args.accion == "marcar_lote_error":
+            salida = {"resultado": "OK", **marcar_lote_error(datos["lote_id"], datos["mensaje"], datos["base_dir_dev"])}
+        elif args.accion == "preparar_procesar_entrada":
+            salida = {"resultado": "OK", **preparar_procesar_entrada(datos["lote_id"], datos["base_dir_dev"])}
         elif args.accion == "generar_global":
             salida = {"resultado": "OK", **generar_global(
                 datos["anio"], datos["mes"], datos["base_dir_dev"], datos["ruta_plantilla_origen"],

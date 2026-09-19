@@ -3,12 +3,12 @@
   "name": "TIQ V3 · BACKEND DEV (webhooks)",
   "active": true,
   "isArchived": false,
-  "versionId": "977945d1-48cb-4015-bc21-0c60d781bfbc",
-  "activeVersionId": "977945d1-48cb-4015-bc21-0c60d781bfbc",
+  "versionId": "def3df19-b285-4ab1-96a6-7fe9dae7e27d",
+  "activeVersionId": "def3df19-b285-4ab1-96a6-7fe9dae7e27d",
   "triggerCount": 10,
-  "nodeCount": 149,
+  "nodeCount": 162,
   "createdAt": "2026-09-14T04:52:50.018Z",
-  "updatedAt": "2026-09-19T01:48:43.565Z",
+  "updatedAt": "2026-09-19T15:14:41.186Z",
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": true
@@ -494,39 +494,6 @@
         [
           {
             "node": "COMBINAR - Resultado local + Drive oficial",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "COMBINAR - Resultado local + Drive oficial": {
-      "main": [
-        [
-          {
-            "node": "RESPONDER publicar",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "CONSTRUIR - Respuesta sin Drive oficial": {
-      "main": [
-        [
-          {
-            "node": "RESPONDER publicar",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "EJECUTAR - 01 INGESTA (Drive real)": {
-      "main": [
-        [
-          {
-            "node": "CONSTRUIR payload procesar_lote",
             "type": "main",
             "index": 0
           }
@@ -1552,6 +1519,178 @@
           }
         ]
       ]
+    },
+    "EJECUTAR - 01 INGESTA (Drive real)": {
+      "main": [
+        [
+          {
+            "node": "RESOLVER procesar_entrada (MACROS y cierres)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RESOLVER procesar_entrada (MACROS y cierres)": {
+      "main": [
+        [
+          {
+            "node": "PREPARAR procesar_entrada limpio (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PREPARAR procesar_entrada limpio (Python)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR MACROS oficial (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR MACROS oficial (Drive)": {
+      "main": [
+        [
+          {
+            "node": "CLASIFICAR - MACROS y cierres de procesar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CLASIFICAR - MACROS y cierres de procesar": {
+      "main": [
+        [
+          {
+            "node": "IF - Error de materializacion procesar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Error de materializacion procesar": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload marcar_lote_error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DESCARGAR - Artefacto de procesar (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload marcar_lote_error": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR marcar_lote_error (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - Artefacto de procesar (Drive)": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR - Artefacto a procesar_entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR - Artefacto a procesar_entrada": {
+      "main": [
+        [
+          {
+            "node": "RESTAURAR - Ingesta para procesar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RESTAURAR - Ingesta para procesar": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload procesar_lote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR - Respuesta sin Drive oficial": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload consolidar publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "COMBINAR - Resultado local + Drive oficial": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload consolidar publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload consolidar publicar": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR consolidar publicar (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR consolidar publicar (Python)": {
+      "main": [
+        [
+          {
+            "node": "RESPUESTA publicar (estado oficial)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RESPUESTA publicar (estado oficial)": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "nodes": [
@@ -1680,7 +1819,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (procesar_lote) -- Python es la unica autoridad.\n// FASE 11A.3: requiere_ingesta_drive=true (modo oficial de este despliegue,\n// mismo criterio que publication_mode='official' en /estado) -- si\n// EJECUTAR - 01 INGESTA (Drive real) no entrego drive_file_id para algun\n// cierre ENCONTRADO (o fallo tecnicamente y t.data.cierres nunca llego),\n// v3.dev_api.procesar_lote() rechaza el lote ENTERO (IngestaDriveRequeridaError,\n// estado_lote=ERROR) en vez de caer al listado local (os.listdir). El\n// fallback local sigue existiendo en Python SOLO para DEV/tests que llamen\n// procesar_lote() sin este flag.\n// origen_cierres_dir/ruta_maestro_origen/ruta_plantilla_origen/markers_origen_dir\n// siguen apuntando a las COPIAS REALES ya descargadas de Google Drive\n// (solo lectura, ver v3/precheck_maestro.py y snapshots/v3-dev-integrated/\n// SNAPSHOT_MANIFEST.md FASE 10A-D) -- nunca al fixture sintetico de FASE 9.\n// v3.precheck_maestro (Python) sigue decidiendo MAESTRO_APTO/BLOQUEADO por\n// fecha antes de invocar el motor; este nodo no reinterpreta esa decision.\n//\n// FIX (bug real, primer intento oficial 10/09): el nodo INTERPRETAR del\n// subworkflow 01 INGESTA envuelve su salida bajo .data (igual que TODOS\n// los demas INTERPRETAR de este backend, via extractFromFile/fromJson) --\n// antes este nodo leia t.cierres (siempre undefined) en vez de\n// t.data.cierres, asi que ingesta_precomputada quedaba SIEMPRE null y el\n// guard disparaba aunque Drive SI hubiera resuelto el cierre.\nconst payload = { lote_id: $('INTERPRETAR resultado crear_lote_pendiente').item.json.data.lote_id, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', origen_cierres_dir: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/cierres_origen', ruta_maestro_origen: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/maestro_origen/MACROS SEPTIEMBRE.xlsm', ruta_plantilla_origen: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/plantilla_origen/Plantilla SAP maestra.xlsx', markers_origen_dir: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/markers_origen', ingesta_precomputada: (t && t.data && t.data.cierres) || null, requiere_ingesta_drive: true };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst rp = $('RESOLVER procesar_entrada (MACROS y cierres)').first().json;\n\n// Payload para v3.dev_api (procesar_lote) -- Python es la unica autoridad.\n// FASE 11A.3: requiere_ingesta_drive=true (modo oficial de este despliegue) -- si EJECUTAR - 01 INGESTA (Drive real) no\n// entrego drive_file_id para algun cierre ENCONTRADO (o fallo tecnicamente y t.data.cierres nunca llego),\n// v3.dev_api.procesar_lote() rechaza el lote ENTERO (IngestaDriveRequeridaError, estado_lote=ERROR) en vez de caer al\n// listado local (os.listdir).\n// HOTFIX 2026-09-19: el cierre y MACROS ya NO vienen de copias estaticas locales: se descargaron de Drive en ESTA corrida\n// a procesar_entrada/<lote_id>/ (cierres por drive_file_id exacto; MACROS oficial vigente por nombre exacto en su carpeta).\n// Plantilla y markers siguen viniendo de sus copias de origen (sin cambios).\n// v3.precheck_maestro (Python) sigue decidiendo MAESTRO_APTO/BLOQUEADO (cobertura por fecha de cierre Y de depositos)\n// antes de invocar el motor; este nodo no reinterpreta esa decision.\n// FIX (bug real, primer intento oficial 10/09): el INTERPRETAR del subworkflow 01 INGESTA envuelve su salida bajo .data\n// -> se lee t.data.cierres.\nconst payload = { lote_id: $('INTERPRETAR resultado crear_lote_pendiente').first().json.data.lote_id, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', origen_cierres_dir: rp.dir_cierres, ruta_maestro_origen: rp.dir_entrada + '/' + rp.macros_nombre, ruta_plantilla_origen: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/plantilla_origen/Plantilla SAP maestra.xlsx', markers_origen_dir: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/markers_origen', ingesta_precomputada: (t && t.data && t.data.cierres) || null, requiere_ingesta_drive: true };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
       }
     },
     {
@@ -2209,7 +2348,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (publicar) -- Python es la unica autoridad.\n// FASE 10D: base_dir_dev apunta al workdir REAL (mismo que procesar_lote).\n// Publica SOLO en base_dir_dev/publicacion/ (DEV, real_readonly_dev) --\n// cero SAP/Drive/marcadores productivos, sin cambios de esa garantia.\nconst payload = { lote_id: t.body.lote_id, fechas: t.body.fechas, usuario_auditor: t.body.usuario_auditor || null, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir' };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_publicar_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_publicar_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (publicar) -- Python es la unica autoridad.\n// FASE 10D: base_dir_dev apunta al workdir REAL (mismo que procesar_lote).\n// HOTFIX 2026-09-19: modo_oficial=true -- el paso local solo PREPARA los archivos que 06B sube a Drive (un marcador local\n// residual no corta el flujo ni cuenta como publicacion). El estado PUBLICADO solo lo fija la consolidacion posterior,\n// con la confirmacion real de 06B/Drive.\nconst payload = { lote_id: t.body.lote_id, fechas: t.body.fechas, usuario_auditor: t.body.usuario_auditor || null, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', modo_oficial: true };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_publicar_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_publicar_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
       }
     },
     {
@@ -4446,6 +4585,245 @@
           }
         }
       }
+    },
+    {
+      "id": "777e3f43-d59a-437c-aff5-64eb55499bb7",
+      "name": "RESOLVER procesar_entrada (MACROS y cierres)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// HOTFIX 2026-09-19 -- /procesar: Drive = fuente de verdad de MACROS y del cierre. Cada corrida materializa en\n// procesar_entrada/<lote_id>/ el MACROS oficial vigente y los cierres exactos que resolvio la ingesta (por drive_file_id).\nconst lote = $('INTERPRETAR resultado crear_lote_pendiente').first().json.data.lote_id;\nconst body = $('WEBHOOK procesar').first().json.body || {};\nconst fechaInicio = String(body.fecha_inicio || '');\nconst periodo = fechaInicio.slice(0, 7); // YYYY-MM del inicio del rango (mismo criterio que mes_rango de Python)\n// MACROS oficial por periodo (identidad exacta: nombre + carpeta de Drive). Es configuracion, no logica: cada mes nuevo\n// agrega aqui su archivo. Un periodo sin configurar falla explicito (nunca se cae a una copia local).\nconst MACROS_OFICIALES = {\n  '2026-09': { nombre: 'MACROS SEPTIEMBRE.xlsm', carpeta_id: '1U0HBoAsiDZy8Dqr3zEHa8_YfS5XcoMab' },\n};\nconst cfg = MACROS_OFICIALES[periodo];\nconst baseDirDev = '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir';\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst dirEntrada = baseDirDev + '/procesar_entrada/' + lote;\nreturn [{\n  json: {\n    lote_id: lote, periodo: periodo,\n    macros_configurado: !!cfg,\n    macros_nombre: cfg ? cfg.nombre : null,\n    macros_carpeta_id: cfg ? cfg.carpeta_id : null,\n    dir_entrada: dirEntrada, dir_cierres: dirEntrada + '/cierres',\n    input_b64: Buffer.from(JSON.stringify({ lote_id: lote, base_dir_dev: baseDirDev }), 'utf8').toString('base64'),\n    ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_procesar_input_' + executionId + '.json',\n    ruta_output_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_procesar_output_' + executionId + '.json',\n  },\n}];"
+      }
+    },
+    {
+      "id": "5bce02bc-cbb6-484a-96bf-24379f413404",
+      "name": "PREPARAR procesar_entrada limpio (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        700
+      ],
+      "parameters": {
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\" && cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion preparar_procesar_entrada --input \"{{ $json.ruta_input_tmp }}\" --output \"{{ $json.ruta_output_tmp }}\" && grep -q '\"resultado\": \"OK\"' \"{{ $json.ruta_output_tmp }}\" && cat \"{{ $json.ruta_output_tmp }}\""
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "2a7ca834-cc29-4c27-a705-6c8d2633cea7",
+      "name": "BUSCAR MACROS oficial (Drive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1760,
+        700
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "={{ $('RESOLVER procesar_entrada (MACROS y cierres)').first().json.macros_nombre || '__sin_macros_configurado__' }}",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER procesar_entrada (MACROS y cierres)').first().json.macros_carpeta_id || '1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1' }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "26425cbf-a1c4-4942-95de-6341502ed8a1",
+      "name": "CLASIFICAR - MACROS y cierres de procesar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// MACROS oficial: EXACTAMENTE un archivo con el nombre configurado en la carpeta oficial (0 -> error explicito,\n// >1 -> ERROR_AMBIGUO_MACROS; nunca se elige uno arbitrariamente). Cierres: cada ENCONTRADO por la ingesta se descarga\n// por su drive_file_id (identidad exacta ya resuelta), con el nombre esperado. Los errores no lanzan: salen como un item\n// hay_error para que el lote quede en ERROR con un mensaje funcional (la interfaz no espera indefinidamente).\nconst rp = $('RESOLVER procesar_entrada (MACROS y cierres)').first().json;\nif (!rp.macros_configurado) {\n  return [{ json: { hay_error: true, mensaje_error: 'MACROS_OFICIAL_NO_CONFIGURADO: no hay un MACROS oficial de Drive configurado para el periodo ' + rp.periodo + '. Procesar no usa una copia local como sustituto.' } }];\n}\nconst macros = $('BUSCAR MACROS oficial (Drive)').all()\n  .map(function (i) { return i.json; })\n  .filter(function (j) { return j && j.id && j.name === rp.macros_nombre; });\nif (macros.length === 0) {\n  return [{ json: { hay_error: true, mensaje_error: 'MACROS_OFICIAL_NO_ENCONTRADO: no existe \"' + rp.macros_nombre + '\" en la carpeta oficial de MACROS en Drive. Procesar no usa una copia local como sustituto.' } }];\n}\nif (macros.length > 1) {\n  return [{ json: { hay_error: true, mensaje_error: 'ERROR_AMBIGUO_MACROS: hay ' + macros.length + ' archivos \"' + rp.macros_nombre + '\" en la carpeta oficial de MACROS. No se elige ninguno: deje uno solo y vuelva a procesar.' } }];\n}\nconst ingesta = (($('EJECUTAR - 01 INGESTA (Drive real)').first().json.data || {}).cierres) || [];\nconst vistos = {};\nconst items = [{ tipo: 'macros', id: String(macros[0].id), name: rp.macros_nombre, ruta_destino: rp.dir_entrada + '/' + rp.macros_nombre }];\ningesta.forEach(function (c) {\n  if (c && c.estado_ingesta === 'ENCONTRADO' && c.drive_file_id && c.archivo_esperado && !vistos[c.drive_file_id]) {\n    vistos[c.drive_file_id] = true;\n    items.push({ tipo: 'cierre', id: String(c.drive_file_id), name: c.archivo_esperado, ruta_destino: rp.dir_cierres + '/' + c.archivo_esperado });\n  }\n});\nreturn items.map(function (it) { return { json: Object.assign({ hay_error: false }, it) }; });"
+      }
+    },
+    {
+      "id": "2d39b899-6c3a-40b2-be12-933be1026d79",
+      "name": "IF - Error de materializacion procesar",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2200,
+        700
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hay_error }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "03889d85-fbce-47a8-9c4e-4230257a4adb",
+      "name": "CONSTRUIR payload marcar_lote_error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        580
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const rp = $('RESOLVER procesar_entrada (MACROS y cierres)').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst err = $('CLASIFICAR - MACROS y cierres de procesar').first().json;\nconst payload = { lote_id: rp.lote_id, mensaje: err.mensaje_error, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir' };\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_marcar_error_input_' + executionId + '.json',\n    ruta_output_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_marcar_error_output_' + executionId + '.json',\n  },\n}];"
+      }
+    },
+    {
+      "id": "4d0afe1b-fb34-4578-8ef9-6acfe5af8329",
+      "name": "EJECUTAR marcar_lote_error (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        2640,
+        580
+      ],
+      "parameters": {
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\" && cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion marcar_lote_error --input \"{{ $json.ruta_input_tmp }}\" --output \"{{ $json.ruta_output_tmp }}\" ; true"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "27dc94d4-47fa-4a99-a83a-e1799615aa9e",
+      "name": "DESCARGAR - Artefacto de procesar (Drive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2420,
+        820
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "16fc769f-0f2b-494a-82e1-f59d52cc0c08",
+      "name": "ESCRIBIR - Artefacto a procesar_entrada",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        820
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('CLASIFICAR - MACROS y cierres de procesar').item.json.ruta_destino }}",
+        "dataPropertyName": "data",
+        "options": {}
+      }
+    },
+    {
+      "id": "f638af2b-5d93-4175-b5e6-03a63457b853",
+      "name": "RESTAURAR - Ingesta para procesar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        820
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Devuelve la salida de 01 INGESTA: CONSTRUIR payload procesar_lote sigue leyendo t.data.cierres sin cambios.\nreturn [{ json: $('EJECUTAR - 01 INGESTA (Drive real)').first().json }];"
+      }
+    },
+    {
+      "id": "93534f8c-c64e-4258-8c0e-5fd193266d89",
+      "name": "CONSTRUIR payload consolidar publicar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        2200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Combina la respuesta local (publicados) con la salida real de 06B (publicados_drive_oficial) y deja que PYTHON decida el\n// estado de publicacion: PUBLICADO_OFICIAL solo con 06B PUBLICADO_OFICIAL+publicado=true. Este nodo no decide nada.\nconst lote = $('WEBHOOK publicar').first().json.body.lote_id;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst payload = { respuesta: $json, lote_id: lote, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir' };\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_consolidar_publicar_input_' + executionId + '.json',\n    ruta_output_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_consolidar_publicar_output_' + executionId + '.json',\n  },\n}];"
+      }
+    },
+    {
+      "id": "f0fea1db-6fb1-457b-b726-f6730bccfa9b",
+      "name": "EJECUTAR consolidar publicar (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        2860,
+        2200
+      ],
+      "parameters": {
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\" && cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion consolidar_publicacion_oficial --input \"{{ $json.ruta_input_tmp }}\" --output \"{{ $json.ruta_output_tmp }}\" ; cat \"{{ $json.ruta_output_tmp }}\""
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "38810b8d-2b6f-485f-b427-8c3afcd66e39",
+      "name": "RESPUESTA publicar (estado oficial)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3080,
+        2200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Respuesta final de /publicar: la salida de Python (estados de publicacion consolidados con la evidencia de 06B/Drive).\nconst r = $input.first().json || {};\nlet out = null;\ntry { out = JSON.parse(r.stdout || ''); } catch (e) { out = null; }\nif (!out) {\n  return [{ json: { resultado: 'ERROR', codigo: 'CONSOLIDACION_PUBLICACION_FALLIDA', mensaje: 'No se pudo confirmar el estado de la publicacion oficial: ' + String(r.stderr || 'sin salida').slice(0, 300) } }];\n}\nreturn [{ json: out }];"
+      }
     }
   ],
   "nodeGroups": [],
@@ -5847,7 +6225,7 @@
         ],
         "parameters": {
           "language": "javaScript",
-          "jsCode": "const t = $('WEBHOOK control3').item.json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (ejecutar_control3) -- Python es la unica\n// autoridad. Opera sobre el MISMO GLOBAL que /control1 (mismo anio/mes,\n// misma ruta determinista). Cero logica contable aqui.\nconst payload = { anio: t.body.anio, mes: t.body.mes, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', ruta_observaciones_json: t.body.ruta_observaciones_json || null, dry_run: t.body.dry_run || false };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control3_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control3_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+          "jsCode": "const t = $('WEBHOOK control3').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (ejecutar_control3) -- Python es la unica autoridad. Opera sobre el GLOBAL OFICIAL y los\n// historicos MAESTROS que este backend acaba de descargar de Drive a control3_entrada/<periodo>/ (nunca sobre archivos\n// locales). Cero logica contable aqui.\n// MODO: PRELIMINAR (mes abierto) por defecto; el cierre definitivo solo viaja si el frontend envia\n// modo_control3='cerrar' Y confirmacion_cierre=true (tras la confirmacion humana). Aqui NUNCA se infiere el cierre.\nconst payload = { anio: t.body.anio, mes: t.body.mes, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', ruta_observaciones_json: t.body.ruta_observaciones_json || null, dry_run: t.body.dry_run || false, modo_control3: t.body.modo_control3 || 'preliminar', confirmacion_cierre: t.body.confirmacion_cierre === true };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control3_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control3_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
         }
       },
       {
@@ -6269,47 +6647,6 @@
         }
       },
       {
-        "id": "42c84287-dc31-49e9-ab5a-4bc74c09eb69",
-        "name": "CONSTRUIR - Descarga historico CONTROL3",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [
-          448,
-          3820
-        ],
-        "parameters": {
-          "mode": "runOnceForAllItems",
-          "language": "javaScript",
-          "jsCode": "return [\n  { json: { carpeta_id: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB', nombre_archivo: 'HISTORICO_CXC_CXP.csv', ruta_local_destino: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir/global/HISTORICO_CXC_CXP.csv' } },\n  { json: { carpeta_id: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB', nombre_archivo: 'HISTORICO_CXC_CXP_PERIODOS.json', ruta_local_destino: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir/global/HISTORICO_CXC_CXP_PERIODOS.json' } },\n];"
-        }
-      },
-      {
-        "id": "f2b39ca4-fe0e-463a-bfa9-1b2c1a22b00d",
-        "name": "EJECUTAR 07C descargar historico CONTROL3",
-        "type": "n8n-nodes-base.executeWorkflow",
-        "typeVersion": 1.2,
-        "position": [
-          672,
-          3820
-        ],
-        "parameters": {
-          "mode": "each",
-          "workflowId": {
-            "__rl": true,
-            "mode": "id",
-            "value": "fn7lLjHsiMd48DGK"
-          },
-          "workflowInputs": {
-            "mappingMode": "defineBelow",
-            "value": {
-              "carpeta_id": "={{ $json.carpeta_id }}",
-              "nombre_archivo": "={{ $json.nombre_archivo }}",
-              "ruta_local_destino": "={{ $json.ruta_local_destino }}"
-            }
-          }
-        }
-      },
-      {
         "id": "fe5530a5-f786-431c-b383-cb2d5d04d046",
         "name": "DECIDIR - Publicar CONTROL3 oficial",
         "type": "n8n-nodes-base.code",
@@ -6321,7 +6658,7 @@
         "parameters": {
           "mode": "runOnceForAllItems",
           "language": "javaScript",
-          "jsCode": "const modo = (($('WEBHOOK control3').item.json.body) || {}).modo || 'dev';\nconst r = $json.data;\nconst tecnicamenteOk = r.estado !== 'ERROR_TECNICO';\nconst debePublicar = modo === 'official' && tecnicamenteOk;\nreturn [{ json: { debe_publicar: debePublicar, archivo_control_xlsx: r.archivo_control_xlsx || null } }];"
+          "jsCode": "const modo = (($('WEBHOOK control3').first().json.body) || {}).modo || 'dev';\nconst r = $json.data || {};\nconst vacio = { debe_publicar: false, hay_reporte: false, hay_reporte_json: false, hay_snapshots: false, hay_historico: false, hay_periodos: false };\nif (modo !== 'official' || r.resultado === 'ERROR' || r.estado === 'ERROR_TECNICO' || r.dry_run === true) {\n  return [{ json: vacio }];\n}\nconst rc = $('RESOLVER control3 (periodo y carpetas)').first().json;\n\n// Reporte (xlsx + json) del periodo: solo si CONTROL 3 lo escribio en ESTA corrida, con el nombre canonico del periodo.\nconst nombreDe = function (ruta) { return typeof ruta === 'string' ? ruta.split('/').pop() : null; };\nconst hayReporte = nombreDe(r.archivo_control_xlsx) === rc.nombre_reporte;\nconst hayReporteJson = nombreDe(r.archivo_control_json) === rc.nombre_reporte_json;\n\n// PRELIMINAR (mes abierto): solo artefactos del periodo. Los historicos MAESTROS y los snapshots solo se publican\n// tras un CIERRE DEFINITIVO explicito que realmente cerro el periodo en esta corrida.\nconst cerro = r.modo_control3 === 'cerrar' && r.estado_control3 === 'CERRADO';\nconst hayHistorico = cerro && r.historico_actualizado === true;\nconst hayPeriodos = cerro && r.periodos_actualizado === true;\nconst haySnapshots = cerro;\n\nreturn [{ json: { debe_publicar: hayReporte || hayReporteJson || haySnapshots || hayHistorico || hayPeriodos, hay_reporte: hayReporte, hay_reporte_json: hayReporteJson, hay_snapshots: haySnapshots, hay_historico: hayHistorico, hay_periodos: hayPeriodos } }];"
         }
       },
       {
@@ -6366,7 +6703,7 @@
         "parameters": {
           "mode": "runOnceForAllItems",
           "language": "javaScript",
-          "jsCode": "const d = $json;\nconst items = [];\nif (d.archivo_control_xlsx) { items.push({ carpeta_id: '15IYQDdpyBwrZTNS-qU8VZa47sVz1ziV_', nombre_archivo: d.archivo_control_xlsx.split('/').pop(), ruta_local_origen: d.archivo_control_xlsx, modo_si_existe: 'actualizar' }); }\nitems.push({ carpeta_id: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB', nombre_archivo: 'HISTORICO_CXC_CXP.csv', ruta_local_origen: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir/global/HISTORICO_CXC_CXP.csv', modo_si_existe: 'actualizar' });\nitems.push({ carpeta_id: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB', nombre_archivo: 'HISTORICO_CXC_CXP_PERIODOS.json', ruta_local_origen: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir/global/HISTORICO_CXC_CXP_PERIODOS.json', modo_si_existe: 'actualizar' });\nreturn items.map(function(it){ return { json: it }; });"
+          "jsCode": "// Estructura en Drive: historicos MAESTROS en la raiz de 05_CONTROLES; artefactos del periodo en\n// CONTROL_3_CXC_CXP/<YYYY-MM>/ (carpeta buscada-o-creada por 07E justo antes de este nodo).\n// Orden deliberado: reporte -> json -> snapshots del periodo (evidencia) -> historico MAESTRO -> libro de periodos\n// MAESTRO SIEMPRE al final: si algo falla antes, la fuente canonica nunca queda adelantada respecto de lo publicado\n// (y si falla justo entre el historico y el libro, el siguiente cierre lo recupera sin reacumular).\nconst d = $('DECIDIR - Publicar CONTROL3 oficial').first().json;\nconst rc = $('RESOLVER control3 (periodo y carpetas)').first().json;\nconst carpetaPeriodo = $('EJECUTAR 07E carpeta del periodo CONTROL3').first().json.carpeta_id;\nif (!carpetaPeriodo) { throw new Error('CARPETA_PERIODO_CONTROL3_NO_RESUELTA: 07E no devolvio carpeta_id para ' + rc.periodo); }\nconst items = [];\nconst p = function (carpeta, nombre) { return { carpeta_id: carpeta, nombre_archivo: nombre, ruta_local_origen: rc.dir_entrada + '/' + nombre, modo_si_existe: 'actualizar' }; };\nif (d.hay_reporte) items.push(p(carpetaPeriodo, rc.nombre_reporte));\nif (d.hay_reporte_json) items.push(p(carpetaPeriodo, rc.nombre_reporte_json));\nif (d.hay_snapshots) {\n  items.push(p(carpetaPeriodo, rc.nombre_historico));\n  items.push(p(carpetaPeriodo, rc.nombre_periodos));\n}\nif (d.hay_historico) items.push(p(rc.carpeta_controles_id, rc.nombre_historico));\nif (d.hay_periodos) items.push(p(rc.carpeta_controles_id, rc.nombre_periodos));\nreturn items.map(function (it) { return { json: it }; });"
         }
       },
       {
@@ -7037,6 +7374,352 @@
           "mode": "runOnceForAllItems",
           "language": "javaScript",
           "jsCode": "// Devuelve el item original del webhook: CONSTRUIR payload global sigue leyendo t.body.anio/mes sin cambios.\nreturn [{ json: $('WEBHOOK global').first().json }];\n"
+        }
+      },
+      {
+        "id": "758e046f-4bb9-4682-bf91-2c55104601c6",
+        "name": "RESOLVER control3 (periodo y carpetas)",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          448,
+          4050
+        ],
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "// FASE 12E.7 -- CONTROL 3: Drive oficial = fuente de verdad; local = materializacion temporal de la corrida.\nconst t = $('WEBHOOK control3').first().json;\nconst body = t.body || {};\nconst anio = body.anio;\nconst mes = body.mes;\nif (!Number.isInteger(anio) || anio < 2000 || anio > 2100 || !Number.isInteger(mes) || mes < 1 || mes > 12) {\n  throw new Error('PERIODO_INVALIDO: anio/mes deben ser enteros validos (recibido anio=' + anio + ', mes=' + mes + ').');\n}\nconst MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];\nconst mesNombre = MESES[mes - 1];\nconst periodo = anio + '-' + String(mes).padStart(2, '0');\n\nconst baseDirDev = '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir';\nconst dirEntrada = baseDirDev + '/control3_entrada/' + periodo;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst payloadPrep = { anio: anio, mes: mes, base_dir_dev: baseDirDev };\n\nreturn [{\n  json: {\n    anio: anio, mes: mes, periodo: periodo, mes_nombre: mesNombre,\n    nombre_global: 'SAP_GLOBAL_TIQ_' + mesNombre + '_' + anio + '.xlsx',\n    nombre_historico: 'HISTORICO_CXC_CXP.csv',\n    nombre_periodos: 'HISTORICO_CXC_CXP_PERIODOS.json',\n    nombre_reporte: 'CONTROL_CXC_CXP_' + mesNombre + '_' + anio + '.xlsx',\n    nombre_reporte_json: 'CONTROL_CXC_CXP_' + mesNombre + '_' + anio + '.json',\n    // Drive: 05_CONTROLES (historicos MAESTROS), 05_CONTROLES/GLOBAL, 05_CONTROLES/CONTROL_3_CXC_CXP (una subcarpeta <YYYY-MM> por periodo).\n    carpeta_controles_id: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB',\n    carpeta_global_id: '1KREzDpgptWRwuArA1qYco49rplOEeeNU',\n    carpeta_control3_id: '15IYQDdpyBwrZTNS-qU8VZa47sVz1ziV_',\n    dir_entrada: dirEntrada,\n    input_b64: Buffer.from(JSON.stringify(payloadPrep), 'utf8').toString('base64'),\n    ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_control3_input_' + executionId + '.json',\n    ruta_output_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_control3_output_' + executionId + '.json',\n  },\n}];"
+        }
+      },
+      {
+        "id": "ae8626f8-3ee0-48a5-9a16-b8ab2f878dfe",
+        "name": "PREPARAR control3_entrada limpio (Python)",
+        "type": "n8n-nodes-base.executeCommand",
+        "typeVersion": 1,
+        "position": [
+          672,
+          4050
+        ],
+        "parameters": {
+          "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\" && cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion preparar_control3_entrada --input \"{{ $json.ruta_input_tmp }}\" --output \"{{ $json.ruta_output_tmp }}\" && grep -q '\"resultado\": \"OK\"' \"{{ $json.ruta_output_tmp }}\" && cat \"{{ $json.ruta_output_tmp }}\""
+        },
+        "executeOnce": true
+      },
+      {
+        "id": "e1f1b323-4436-47bd-a80d-0566ee3b0703",
+        "name": "BUSCAR GLOBAL oficial CONTROL3 (Drive)",
+        "type": "n8n-nodes-base.googleDrive",
+        "typeVersion": 3,
+        "position": [
+          896,
+          4050
+        ],
+        "parameters": {
+          "resource": "fileFolder",
+          "operation": "search",
+          "searchMethod": "name",
+          "queryString": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.nombre_global }}",
+          "returnAll": true,
+          "filter": {
+            "folderId": {
+              "__rl": true,
+              "mode": "id",
+              "value": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.carpeta_global_id }}"
+            },
+            "whatToSearch": "files",
+            "includeTrashed": false
+          },
+          "options": {}
+        },
+        "alwaysOutputData": true,
+        "executeOnce": true,
+        "credentials": {
+          "googleDriveOAuth2Api": {
+            "id": "aoEcEAFQQ38XcwZg",
+            "name": "Google Drive account"
+          }
+        }
+      },
+      {
+        "id": "3692042a-e702-4b79-a97a-acee26c1df2c",
+        "name": "BUSCAR historico CxC/CxP maestro (Drive)",
+        "type": "n8n-nodes-base.googleDrive",
+        "typeVersion": 3,
+        "position": [
+          1120,
+          4050
+        ],
+        "parameters": {
+          "resource": "fileFolder",
+          "operation": "search",
+          "searchMethod": "name",
+          "queryString": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.nombre_historico }}",
+          "returnAll": true,
+          "filter": {
+            "folderId": {
+              "__rl": true,
+              "mode": "id",
+              "value": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.carpeta_controles_id }}"
+            },
+            "whatToSearch": "files",
+            "includeTrashed": false
+          },
+          "options": {}
+        },
+        "alwaysOutputData": true,
+        "executeOnce": true,
+        "credentials": {
+          "googleDriveOAuth2Api": {
+            "id": "aoEcEAFQQ38XcwZg",
+            "name": "Google Drive account"
+          }
+        }
+      },
+      {
+        "id": "5e5ac9d8-5833-4ea7-99ce-862408f2ebbe",
+        "name": "BUSCAR periodos CxC/CxP maestro (Drive)",
+        "type": "n8n-nodes-base.googleDrive",
+        "typeVersion": 3,
+        "position": [
+          1344,
+          4050
+        ],
+        "parameters": {
+          "resource": "fileFolder",
+          "operation": "search",
+          "searchMethod": "name",
+          "queryString": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.nombre_periodos }}",
+          "returnAll": true,
+          "filter": {
+            "folderId": {
+              "__rl": true,
+              "mode": "id",
+              "value": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.carpeta_controles_id }}"
+            },
+            "whatToSearch": "files",
+            "includeTrashed": false
+          },
+          "options": {}
+        },
+        "alwaysOutputData": true,
+        "executeOnce": true,
+        "credentials": {
+          "googleDriveOAuth2Api": {
+            "id": "aoEcEAFQQ38XcwZg",
+            "name": "Google Drive account"
+          }
+        }
+      },
+      {
+        "id": "a6eef0b7-ab8a-42fb-bdfd-993299f0978e",
+        "name": "BUSCAR carpeta del periodo CONTROL3 (Drive)",
+        "type": "n8n-nodes-base.googleDrive",
+        "typeVersion": 3,
+        "position": [
+          1568,
+          4050
+        ],
+        "parameters": {
+          "resource": "fileFolder",
+          "operation": "search",
+          "searchMethod": "name",
+          "queryString": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.periodo }}",
+          "returnAll": true,
+          "filter": {
+            "folderId": {
+              "__rl": true,
+              "mode": "id",
+              "value": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.carpeta_control3_id }}"
+            },
+            "whatToSearch": "folders",
+            "includeTrashed": false
+          },
+          "options": {}
+        },
+        "alwaysOutputData": true,
+        "executeOnce": true,
+        "credentials": {
+          "googleDriveOAuth2Api": {
+            "id": "aoEcEAFQQ38XcwZg",
+            "name": "Google Drive account"
+          }
+        }
+      },
+      {
+        "id": "55410ff5-642f-4280-b263-96dba70536f9",
+        "name": "VERIFICAR carpeta del periodo (CONTROL3)",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1792,
+          4050
+        ],
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "// Carpeta del periodo: CONTROL_3_CXC_CXP/<YYYY-MM>. 0 = periodo nuevo (sin reporte previo); 1 = se usa; >1 = ambiguo.\nconst rc = $('RESOLVER control3 (periodo y carpetas)').first().json;\nconst carpetas = $('BUSCAR carpeta del periodo CONTROL3 (Drive)').all()\n  .map(function (i) { return i.json; })\n  .filter(function (j) { return j && j.id && j.name === rc.periodo; });\nif (carpetas.length > 1) {\n  throw new Error('ERROR_AMBIGUO_CARPETA_PERIODO: hay ' + carpetas.length + ' carpetas \"' + rc.periodo + '\" en CONTROL_3_CXC_CXP. No se elige ninguna.');\n}\nreturn [{ json: { hay_carpeta: carpetas.length === 1, carpeta_id: carpetas.length === 1 ? String(carpetas[0].id) : null } }];"
+        }
+      },
+      {
+        "id": "4f0ab1fe-1c56-4429-be93-57499f495ebc",
+        "name": "IF - Existe carpeta del periodo CONTROL3",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          2016,
+          4050
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose"
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.hay_carpeta }}",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true"
+                },
+                "rightValue": ""
+              }
+            ],
+            "combinator": "and"
+          }
+        }
+      },
+      {
+        "id": "856d6389-b56b-4dbd-8647-7427fa07eefe",
+        "name": "BUSCAR reporte del periodo CONTROL3 (Drive)",
+        "type": "n8n-nodes-base.googleDrive",
+        "typeVersion": 3,
+        "position": [
+          2240,
+          3980
+        ],
+        "parameters": {
+          "resource": "fileFolder",
+          "operation": "search",
+          "searchMethod": "name",
+          "queryString": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.nombre_reporte }}",
+          "returnAll": true,
+          "filter": {
+            "folderId": {
+              "__rl": true,
+              "mode": "id",
+              "value": "={{ $('VERIFICAR carpeta del periodo (CONTROL3)').first().json.carpeta_id }}"
+            },
+            "whatToSearch": "files",
+            "includeTrashed": false
+          },
+          "options": {}
+        },
+        "alwaysOutputData": true,
+        "executeOnce": true,
+        "credentials": {
+          "googleDriveOAuth2Api": {
+            "id": "aoEcEAFQQ38XcwZg",
+            "name": "Google Drive account"
+          }
+        }
+      },
+      {
+        "id": "352b2d17-e13e-46c1-9b30-8cebbe65e398",
+        "name": "CLASIFICAR - Artefactos de CONTROL 3 en Drive",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2464,
+          4050
+        ],
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "// Exige EXACTAMENTE un GLOBAL oficial; los historicos MAESTROS (raiz de 05_CONTROLES) y el reporte previo del periodo\n// (carpeta <YYYY-MM>) son opcionales (0 o 1), nunca mas de uno. Los snapshots por periodo nunca se buscan aqui.\nconst rc = $('RESOLVER control3 (periodo y carpetas)').first().json;\nfunction exactos(nodo, nombre) {\n  let items;\n  try { items = $(nodo).all(); } catch (e) { items = []; } // p.ej. no existe la carpeta del periodo: la busqueda del reporte no corrio\n  return items.map(function (i) { return i.json; }).filter(function (j) { return j && j.id && j.name === nombre; });\n}\nconst g = exactos('BUSCAR GLOBAL oficial CONTROL3 (Drive)', rc.nombre_global);\nconst h = exactos('BUSCAR historico CxC/CxP maestro (Drive)', rc.nombre_historico);\nconst p = exactos('BUSCAR periodos CxC/CxP maestro (Drive)', rc.nombre_periodos);\nconst r = exactos('BUSCAR reporte del periodo CONTROL3 (Drive)', rc.nombre_reporte);\n\nif (g.length === 0) {\n  throw new Error('GLOBAL_OFICIAL_NO_ENCONTRADO: no existe \"' + rc.nombre_global + '\" en 05_CONTROLES/GLOBAL de Drive. CONTROL 3 no usa un GLOBAL local como sustituto: genera el GLOBAL antes.');\n}\nif (g.length > 1) {\n  throw new Error('ERROR_AMBIGUO_GLOBAL: hay ' + g.length + ' archivos \"' + rc.nombre_global + '\" en 05_CONTROLES/GLOBAL. No se elige ninguno.');\n}\nif (h.length > 1) {\n  throw new Error('ERROR_AMBIGUO_HISTORICO: hay ' + h.length + ' archivos \"' + rc.nombre_historico + '\" en 05_CONTROLES. No se elige ninguno.');\n}\nif (p.length > 1) {\n  throw new Error('ERROR_AMBIGUO_PERIODOS: hay ' + p.length + ' archivos \"' + rc.nombre_periodos + '\" en 05_CONTROLES. No se elige ninguno.');\n}\nif (r.length > 1) {\n  throw new Error('ERROR_AMBIGUO_REPORTE: hay ' + r.length + ' archivos \"' + rc.nombre_reporte + '\" en CONTROL_3_CXC_CXP/' + rc.periodo + '. No se elige ninguno.');\n}\n// Un histórico sin su libro de periodos (o al revés) es un estado incoherente: no se adivina cuál manda.\nif (h.length !== p.length) {\n  throw new Error('MAESTROS_CXC_CXP_INCOMPLETOS: en 05_CONTROLES hay ' + h.length + ' \"' + rc.nombre_historico + '\" y ' + p.length + ' \"' + rc.nombre_periodos + '\". Deben existir ambos o ninguno.');\n}\n\nconst items = [{ tipo: 'global', id: String(g[0].id), name: rc.nombre_global }];\nif (h.length === 1) items.push({ tipo: 'historico', id: String(h[0].id), name: rc.nombre_historico });\nif (p.length === 1) items.push({ tipo: 'periodos', id: String(p[0].id), name: rc.nombre_periodos });\nif (r.length === 1) items.push({ tipo: 'reporte', id: String(r[0].id), name: rc.nombre_reporte });\nreturn items.map(function (it) {\n  return { json: Object.assign({ ruta_destino: rc.dir_entrada + '/' + it.name, maestros_en_drive: h.length === 1, reporte_en_drive: r.length === 1 }, it) };\n});"
+        }
+      },
+      {
+        "id": "053b0cc0-5ab9-4a08-8355-ec54a473d356",
+        "name": "DESCARGAR - Artefacto de CONTROL 3 (Drive)",
+        "type": "n8n-nodes-base.googleDrive",
+        "typeVersion": 3,
+        "position": [
+          2688,
+          4050
+        ],
+        "parameters": {
+          "resource": "file",
+          "operation": "download",
+          "fileId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $json.id }}"
+          },
+          "options": {}
+        },
+        "credentials": {
+          "googleDriveOAuth2Api": {
+            "id": "aoEcEAFQQ38XcwZg",
+            "name": "Google Drive account"
+          }
+        }
+      },
+      {
+        "id": "5a0fe4ff-408a-4dee-b4da-19199cc0719b",
+        "name": "ESCRIBIR - Artefacto a control3_entrada",
+        "type": "n8n-nodes-base.readWriteFile",
+        "typeVersion": 1.1,
+        "position": [
+          2912,
+          4050
+        ],
+        "parameters": {
+          "operation": "write",
+          "fileName": "={{ $('CLASIFICAR - Artefactos de CONTROL 3 en Drive').item.json.ruta_destino }}",
+          "dataPropertyName": "data",
+          "options": {}
+        }
+      },
+      {
+        "id": "0d0227c5-b652-4953-9380-7b2654dff671",
+        "name": "RESTAURAR - Item del webhook control3",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3136,
+          4050
+        ],
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "// Devuelve el item original del webhook: CONSTRUIR payload control3 sigue leyendo t.body.anio/mes.\nreturn [{ json: $('WEBHOOK control3').first().json }];"
+        }
+      },
+      {
+        "id": "56ef8d07-6ac0-40c3-8b01-0669b33fb2e1",
+        "name": "EJECUTAR 07E carpeta del periodo CONTROL3",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          1998,
+          3600
+        ],
+        "parameters": {
+          "mode": "once",
+          "workflowId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "Lht5xRinJ9nJpHCW"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "carpeta_padre_id": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.carpeta_control3_id }}",
+              "nombre_carpeta": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.periodo }}"
+            }
+          }
         }
       }
     ],
@@ -7969,33 +8652,11 @@
         "main": [
           [
             {
-              "node": "CONSTRUIR - Descarga historico CONTROL3",
+              "node": "RESOLVER control3 (periodo y carpetas)",
               "type": "main",
               "index": 0
             }
           ],
-          [
-            {
-              "node": "CONSTRUIR payload control3",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "CONSTRUIR - Descarga historico CONTROL3": {
-        "main": [
-          [
-            {
-              "node": "EJECUTAR 07C descargar historico CONTROL3",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "EJECUTAR 07C descargar historico CONTROL3": {
-        "main": [
           [
             {
               "node": "CONSTRUIR payload control3",
@@ -8031,7 +8692,7 @@
         "main": [
           [
             {
-              "node": "CONSTRUIR - Lista publicaciones CONTROL3",
+              "node": "EJECUTAR 07E carpeta del periodo CONTROL3",
               "type": "main",
               "index": 0
             }
@@ -8412,6 +9073,167 @@
           [
             {
               "node": "CONSTRUIR payload global",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "RESOLVER control3 (periodo y carpetas)": {
+        "main": [
+          [
+            {
+              "node": "PREPARAR control3_entrada limpio (Python)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PREPARAR control3_entrada limpio (Python)": {
+        "main": [
+          [
+            {
+              "node": "BUSCAR GLOBAL oficial CONTROL3 (Drive)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BUSCAR GLOBAL oficial CONTROL3 (Drive)": {
+        "main": [
+          [
+            {
+              "node": "BUSCAR historico CxC/CxP maestro (Drive)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BUSCAR historico CxC/CxP maestro (Drive)": {
+        "main": [
+          [
+            {
+              "node": "BUSCAR periodos CxC/CxP maestro (Drive)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BUSCAR periodos CxC/CxP maestro (Drive)": {
+        "main": [
+          [
+            {
+              "node": "BUSCAR carpeta del periodo CONTROL3 (Drive)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BUSCAR carpeta del periodo CONTROL3 (Drive)": {
+        "main": [
+          [
+            {
+              "node": "VERIFICAR carpeta del periodo (CONTROL3)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "VERIFICAR carpeta del periodo (CONTROL3)": {
+        "main": [
+          [
+            {
+              "node": "IF - Existe carpeta del periodo CONTROL3",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - Existe carpeta del periodo CONTROL3": {
+        "main": [
+          [
+            {
+              "node": "BUSCAR reporte del periodo CONTROL3 (Drive)",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "CLASIFICAR - Artefactos de CONTROL 3 en Drive",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BUSCAR reporte del periodo CONTROL3 (Drive)": {
+        "main": [
+          [
+            {
+              "node": "CLASIFICAR - Artefactos de CONTROL 3 en Drive",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CLASIFICAR - Artefactos de CONTROL 3 en Drive": {
+        "main": [
+          [
+            {
+              "node": "DESCARGAR - Artefacto de CONTROL 3 (Drive)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "DESCARGAR - Artefacto de CONTROL 3 (Drive)": {
+        "main": [
+          [
+            {
+              "node": "ESCRIBIR - Artefacto a control3_entrada",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "ESCRIBIR - Artefacto a control3_entrada": {
+        "main": [
+          [
+            {
+              "node": "RESTAURAR - Item del webhook control3",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "RESTAURAR - Item del webhook control3": {
+        "main": [
+          [
+            {
+              "node": "CONSTRUIR payload control3",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "EJECUTAR 07E carpeta del periodo CONTROL3": {
+        "main": [
+          [
+            {
+              "node": "CONSTRUIR - Lista publicaciones CONTROL3",
               "type": "main",
               "index": 0
             }

@@ -69,6 +69,7 @@ from v3.motor import NO_PROCESADO  # noqa: E402
 
 MAESTRO_APTO = "MAESTRO_APTO"
 BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA = "BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA"
+MACROS_NO_CUBRE_FECHA_DEPOSITO = "MACROS_NO_CUBRE_FECHA_DEPOSITO"
 
 _ESTADOS_VALIDOS = (MAESTRO_APTO, BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA)
 
@@ -99,13 +100,38 @@ def _cierre_tiene_movimiento_atc(ruta_cierre):
     return bruto != 0
 
 
-def evaluar_cobertura_maestro(ruta_maestro, fecha_cierre, ruta_cierre):
+def _depositos_del_cierre(ruta_cierre):
+    """Fechas de depósito (YYYY-MM-DD) de SFC101/SFC102, separadas en plausibles
+    (mismo año que el cierre) y anómalas (otro año, p. ej. un tipeo 2016 en vez de
+    2026). Reutiliza excel_io.leer_cierre(); nunca corrige la fecha del cierre."""
+    cierre = excel_io.leer_cierre(ruta_cierre)
+    return cierre, [d.get("fecha_deposito") for k in ("sfc101", "sfc102") for d in cierre[k]["depositos"]]
+
+
+def _clasificar_fechas_deposito(fechas, fecha_cierre):
+    anio = (fecha_cierre or "")[:4]
+    plausibles = [f for f in fechas if f and f[:4] == anio]
+    anomalas = sorted({f for f in fechas if f and f[:4] != anio})
+    return plausibles, anomalas
+
+
+def _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre):
     """Evalúa UN maestro (más el propio cierre, para saber si ese día tuvo
     movimiento ATC) contra UNA fecha de cierre. Devuelve dict con
     EXACTAMENTE estas claves: estado, fecha_cierre, fecha_maxima_macros,
     fecha_maxima_atc, mensaje.
 
     `estado` in (MAESTRO_APTO, BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA).
+
+    Además de la fecha del cierre, MACROS debe cubrir la fecha máxima de los
+    DEPÓSITOS del cierre (columna FECHA DE DEPOSITO): un depósito posterior a
+    lo que MACROS registra no puede tener voucher todavía y se reporta como
+    `MACROS_NO_CUBRE_FECHA_DEPOSITO` (con fecha requerida y disponible), no
+    como un voucher inexistente. Las fechas de depósito de otro año que el
+    cierre (tipeo, p. ej. 2016) NO se usan para exigir cobertura: se
+    reportan aparte en `observaciones` (FECHA_DEPOSITO_ANOMALA) para decisión
+    humana. Claves adicionales: `codigo_bloqueo`, `fecha_requerida_deposito`,
+    `observaciones`.
     Un maestro ilegible (archivo inexistente, hoja faltante, columnas
     faltantes, workbook corrupto), sin NINGUNA fecha registrada en MACROS,
     o un cierre cuyo archivo no se puede leer para determinar si tuvo
@@ -155,6 +181,27 @@ def evaluar_cobertura_maestro(ruta_maestro, fecha_cierre, ruta_cierre):
         }
 
     try:
+        _cierre, fechas_dep = _depositos_del_cierre(ruta_cierre)
+    except Exception:  # noqa: BLE001 — un cierre ilegible lo reporta el chequeo ATC de abajo, con su mensaje de siempre
+        fechas_dep = []
+    plausibles, anomalas = _clasificar_fechas_deposito(fechas_dep, fecha_cierre)
+    fecha_requerida = _fecha_maxima(plausibles)
+    if fecha_requerida and fecha_requerida > fecha_maxima_macros:
+        return {
+            "estado": BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
+            "fecha_cierre": fecha_cierre,
+            "fecha_maxima_macros": fecha_maxima_macros,
+            "fecha_maxima_atc": fecha_maxima_atc,
+            "codigo_bloqueo": MACROS_NO_CUBRE_FECHA_DEPOSITO,
+            "fecha_requerida_deposito": fecha_requerida,
+            "mensaje": (
+                f"{MACROS_NO_CUBRE_FECHA_DEPOSITO}: el cierre trae depósitos hasta {fecha_requerida} "
+                f"pero MACROS solo llega hasta {fecha_maxima_macros}. Los vouchers de esos depósitos "
+                "todavía no pueden estar en MACROS: actualice MACROS en Drive y vuelva a procesar."
+            ),
+        }
+
+    try:
         tiene_atc = _cierre_tiene_movimiento_atc(ruta_cierre)
     except Exception as exc:
         return {
@@ -194,6 +241,32 @@ def evaluar_cobertura_maestro(ruta_maestro, fecha_cierre, ruta_cierre):
     }
 
 
+def evaluar_cobertura_maestro(ruta_maestro, fecha_cierre, ruta_cierre):
+    r = _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre)
+    r.setdefault("codigo_bloqueo", None)
+    r.setdefault("fecha_requerida_deposito", None)
+    observaciones = []
+    if r["estado"] == MAESTRO_APTO or r.get("codigo_bloqueo") == MACROS_NO_CUBRE_FECHA_DEPOSITO:
+        try:
+            _c, fechas_dep = _depositos_del_cierre(ruta_cierre)
+            _pl, anomalas = _clasificar_fechas_deposito(fechas_dep, fecha_cierre)
+            if r.get("fecha_requerida_deposito") is None:
+                r["fecha_requerida_deposito"] = _fecha_maxima(_pl)
+            for f in anomalas:
+                observaciones.append({
+                    "codigo": "FECHA_DEPOSITO_ANOMALA", "fecha_deposito": f,
+                    "mensaje": (f"FECHA_DEPOSITO_ANOMALA: un depósito del cierre tiene fecha {f}, de un año distinto al del cierre "
+                                f"({(fecha_cierre or '')[:4]}). No afecta la coincidencia del voucher (código/importe) pero esa fecha llegaría "
+                                "al SAP como fecha valor: requiere decisión humana; no se corrige automáticamente."),
+                })
+        except Exception:  # noqa: BLE001 — ya reportado por _evaluar_cobertura_base
+            pass
+    r["observaciones"] = observaciones
+    if observaciones and r["estado"] == MAESTRO_APTO:
+        r["mensaje"] += " OBSERVACIÓN: " + " ".join(o["mensaje"] for o in observaciones)
+    return r
+
+
 # ---------------------------------------------------------------------------
 # Orquestación por lote — se inserta entre v3.materializacion.ejecutar_materializacion()
 # y v3.motor.ejecutar_motor(). NUNCA evalúa un maestro que de todos modos no
@@ -223,6 +296,9 @@ def aplicar_precheck_maestro(cierres_materializados):
             "fecha_maxima_macros": cobertura["fecha_maxima_macros"],
             "fecha_maxima_atc": cobertura["fecha_maxima_atc"],
             "mensaje_precheck_maestro": cobertura["mensaje"],
+            "codigo_bloqueo_precheck": cobertura.get("codigo_bloqueo"),
+            "fecha_requerida_deposito": cobertura.get("fecha_requerida_deposito"),
+            "observaciones_precheck": cobertura.get("observaciones") or [],
         })
         if cobertura["estado"] == BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA:
             salida["estado_motor"] = NO_PROCESADO

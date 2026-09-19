@@ -965,8 +965,16 @@
   // ofreciéndose (evita que el usuario reintente publicar algo que el
   // backend ya reconoce como publicado, y con eso evita también seguir
   // inflando el historial con el mismo mensaje idempotente).
+  //
+  // MODO OFICIAL (hotfix 2026-09-19): "PUBLICADO" SOLO con la confirmación real de 06B/Drive:
+  // PUBLICADO_OFICIAL (con publicado=true) o YA_PUBLICADO_OFICIAL (el marcador ya existe en Drive).
+  // Un SAP/resultado/marcador local, un YA_PUBLICADO local o el estado del motor NUNCA bastan: el cierre
+  // sigue LISTO_PARA_PUBLICAR (o ERROR_PUBLICACION_OFICIAL) y se puede volver a publicar.
   function estaPublicado(cierre) {
     var raw = cierre._raw || {};
+    if (esPublicacionOficial()) {
+      return (raw.estado_publicacion === "PUBLICADO_OFICIAL" && raw.publicado === true) || raw.estado_publicacion === "YA_PUBLICADO_OFICIAL";
+    }
     return raw.estado_publicacion === "PUBLICADO" || raw.estado_publicacion === "YA_PUBLICADO" || !!raw.publicado;
   }
 
@@ -1196,7 +1204,7 @@
     var secPub = el("div", { class: "detalle-section" });
     secPub.appendChild(el("h3", { text: "Publicación" }));
     if (estaPublicado(c)) {
-      var esIdempotente = raw.estado_publicacion === "YA_PUBLICADO";
+      var esIdempotente = raw.estado_publicacion === "YA_PUBLICADO" || raw.estado_publicacion === "YA_PUBLICADO_OFICIAL";
       secPub.appendChild(el("div", { class: "kv" }, [
         el("span", { class: "k", text: "Estado" }),
         el("span", { class: "v", text: (esIdempotente ? "✓ YA PUBLICADO" : "✓ PUBLICADO") }),
@@ -1207,10 +1215,17 @@
         secPub.appendChild(el("div", { class: "placeholder-note", text: "Ya existía un marcador para este SHA256 (de esta u otra corrida DEV): no se duplicó SAP, resultado, cierre procesado ni marcador." }));
       }
     } else if (esPublicable(c)) {
-      var btnPublicarDetalle = el("button", { class: "primary publicar", text: "PUBLICAR ESTE CIERRE (DEV)" });
+      if (raw.estado_publicacion === "ERROR_PUBLICACION_OFICIAL") {
+        secPub.appendChild(el("div", { class: "kv" }, [
+          el("span", { class: "k", text: "Estado" }),
+          el("span", { class: "v", text: "✗ PUBLICACIÓN OFICIAL NO COMPLETADA" }),
+        ]));
+        secPub.appendChild(el("div", { class: "placeholder-note", text: raw.mensaje || "No hay confirmación de Drive. El cierre sigue disponible para publicar de nuevo." }));
+      }
+      var btnPublicarDetalle = el("button", { class: "primary publicar", text: esPublicacionOficial() ? "PUBLICAR ESTE CIERRE" : "PUBLICAR ESTE CIERRE (DEV)" });
       btnPublicarDetalle.addEventListener("click", function () { publicarCierre(c); });
       secPub.appendChild(btnPublicarDetalle);
-      secPub.appendChild(el("div", { class: "placeholder-note", text: "Publica únicamente en DEV (base_dir_dev/publicacion/); idempotente por SHA256." }));
+      secPub.appendChild(el("div", { class: "placeholder-note", text: esPublicacionOficial() ? "Publica oficialmente en Drive (SAP, resultado, cierre a Procesados y marcador); idempotente por SHA256." : "Publica únicamente en DEV (base_dir_dev/publicacion/); idempotente por SHA256." }));
     } else {
       secPub.appendChild(el("div", { class: "placeholder-note", text: "Este cierre no está habilitado para publicación todavía." }));
     }
@@ -1429,6 +1444,9 @@
         mostrarErrorBackend(resp.omitidos.map(function (o) { return o.fecha + ": " + o.motivo; }).join("\n"));
       }
       (resp.publicados || []).forEach(function (p) {
+        if (esPublicacionOficial() && p.estado_publicacion === "ERROR_PUBLICACION_OFICIAL") {
+          mostrarErrorBackend(fmtFecha(p.fecha) + ": la publicación oficial NO se completó.\n" + (p.mensaje || "No hay confirmación de Drive."));
+        }
         var actualizado = actualizarCierreEnEstado(p);
         if (state.seleccion && state.seleccion.fecha === p.fecha) state.seleccion = actualizado;
       });

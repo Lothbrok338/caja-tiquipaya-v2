@@ -40,7 +40,7 @@ Verificado con grep sobre los 14 archivos: cero coincidencias de
 | 11 | TIQ V3 · 07D PUBLICAR ARCHIVO OFICIAL (crear o actualizar) · DRIVE | `HhuQCVP2oCubavzY` | `HhuQCVP2oCubavzY_07d_publicar_oficial.json` | **true** | 12 | `5ee2c52c52ced254d0c3dc14355c0bf87eb0d682f0cdafab57be94c2236842f3` |
 | 12 | TIQ V3 · 07E BUSCAR O CREAR CARPETA OFICIAL · DRIVE | `Lht5xRinJ9nJpHCW` | `Lht5xRinJ9nJpHCW_07e_buscar_crear_carpeta.json` | **true** | 7 | `16e2b1c0445e1de87464f74e92e330e1b03cc1aa6085cc2e7c3324f471b8ca40` |
 | 13 | TIQ V3 · PREFLIGHT OFICIAL (solo lectura) | `sJVgoBRpBntc96vf` | `sJVgoBRpBntc96vf_preflight_oficial.json` | **true** | 12 | `0c881c553020952f935f1f658f0b9c49c25184bdefff16cc5bc6f89d8a90bce9` |
-| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 149 | `6e4345698630240614aef000480f4b02c695365663eca83f02443de2aceb7ae2` |
+| 14 | TIQ V3 · BACKEND DEV (webhooks) | `aLs1f3GMqswbaENA` | `aLs1f3GMqswbaENA_backend_dev.json` | **true** | 162 | `da5ce3c9645322617fef234ca9eb7cc3f4aaf5aebf71ccf7158b5542c2a1c11c` |
 
 **Estado `active` real en n8n al momento de esta actualización (2026-09-18):**
 7 workflows están activos — `aLs1f3GMqswbaENA` (BACKEND DEV), `CanZtkmnm0ukAC8c`
@@ -557,7 +557,7 @@ Versiones publicadas verificadas en vivo contra este snapshot:
 
 | Workflow | ID | versionId | Nodos | active |
 |---|---|---|---|---|
-| BACKEND DEV | `aLs1f3GMqswbaENA` | `977945d1` | 149 | true |
+| BACKEND DEV | `aLs1f3GMqswbaENA` | `def3df19` (hotfix diario) | 162 | true |
 | 01 INGESTA | `CanZtkmnm0ukAC8c` | `fb597976` | 13 | true |
 | 06B PUBLICACION OFICIAL | `wcgxNei3duWfMDp1` | `88f1df1c` | 31 | true |
 | PREFLIGHT | `sJVgoBRpBntc96vf` | `000214de` | 12 | true |
@@ -577,4 +577,34 @@ los maestros de la raíz quedaron intactos (copia local con el mismo sha que Dri
 (2 CORRECTA por mismo depósito, 1 CORRECTA FORTALEZA), histórico maestro de la raíz sin cambios (441 filas, solo agosto), GLOBAL sin cambios.
 
 Ningún cierre definitivo (CONTROL 1 ni CONTROL 3) se ha ejecutado en real. Ver `V3_OPEN_MONTH_STATE.md`.
+
+
+### HOTFIX DIARIO (2026-09-19): MACROS/cierre desde Drive + estado PUBLICADO solo con 06B
+
+**Incidencia A (11/09, la UI decía PUBLICADO sin haber publicado):** ejecución backend 473 (2026-09-19 14:57:08, éxito, último nodo
+`RESPONDER publicar`, NO llamó a 06B). `publicar_seleccionados` encontró un marcador LOCAL residual
+`publicacion/markers/PROCESADO_618d2117….json` (publicación DEV del 15/09 16:26, versión de código `144a007`) y devolvió
+`YA_PUBLICADO`/`publicado:false` sin SAP `SAP_TIQ_*` preparado → `PREPARAR - Cierres elegibles` no tuvo elegibles → no se llamó a 06B →
+la respuesta trajo solo el resultado local, y el frontend (`estaPublicado`) trataba `YA_PUBLICADO` local como publicado. Drive real (solo lectura):
+`CIERRE 11-09-2026.xlsm` sigue en ENTRADA (id `10MkXa2c…`); no hay `SAP_TIQ_11-09-2026`, ni `RESULTADO_TIQ_11-09-2026`, ni el cierre en PROCESADOS,
+ni marker `618d2117…`; sin duplicados.
+- **Fix:** modo oficial (`modo_oficial=true` en `/publicar`): el paso local solo PREPARA (`PUBLICACION_LOCAL_PREPARADA`, `publicado=false`) y un marcador
+  local previo no corta el flujo. Tras 06B, `dev_api.consolidar_publicacion_oficial` (Python) fija el estado real y lo persiste en el lote:
+  `PUBLICADO_OFICIAL` (solo con 06B `PUBLICADO_OFICIAL`+`publicado=true`, mismo SHA), `YA_PUBLICADO_OFICIAL` (marcador ya en Drive) o
+  `ERROR_PUBLICACION_OFICIAL`. Frontend en modo oficial: solo esos dos primeros cuentan como publicado; el error avisa y deja reintentar.
+- **Residuo DEV local del 11/09 (NO borrado, no hace falta borrarlo):** `dev_workdir/publicacion/{markers/PROCESADO_618d2117….json, sap/SAP_11-09-2026.xlsx,
+  resultados/RESULTADO_TIQ_11-09-2026.json, procesados/CIERRE 11-09-2026.xlsm}`. Con el fix ya no impide el reintento oficial.
+
+**Incidencia B (12/09, vouchers 3P9E113705 / 3P9E116189 "sin voucher"):** `/procesar` usaba copias locales estáticas descargadas el 15/09
+(`maestro_origen/MACROS SEPTIEMBRE.xlsm`, movimientos hasta 14/09; `cierres_origen/…`) mientras Drive tenía MACROS actualizado el 19/09 14:50 (hasta 17/09).
+- **Fix:** `/procesar` materializa en cada corrida, en `procesar_entrada/<lote_id>/`, el MACROS oficial vigente (nombre exacto `MACROS SEPTIEMBRE.xlsm` en su carpeta de Drive
+  `1U0HBoAs…`; 0 → `MACROS_OFICIAL_NO_ENCONTRADO`, >1 → `ERROR_AMBIGUO_MACROS`, periodo sin configurar → `MACROS_OFICIAL_NO_CONFIGURADO`; el lote queda en ERROR con mensaje) y
+  los cierres exactos por `drive_file_id`. Plantilla y markers siguen desde sus copias de origen.
+- **Precheck:** además de la fecha del cierre, MACROS debe cubrir la fecha máxima de los depósitos: `MACROS_NO_CUBRE_FECHA_DEPOSITO` (con fecha requerida y disponible).
+  Un depósito con año distinto al del cierre (p. ej. `15/09/2016` en SFC101, texto en el `.xlsm` original) no exige cobertura y se reporta aparte como
+  `FECHA_DEPOSITO_ANOMALA` (observación no bloqueante, sin corregir): esa fecha SÍ llega al SAP (`DEPOSITO BNB 15/09/2016`, fecha valor 2016-09-15).
+- **Prueba aislada (Drive real, solo lectura, dir temporal):** con el MACROS local viejo → `MACROS_NO_CUBRE_FECHA_DEPOSITO`; con el MACROS actual de Drive → `MAESTRO_APTO`,
+  ambos vouchers `MATCH_EXACTO`, 0 excepciones de voucher, `LISTO_PARA_PUBLICAR`, diferencia 0.00.
+- **Hallazgo adicional:** el `CIERRE 11-09-2026.xlsm` de Drive (57,132 B, modificado 18/09) NO es el de la copia local usada (171,631 B, sha `618d2117…`): el 11/09 debe volver a procesarse
+  (ahora se descarga de Drive).
 
