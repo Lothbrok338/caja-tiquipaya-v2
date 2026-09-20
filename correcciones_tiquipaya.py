@@ -65,6 +65,7 @@ import hashlib
 import json
 from copy import deepcopy
 
+import config_cajas as cfg
 import motor_tiquipaya as motor
 
 
@@ -261,7 +262,11 @@ def _localizar_voucher(cierre, identificadores):
             "CORRECCION_IDENTIFICADORES_INVALIDOS:VOUCHER requiere identificadores.sfc "
             "e identificadores.codigo_informado"
         )
-    depositos = cierre["sfc101"]["depositos"] + cierre["sfc102"]["depositos"]
+    # Las hojas SFC salen de la caja del propio cierre (config_cajas), no
+    # de literales: un cierre sin clave "caja" resuelve a TIQUIPAYA y
+    # recorre SFC101/SFC102 igual que siempre.
+    caja = cfg.resolver_caja(cierre.get("caja"))
+    depositos = [d for clave in caja.claves_sfc for d in cierre[clave]["depositos"]]
     coincidencias = [
         dep for dep in depositos
         if dep.get("sfc") == sfc and dep.get("asignacion") == codigo_informado

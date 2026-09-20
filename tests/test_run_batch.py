@@ -521,6 +521,10 @@ class TestSinDependenciaGoogleDrive(unittest.TestCase):
         permitidos = {
             "argparse", "json", "os", "re", "subprocess", "sys", "time",
             "datetime", "openpyxl", "pipeline_tiquipaya", "excel_io",
+            # Módulo local sin dependencias externas (solo dataclasses):
+            # la configuración por caja. No cambia la garantía que este
+            # test protege — seguir sin cliente de Google/Drive ni red.
+            "config_cajas",
         }
         arbol = ast.parse(inspect.getsource(run_batch))
         importados = set()

@@ -50,6 +50,7 @@ from datetime import date, timedelta
 
 import openpyxl
 
+import config_cajas as cfg
 import pipeline_tiquipaya as pipeline
 from excel_io import normalize_compact
 
@@ -108,11 +109,13 @@ def texto_cabecera_ingresos(fecha_iso):
 
 
 # Cabecera fija de referencia (L10): no lleva fecha, ver especificación.
+# El texto sale de la caja (config_cajas.CajaConfig.nombre_sap): "CAJA
+# TIQUIPAYA" por defecto — literalmente el valor histórico — y "CAJA
+# AMERICA" para América.
 _TIPO_ASIENTO = "SA"
-_REFERENCIA_FIJA = "CAJA TIQUIPAYA"
 
 
-def construir_metadata_cabecera(fecha_iso):
+def construir_metadata_cabecera(fecha_iso, caja=None):
     """Campos de cabecera que decide run_batch.py (tipo_asiento,
     texto_cabecera, referencia). Las fechas de cabecera (FechaRegistro/
     FechaContabilizacion/Mes) NO se incluyen aquí: pipeline_tiquipaya las
@@ -121,7 +124,7 @@ def construir_metadata_cabecera(fecha_iso):
     return {
         "tipo_asiento": _TIPO_ASIENTO,
         "texto_cabecera": texto_cabecera_ingresos(fecha_iso),
-        "referencia": _REFERENCIA_FIJA,
+        "referencia": cfg.resolver_caja(caja).nombre_sap,
     }
 
 
@@ -283,7 +286,7 @@ def _nombre_sap_esperado(fecha_iso):
 
 def procesar_cierre(fecha_iso, ruta_cierre, ruta_maestro, ruta_plantilla,
                      salidas_dir, resultados_dir, version_codigo,
-                     hashes_procesados, registros_control):
+                     hashes_procesados, registros_control, caja=None):
     """Procesa UN cierre ya materializado, exclusivamente vía
     pipeline_tiquipaya.procesar_cierre_completo(). Nunca reimplementa
     lógica contable ni llama funciones privadas del motor. Un blocker
@@ -292,7 +295,7 @@ def procesar_cierre(fecha_iso, ruta_cierre, ruta_maestro, ruta_plantilla,
     aquí para no detener el resto del batch."""
     ruta_sap_salida = os.path.join(salidas_dir, _nombre_sap_esperado(fecha_iso))
     ruta_resultado = os.path.join(resultados_dir, pipeline.nombre_resultado_json(fecha_iso))
-    metadata_cabecera = construir_metadata_cabecera(fecha_iso)
+    metadata_cabecera = construir_metadata_cabecera(fecha_iso, caja)
 
     t0 = time.perf_counter()
     try:
@@ -307,6 +310,7 @@ def procesar_cierre(fecha_iso, ruta_cierre, ruta_maestro, ruta_plantilla,
             ruta_resultado=ruta_resultado,
             hashes_procesados=hashes_procesados,
             registros_control=registros_control,
+            caja=caja,
         )
     except Exception as exc:  # fallo técnico real (archivo corrupto, etc.)
         tiempo = time.perf_counter() - t0
@@ -401,6 +405,9 @@ def _resolver_version_codigo(version_codigo_arg):
 # ---------------------------------------------------------------------------
 
 def ejecutar_batch(args):
+    # `caja` es opcional en args para no romper a ningún llamador que
+    # construya el namespace a mano (comportamiento histórico = TIQUIPAYA).
+    caja = cfg.resolver_caja(getattr(args, "caja", None))
     fechas = generar_rango_fechas(args.fecha_inicio, args.fecha_fin)
     mes_rango = int(fechas[0][5:7])
 
@@ -432,7 +439,7 @@ def ejecutar_batch(args):
         entrada = procesar_cierre(
             fecha_iso, ruta_cierre, args.maestro, args.plantilla,
             args.salidas_dir, args.resultados_dir, version_codigo,
-            hashes_procesados, registros_control,
+            hashes_procesados, registros_control, caja,
         )
         cierres.append(entrada)
     tiempo_total = time.perf_counter() - t_batch_inicio
@@ -489,6 +496,9 @@ def construir_parser():
     parser.add_argument("--controles-dir", default=None, help="Directorio local con PROCESADO_<SHA256>.json existentes (opcional)")
     parser.add_argument("--marcadores-dir", default=None, help="Directorio local con los PROCESADO_<SHA256>.json migrados (opcional; por defecto <controles-dir>/MARCADORES_PROCESAMIENTO). Se busca primero aquí; los marcadores sueltos en --controles-dir se siguen leyendo como fallback legacy.")
     parser.add_argument("--version-codigo", default=None, help="Identificador de versión de código (por defecto: git rev-parse --short HEAD)")
+    parser.add_argument("--caja", default=cfg.CAJA_POR_DEFECTO.codigo,
+                        choices=sorted(cfg.CAJAS),
+                        help="Caja a procesar (por defecto: tiquipaya). Una corrida procesa UNA sola caja; use directorios de salida distintos por caja.")
     return parser
 
 

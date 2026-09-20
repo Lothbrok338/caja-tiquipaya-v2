@@ -20,6 +20,8 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 import openpyxl
 
+import config_cajas as cfg
+
 
 # ---------------------------------------------------------------------------
 # Normalización de texto
@@ -149,11 +151,24 @@ _CAMPOS_RESUMEN = [
     "DOLARES",
 ]
 
+# Campo adicional que SOLO se lee para cajas con reserva de posgrado (ver
+# config_cajas.CajaConfig.reserva_posgrado). Para las demás cajas no se
+# busca ni se exige, y la clave "posgrado_reserva" NI SIQUIERA aparece en
+# el resumen devuelto: el dict del cierre de Tiquipaya queda idéntico al
+# histórico.
+#
+# IMPORTANTE (cierre ya corregido en Excel): "TOTAL MOVIMIENTO DEL DIA" YA
+# EXCLUYE esta reserva. Por eso el motor nunca vuelve a restarla del
+# universo ni del HABER normal — solo la usa para el ATC COMPUTABLE del
+# cuadre y para la partida CxP del asiento.
+_CAMPO_POSGRADO_RESERVA = "POSGRADO RESERVA"
 
-def _leer_resumen_sfc(ws, sfc_label):
+
+def _leer_resumen_sfc(ws, sfc_label, leer_reserva=False):
     rows = list(ws.iter_rows(values_only=True))
 
     campos = {k: None for k in _CAMPOS_RESUMEN}
+    reserva = None
     for row in rows:
         if not row:
             continue
@@ -161,6 +176,9 @@ def _leer_resumen_sfc(ws, sfc_label):
         if etiqueta in campos and campos[etiqueta] is None:
             valor = row[1] if len(row) > 1 else None
             campos[etiqueta] = to_decimal(valor)
+        if leer_reserva and etiqueta == _CAMPO_POSGRADO_RESERVA and reserva is None:
+            valor = row[1] if len(row) > 1 else None
+            reserva = to_decimal(valor)
 
     faltantes = [k for k, v in campos.items() if v is None]
     if faltantes:
@@ -168,13 +186,27 @@ def _leer_resumen_sfc(ws, sfc_label):
 
     depositos = _leer_composicion_depositos(rows, sfc_label)
 
-    return {
+    resumen = {
         "total_movimiento": money_str(campos["TOTAL MOVIMIENTO DEL DIA"]),
         "cobros_atc": money_str(campos["COBROS ATC"]),
         "total_ci": money_str(campos["TOTAL COMUNICACIONES INTERNAS"]),
         "dolares": money_str(campos["DOLARES"]),
         "depositos": depositos,
     }
+
+    if leer_reserva:
+        # Falla cerrado: en una caja con reserva, la ausencia del campo no
+        # se interpreta como 0.00 (no se puede distinguir "no hubo reserva"
+        # de "la hoja no la calculó"), porque TOTAL MOVIMIENTO DEL DIA ya
+        # viene descontado y un 0.00 inventado descuadraría el cierre.
+        if reserva is None:
+            raise ValueError(
+                f"{sfc_label}: no se encontró el campo "
+                f"'{_CAMPO_POSGRADO_RESERVA}', obligatorio en esta caja."
+            )
+        resumen["posgrado_reserva"] = money_str(reserva)
+
+    return resumen
 
 
 def _leer_composicion_depositos(rows, sfc_label):
@@ -378,12 +410,13 @@ def _extraer_fecha_de_nombre(ruta_archivo):
 # Función pública
 # ---------------------------------------------------------------------------
 
-def leer_cierre(ruta_archivo):
+def leer_cierre(ruta_archivo, caja=None):
     """
     Lee un archivo CIERRE .xlsm UNA sola vez (read_only, data_only) y devuelve:
 
     {
       "fecha_cierre": "YYYY-MM-DD",
+      "caja": "tiquipaya",
       "sfc101": {
         "total_movimiento": "...", "cobros_atc": "...", "total_ci": "...",
         "dolares": "...", "depositos": [...]
@@ -392,9 +425,19 @@ def leer_cierre(ruta_archivo):
       "comunicaciones_internas": [...]
     }
 
+    `caja` (config_cajas.CajaConfig o su `codigo`) decide QUÉ hojas SFC se
+    leen y cómo se llaman las claves del resultado. Por defecto TIQUIPAYA:
+    hojas SFC101/SFC102 y claves "sfc101"/"sfc102", EXACTAMENTE como antes
+    de que existiera este parámetro. Para AMERICA: hojas SFC107/SFC108 y
+    claves "sfc107"/"sfc108". La caja nunca se infiere del archivo.
+
+    En cajas con reserva de posgrado, cada resumen SFC trae además
+    "posgrado_reserva"; en las demás esa clave no existe.
+
     Todos los importes se serializan como strings con 2 decimales.
     No cruza contra MACROS ni ATC. No cuadra. No modifica el archivo fuente.
     """
+    caja = cfg.resolver_caja(caja)
     fecha_cierre = _extraer_fecha_de_nombre(ruta_archivo)
 
     # openpyxl en read_only difiere el parseo de cada hoja hasta que se itera
@@ -406,23 +449,24 @@ def leer_cierre(ruta_archivo):
             ruta_archivo, read_only=True, data_only=True, keep_vba=False
         )
         try:
-            ws_sfc101 = _find_sfc_sheet(wb, "101")
-            ws_sfc102 = _find_sfc_sheet(wb, "102")
-            ws_ci101 = _find_ci_sheet(wb, "101")
-            ws_ci102 = _find_ci_sheet(wb, "102")
-
-            sfc101 = _leer_resumen_sfc(ws_sfc101, "SFC101")
-            sfc102 = _leer_resumen_sfc(ws_sfc102, "SFC102")
-            ci101 = _leer_comunicaciones_internas(ws_ci101, "SFC101")
-            ci102 = _leer_comunicaciones_internas(ws_ci102, "SFC102")
+            resumenes = {}
+            comunicaciones = []
+            for sfc in caja.sfcs:
+                sufijo = sfc[len("SFC"):]
+                ws_sfc = _find_sfc_sheet(wb, sufijo)
+                ws_ci = _find_ci_sheet(wb, sufijo)
+                resumenes[caja.clave_sfc(sfc)] = _leer_resumen_sfc(
+                    ws_sfc, sfc, leer_reserva=caja.reserva_posgrado
+                )
+                comunicaciones.extend(_leer_comunicaciones_internas(ws_ci, sfc))
         finally:
             wb.close()
 
     return {
         "fecha_cierre": fecha_cierre,
-        "sfc101": sfc101,
-        "sfc102": sfc102,
-        "comunicaciones_internas": ci101 + ci102,
+        "caja": caja.codigo,
+        **resumenes,
+        "comunicaciones_internas": comunicaciones,
     }
 
 
@@ -567,8 +611,57 @@ def leer_macros_bnb(ruta_archivo, hoja=_MACROS_HOJA_BNB):
 
 _ATC_HOJA_PRECONCILIADA = "ATC TIQUIPAYA"
 
+# Columna nueva del maestro ATC (la genera el VBA externo). El NOMBRE de la
+# hoja sigue siendo "ATC TIQUIPAYA" para TODAS las cajas: lo que separa una
+# caja de otra es esta columna, nunca el nombre de la hoja.
+#
+# Un mismo día puede traer 4 filas: NETO y COMISION de TIQUIPAYA + NETO y
+# COMISION de AMERICA. El filtro se aplica AQUÍ, en la capa de lectura, de
+# modo que `por_fecha` conserva su forma histórica (una entrada NETO y una
+# COMISION por fecha) y el motor aguas abajo no se entera de que existen
+# más cajas.
+_ATC_COLUMNA_CAJA = "CAJA"
 
-def leer_atc_mensual(ruta_archivo):
+
+def _resolver_columna_caja(idx, caja, etiqueta):
+    """Índice de la columna CAJA, o None si el archivo es del formato
+    histórico (sin esa columna).
+
+    Formato histórico + caja distinta de la de por defecto => FALLA
+    CERRADO: de un maestro sin diferenciador de caja no se puede inferir
+    qué filas pertenecen a otra caja, y adivinarlo produciría un asiento
+    con dinero ajeno."""
+    idx_caja = idx.get(_ATC_COLUMNA_CAJA)
+    if idx_caja is None and caja != cfg.CAJA_POR_DEFECTO:
+        raise ValueError(
+            f"{etiqueta}: el maestro ATC no trae la columna "
+            f"'{_ATC_COLUMNA_CAJA}' (formato histórico de una sola caja). No "
+            f"se puede determinar qué filas corresponden a la caja "
+            f"'{caja.codigo}' ({caja.atc_caja}): actualice el maestro ATC."
+        )
+    return idx_caja
+
+
+def _fila_de_otra_caja(row, idx_caja, caja, etiqueta):
+    """True si la fila pertenece a OTRA caja y debe ignorarse. False si es
+    de la caja pedida (o si el archivo es histórico, sin columna CAJA).
+
+    Una fila con datos pero con la CAJA vacía es ambigua y FALLA CERRADO:
+    nunca se asigna por defecto a ninguna caja."""
+    if idx_caja is None:
+        return False
+    valor = row[idx_caja] if idx_caja < len(row) else None
+    texto = normalize_text(valor)
+    if not texto:
+        raise ValueError(
+            f"{etiqueta}: hay una fila con FECHA/TIPO/MONTO pero con la "
+            f"columna '{_ATC_COLUMNA_CAJA}' vacía. No se puede determinar a "
+            f"qué caja pertenece: corrija el maestro ATC."
+        )
+    return texto != normalize_text(caja.atc_caja)
+
+
+def leer_atc_mensual(ruta_archivo, caja=None):
     """
     Abre el archivo ATC UNA sola vez (read_only, data_only) y devuelve:
 
@@ -576,6 +669,11 @@ def leer_atc_mensual(ruta_archivo):
       "modo": "LEGADO" | "PRECONCILIADO",
       "por_fecha": { "YYYY-MM-DD": {...} },
     }
+
+    `caja` (config_cajas.CajaConfig o su `codigo`, por defecto TIQUIPAYA)
+    selecciona las filas por la columna CAJA. Con un maestro histórico (sin
+    esa columna) TIQUIPAYA conserva su comportamiento exacto y cualquier
+    otra caja falla cerrado.
 
     LEGADO — por_fecha:
       { "YYYY-MM-DD": {"neto": "0.00" | None, "comision": "0.00" | None} }
@@ -591,6 +689,7 @@ def leer_atc_mensual(ruta_archivo):
     valor "REVISAR"): esta capa de lectura no la interpreta ni la
     reemplaza.
     """
+    caja = cfg.resolver_caja(caja)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         wb = openpyxl.load_workbook(
@@ -599,10 +698,10 @@ def leer_atc_mensual(ruta_archivo):
         try:
             ws_preconciliada = _find_atc_preconciliado_sheet(wb)
             if ws_preconciliada is not None:
-                por_fecha = _leer_atc_preconciliado(ws_preconciliada)
+                por_fecha = _leer_atc_preconciliado(ws_preconciliada, caja)
                 modo = "PRECONCILIADO"
             else:
-                por_fecha = _leer_atc_legado(wb[wb.sheetnames[0]])
+                por_fecha = _leer_atc_legado(wb[wb.sheetnames[0]], caja)
                 modo = "LEGADO"
         finally:
             wb.close()
@@ -622,8 +721,11 @@ def _find_atc_preconciliado_sheet(wb):
     return None
 
 
-def _leer_atc_legado(ws):
-    """Comportamiento histórico, sin ningún cambio de reglas."""
+def _leer_atc_legado(ws, caja=None):
+    """Comportamiento histórico, sin ningún cambio de reglas para la caja
+    por defecto. El único agregado es el filtro por columna CAJA (y el
+    fallo cerrado si esa columna no existe y se pide otra caja)."""
+    caja = cfg.resolver_caja(caja)
     por_fecha = {}
 
     rows = ws.iter_rows(values_only=True)
@@ -645,11 +747,18 @@ def _leer_atc_legado(ws):
     if faltantes:
         raise ValueError(f"ATC mensual: faltan columnas: {faltantes}")
 
+    idx_caja = _resolver_columna_caja(idx, caja, "ATC mensual")
+
     for row in rows:
         fecha_val = row[idx_fecha] if idx_fecha < len(row) else None
         tipo_val = row[idx_tipo] if idx_tipo < len(row) else None
         monto_val = row[idx_monto] if idx_monto < len(row) else None
         if fecha_val is None or tipo_val is None or monto_val is None:
+            continue
+
+        # El filtro va ANTES de interpretar la fecha: una fila de otra caja
+        # nunca puede romper (ni contaminar) la lectura de esta.
+        if _fila_de_otra_caja(row, idx_caja, caja, "ATC mensual"):
             continue
 
         fecha_iso = _fecha_iso(fecha_val)
@@ -676,10 +785,16 @@ def _leer_atc_legado(ws):
     return por_fecha
 
 
-def _leer_atc_preconciliado(ws):
+def _leer_atc_preconciliado(ws, caja=None):
     """Hoja "ATC TIQUIPAYA": ATC ya conciliado. Cuenta contable, detalle,
     monto y asignación se toman literalmente de la hoja, fila por fila,
-    sin cruzar contra MACROS ni interpretar la asignación."""
+    sin cruzar contra MACROS ni interpretar la asignación.
+
+    Si la hoja trae la columna CAJA (formato nuevo), solo se leen las filas
+    de `caja`; el resto se ignoran por completo, de modo que las 4 filas de
+    un mismo día (NETO/COMISION de dos cajas) nunca se ven entre sí — ni
+    siquiera para el control de duplicados."""
+    caja = cfg.resolver_caja(caja)
     por_fecha = {}
 
     rows = ws.iter_rows(values_only=True)
@@ -710,11 +825,18 @@ def _leer_atc_preconciliado(ws):
     if faltantes:
         raise ValueError(f"ATC TIQUIPAYA: faltan columnas: {faltantes}")
 
+    idx_caja = _resolver_columna_caja(idx, caja, _ATC_HOJA_PRECONCILIADA)
+
     for row in rows:
         fecha_val = row[idx_fecha] if idx_fecha < len(row) else None
         tipo_val = row[idx_tipo] if idx_tipo < len(row) else None
         monto_val = row[idx_monto] if idx_monto < len(row) else None
         if fecha_val is None or tipo_val is None or monto_val is None:
+            continue
+
+        # El filtro va ANTES de interpretar la fecha y ANTES del control de
+        # duplicados: las filas de otra caja no existen para esta lectura.
+        if _fila_de_otra_caja(row, idx_caja, caja, _ATC_HOJA_PRECONCILIADA):
             continue
 
         fecha_iso = _fecha_iso(fecha_val)

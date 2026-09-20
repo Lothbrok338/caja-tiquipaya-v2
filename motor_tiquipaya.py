@@ -33,12 +33,36 @@ import sys
 import json
 from decimal import Decimal, InvalidOperation
 
+import config_cajas as cfg
 import excel_io as io
 
 
 # ---------------------------------------------------------------------------
 # Bancos con formato de asignación conocido
 # ---------------------------------------------------------------------------
+
+def _caja_de(datos):
+    """Resuelve la caja a partir del propio dict que ya viaja por el motor
+    (`cierre` o `resultado_v2`, que llevan su `codigo` en la clave "caja").
+
+    Un dict SIN esa clave — por ejemplo uno construido a mano por un test
+    o por un llamador histórico — resuelve a TIQUIPAYA, el default
+    absoluto: por eso ninguna firma de este módulo necesitó cambiar para
+    los consumidores previos."""
+    return cfg.resolver_caja((datos or {}).get("caja"))
+
+
+def _reserva_posgrado_total(cierre, caja=None):
+    """Suma de POSGRADO RESERVA de las hojas SFC de la caja. 0.00 para
+    cualquier caja que no aplique la regla (Tiquipaya nunca la lee)."""
+    caja = caja or _caja_de(cierre)
+    if not caja.reserva_posgrado:
+        return Decimal("0")
+    return sum(
+        (Decimal(cierre[clave]["posgrado_reserva"]) for clave in caja.claves_sfc),
+        Decimal("0"),
+    )
+
 
 _BANCOS_ALFANUMERICOS = {"BNB", "BMSC"}
 _BANCOS_NUMERICOS = {
@@ -170,7 +194,8 @@ def _clasificar_voucher(codigo_informado, importe_str, macros_idx):
 
 
 def cruzar_vouchers(cierre, macros_idx):
-    depositos = cierre["sfc101"]["depositos"] + cierre["sfc102"]["depositos"]
+    caja = _caja_de(cierre)
+    depositos = [d for clave in caja.claves_sfc for d in cierre[clave]["depositos"]]
     resultados = []
     for dep in depositos:
         r = _clasificar_voucher(dep["asignacion"], dep["importe"], macros_idx)
@@ -201,8 +226,15 @@ def cruzar_vouchers(cierre, macros_idx):
 # ---------------------------------------------------------------------------
 
 def cruzar_atc(cierre, atc_idx, macros_idx):
+    caja = _caja_de(cierre)
     fecha_cierre = cierre["fecha_cierre"]
-    bruto_cierre = Decimal(cierre["sfc101"]["cobros_atc"]) + Decimal(cierre["sfc102"]["cobros_atc"])
+    # ATC BRUTO = dinero REAL cobrado con tarjeta. NUNCA se le resta la
+    # reserva de posgrado: es el importe contra el que se valida
+    # NETO + COMISION y el que entra completo al DEBE del asiento.
+    bruto_cierre = sum(
+        (Decimal(cierre[clave]["cobros_atc"]) for clave in caja.claves_sfc),
+        Decimal("0"),
+    )
     bruto_str = io.money_str(bruto_cierre)
 
     if bruto_cierre == 0:
@@ -303,8 +335,14 @@ def cruzar_atc_preconciliado(cierre, atc_preconciliado_por_fecha):
     conserva literal, NUNCA es blocker y se registra como advertencia
     "ATC_ASIGNACION_REVISAR" (no bloqueante, no se busca ni se inventa
     un código alternativo)."""
+    caja = _caja_de(cierre)
     fecha_cierre = cierre["fecha_cierre"]
-    bruto_cierre = Decimal(cierre["sfc101"]["cobros_atc"]) + Decimal(cierre["sfc102"]["cobros_atc"])
+    # Igual que cruzar_atc(): BRUTO es el cobro real con tarjeta, sin
+    # descontar la reserva de posgrado.
+    bruto_cierre = sum(
+        (Decimal(cierre[clave]["cobros_atc"]) for clave in caja.claves_sfc),
+        Decimal("0"),
+    )
     bruto_str = io.money_str(bruto_cierre)
 
     base = {
@@ -375,7 +413,7 @@ def validar_ci(cierre):
     bloqueantes = []
     advertencias = []
     alquileres = []
-    alquileres_por_sfc = {"SFC101": Decimal("0"), "SFC102": Decimal("0")}
+    alquileres_por_sfc = {sfc: Decimal("0") for sfc in _caja_de(cierre).sfcs}
 
     for ci in cierre["comunicaciones_internas"]:
         if ci["alquileres"]:
@@ -488,6 +526,11 @@ _MOTIVO_LEGIBLE = {
     # no podía identificarlos. Ver _excepciones_atc_asiento() más abajo.
     "ATC_NETO_CUENTA_INVALIDA": "La cuenta contable del NETO ATC no es la cuenta esperada",
     "ATC_COMISION_CUENTA_INVALIDA": "La cuenta contable de la COMISIÓN ATC no es la cuenta esperada",
+    # Reserva de posgrado (solo cajas que aplican la regla). Ambas son
+    # bloqueantes: antes que generar una partida negativa o un asiento que
+    # "cuadre" restando dinero inexistente, el cierre se detiene.
+    "RESERVA_POSGRADO_NEGATIVA": "La reserva de posgrado informada es negativa",
+    "RESERVA_POSGRADO_MAYOR_QUE_ATC_BRUTO": "La reserva de posgrado supera el ATC bruto del día",
 }
 
 _ESTADOS_VOUCHER_EXCEPCION = ("NO_ENCONTRADO", "MULTIPLE", "POSIBLE_TYPO")
@@ -576,6 +619,52 @@ def _excepciones_atc(atc):
 # Orquestación
 # ---------------------------------------------------------------------------
 
+def _excepciones_reserva_posgrado(cierre, atc):
+    """Defensa fail-closed de la reserva de posgrado (ETAPA 3).
+
+    Devuelve [] para cualquier caja que no aplique la regla — Tiquipaya
+    nunca entra aquí, así que su conteo de bloqueantes no cambia.
+
+    Dos situaciones imposibles de corregir automáticamente, ambas
+    bloqueantes: una reserva negativa, y una reserva que supera el ATC
+    BRUTO del día (no se puede reservar dinero que no se cobró). Nunca se
+    "ajusta" el importe para que cuadre."""
+    caja = _caja_de(cierre)
+    if not caja.reserva_posgrado:
+        return []
+
+    excepciones = []
+    for sfc, clave in zip(caja.sfcs, caja.claves_sfc):
+        reserva_sfc = Decimal(cierre[clave]["posgrado_reserva"])
+        if reserva_sfc < 0:
+            excepciones.append({
+                "categoria": "RESERVA_POSGRADO",
+                "tipo": "RESERVA_POSGRADO_NEGATIVA",
+                "sfc": sfc,
+                "reserva": io.money_str(reserva_sfc),
+                "atc_bruto": atc["bruto"],
+                "motivo_legible": _MOTIVO_LEGIBLE["RESERVA_POSGRADO_NEGATIVA"],
+            })
+
+    if excepciones:
+        # Con algún importe negativo, comparar el total contra el bruto no
+        # aporta información: se reporta lo concreto y se corta.
+        return excepciones
+
+    total = _reserva_posgrado_total(cierre, caja)
+    if total > Decimal(atc["bruto"]):
+        excepciones.append({
+            "categoria": "RESERVA_POSGRADO",
+            "tipo": "RESERVA_POSGRADO_MAYOR_QUE_ATC_BRUTO",
+            "sfc": None,
+            "reserva": io.money_str(total),
+            "atc_bruto": atc["bruto"],
+            "motivo_legible": _MOTIVO_LEGIBLE["RESERVA_POSGRADO_MAYOR_QUE_ATC_BRUTO"],
+        })
+
+    return excepciones
+
+
 def _cruzar_sobre_cierre(cierre, macros_idx, atc_idx):
     """Aplica los cruces de ETAPA 3 sobre un `cierre` ya leído en memoria.
 
@@ -601,12 +690,16 @@ def _cruzar_sobre_cierre(cierre, macros_idx, atc_idx):
 
     ci = validar_ci(cierre)
 
+    # Vacío (y por lo tanto neutro) en toda caja sin reserva de posgrado.
+    excepciones_reserva = _excepciones_reserva_posgrado(cierre, atc)
+
     excepciones_bloqueantes = (
         vouchers["conteo"]["NO_ENCONTRADO"]
         + vouchers["conteo"]["MULTIPLE"]
         + vouchers["conteo"]["POSIBLE_TYPO"]
         + (1 if atc["excepcion"] else 0)
         + len(ci["bloqueantes"])
+        + len(excepciones_reserva)
     )
 
     resultado = "CRUCES V2 OK" if excepciones_bloqueantes == 0 else "CRUCES V2 ERROR"
@@ -615,6 +708,7 @@ def _cruzar_sobre_cierre(cierre, macros_idx, atc_idx):
         _excepciones_voucher(vouchers)
         + _excepciones_ci(ci)
         + _excepciones_atc(atc)
+        + excepciones_reserva
     )
 
     return {
@@ -628,11 +722,12 @@ def _cruzar_sobre_cierre(cierre, macros_idx, atc_idx):
     }
 
 
-def ejecutar_cruces(ruta_cierre, ruta_macros, ruta_atc):
+def ejecutar_cruces(ruta_cierre, ruta_macros, ruta_atc, caja=None):
     """ETAPA 3 standalone: abre los tres archivos y devuelve los cruces."""
-    cierre = io.leer_cierre(ruta_cierre)
+    caja = cfg.resolver_caja(caja)
+    cierre = io.leer_cierre(ruta_cierre, caja=caja)
     macros_idx = io.leer_macros_bnb(ruta_macros)   # UNA sola apertura
-    atc_idx = io.leer_atc_mensual(ruta_atc)         # UNA sola apertura
+    atc_idx = io.leer_atc_mensual(ruta_atc, caja=caja)  # UNA sola apertura
     return _cruzar_sobre_cierre(cierre, macros_idx, atc_idx)
 
 
@@ -649,10 +744,17 @@ _ESTADOS_VOUCHER_VALIDOS = ("MATCH_EXACTO", "AUTOCORRECCION_0_O")
 
 
 def calcular_universo(cierre):
-    """UNIVERSO_ORIGINAL = TOTAL_MOVIMIENTO SFC101 + TOTAL_MOVIMIENTO SFC102."""
-    sfc101 = Decimal(cierre["sfc101"]["total_movimiento"])
-    sfc102 = Decimal(cierre["sfc102"]["total_movimiento"])
-    return io.money_str(sfc101 + sfc102)
+    """UNIVERSO_ORIGINAL = suma de TOTAL_MOVIMIENTO de las dos hojas SFC de
+    la caja (SFC101 + SFC102 en Tiquipaya).
+
+    La reserva de posgrado NO se resta aquí: el TOTAL MOVIMIENTO DEL DIA de
+    la hoja YA la excluye (fórmula del propio cierre). Restarla otra vez
+    sería contarla dos veces."""
+    caja = _caja_de(cierre)
+    return io.money_str(sum(
+        (Decimal(cierre[clave]["total_movimiento"]) for clave in caja.claves_sfc),
+        Decimal("0"),
+    ))
 
 
 def calcular_componentes(cierre, cruces):
@@ -664,9 +766,16 @@ def calcular_componentes(cierre, cruces):
         bloqueante -cuenta/asignación faltante, importe negativo-, que no
         puede explicar recaudación contabilizable aunque el cierre termine
         bloqueado por otra excepción).
-    ATC_BRUTO = ATC SFC101 + ATC SFC102 (ya calculado por cruzar_atc).
-    DOLARES = DOLARES SFC101 + DOLARES SFC102 si > 0; si no, "0.00" (no
+    ATC_BRUTO = ATC de las dos hojas SFC de la caja (ya calculado por
+        cruzar_atc): el cobro REAL con tarjeta, sin descontar nada.
+    DOLARES = DOLARES de las dos hojas SFC si > 0; si no, "0.00" (no
         activo, no se trata como faltante).
+
+    En cajas con reserva de posgrado se agregan además dos claves —
+    "reserva_posgrado" y "atc_computable" (= ATC_BRUTO - RESERVA) — y es
+    `atc_computable` el que entra en RECAUDACION EXPLICADA. En las demás
+    cajas esas claves NI SIQUIERA se crean, de modo que el dict de
+    componentes de Tiquipaya queda idéntico al histórico.
     """
     vouchers_validos = sum(
         (
@@ -682,17 +791,28 @@ def calcular_componentes(cierre, cruces):
         Decimal("0"),
     )
 
+    caja = _caja_de(cierre)
     atc_bruto = Decimal(cruces["atc"]["bruto"])
 
-    dolares = Decimal(cierre["sfc101"]["dolares"]) + Decimal(cierre["sfc102"]["dolares"])
+    dolares = sum(
+        (Decimal(cierre[clave]["dolares"]) for clave in caja.claves_sfc),
+        Decimal("0"),
+    )
     dolares_activo = dolares if dolares > 0 else Decimal("0")
 
-    return {
+    componentes = {
         "vouchers": io.money_str(vouchers_validos),
         "ci_operativas": io.money_str(ci_operativas),
         "atc_bruto": io.money_str(atc_bruto),
         "dolares": io.money_str(dolares_activo),
     }
+
+    if caja.reserva_posgrado:
+        reserva = _reserva_posgrado_total(cierre, caja)
+        componentes["reserva_posgrado"] = io.money_str(reserva)
+        componentes["atc_computable"] = io.money_str(atc_bruto - reserva)
+
+    return componentes
 
 
 def _ejecutar_v2_sobre_cierre(cierre, macros_idx, atc_idx):
@@ -716,10 +836,20 @@ def _ejecutar_v2_sobre_cierre(cierre, macros_idx, atc_idx):
 
         componentes = calcular_componentes(cierre, cruces)
 
+        # ATC del CUADRE: en cajas con reserva de posgrado es el ATC
+        # COMPUTABLE (BRUTO - RESERVA); en el resto es el ATC BRUTO de
+        # siempre, porque la clave "atc_computable" ni siquiera existe.
+        #
+        # Esta es la ÚNICA resta de la reserva en todo el motor. Ni
+        # universo_original, ni universo_ajustado, ni el HABER normal
+        # vuelven a descontarla: el TOTAL MOVIMIENTO DEL DIA del cierre ya
+        # viene neto de reserva.
+        atc_para_cuadre = componentes.get("atc_computable", componentes["atc_bruto"])
+
         recaudacion_explicada = io.money_str(
             Decimal(componentes["vouchers"])
             + Decimal(componentes["ci_operativas"])
-            + Decimal(componentes["atc_bruto"])
+            + Decimal(atc_para_cuadre)
             + Decimal(componentes["dolares"])
         )
 
@@ -750,6 +880,11 @@ def _ejecutar_v2_sobre_cierre(cierre, macros_idx, atc_idx):
 
     return {
         "fecha": cierre["fecha_cierre"],
+        # Identidad de la caja: la necesita construir_asiento(), que recibe
+        # este dict y ya no tiene acceso al `cierre`. No se publica en
+        # RESULTADO_*.json (pipeline._construir_resultado_json arma su
+        # salida con una lista blanca de claves).
+        "caja": _caja_de(cierre).codigo,
         "universo_original": universo_original,
         "alquileres": alquileres,
         "universo_ajustado": universo_ajustado,
@@ -763,7 +898,7 @@ def _ejecutar_v2_sobre_cierre(cierre, macros_idx, atc_idx):
     }
 
 
-def ejecutar_v2(ruta_cierre, ruta_macros, ruta_atc):
+def ejecutar_v2(ruta_cierre, ruta_macros, ruta_atc, caja=None):
     """
     ETAPA 4: orquesta ETAPA 2 (extracción) + ETAPA 3 (cruces) + ETAPA 4
     (universo, ALQUILERES, componentes, recaudación explicada, cuadre)
@@ -786,9 +921,10 @@ def ejecutar_v2(ruta_cierre, ruta_macros, ruta_atc):
     ejecutar_lote_v2().
     """
     try:
-        cierre = io.leer_cierre(ruta_cierre)
+        caja = cfg.resolver_caja(caja)
+        cierre = io.leer_cierre(ruta_cierre, caja=caja)
         macros_idx = io.leer_macros_bnb(ruta_macros)   # UNA sola apertura
-        atc_idx = io.leer_atc_mensual(ruta_atc)         # UNA sola apertura
+        atc_idx = io.leer_atc_mensual(ruta_atc, caja=caja)  # UNA sola apertura
     except (ValueError, KeyError) as exc:
         return {
             "fecha": None,
@@ -810,16 +946,26 @@ def _detalle_para_asiento(cierre, cruces, componentes):
     compensa con otra cuenta), pero su importe se conserva separado por
     SFC para ajustar el HABER: HABER SFCxxx = TOTAL SFCxxx - ALQUILERES de
     ese SFC. El total HABER resultante coincide con el UNIVERSO_AJUSTADO.
+
+    La reserva de posgrado NO entra en esta resta (ver calcular_universo):
+    solo se expone su total para que ETAPA 5 arme la partida CxP.
+
+    Las claves por SFC se derivan de la caja: para Tiquipaya son
+    exactamente las históricas (sfc101_total, sfc101_haber,
+    alquileres_sfc101, …); para América, sfc107_*/sfc108_*.
     """
+    caja = _caja_de(cierre)
     alquileres_por_sfc = cruces["ci"]["alquileres_por_sfc"]
-    sfc101_total = cierre["sfc101"]["total_movimiento"]
-    sfc102_total = cierre["sfc102"]["total_movimiento"]
-    sfc101_haber = io.money_str(
-        Decimal(sfc101_total) - Decimal(alquileres_por_sfc.get("SFC101", "0.00"))
-    )
-    sfc102_haber = io.money_str(
-        Decimal(sfc102_total) - Decimal(alquileres_por_sfc.get("SFC102", "0.00"))
-    )
+
+    totales_por_sfc = {}
+    for sfc, clave in zip(caja.sfcs, caja.claves_sfc):
+        total = cierre[clave]["total_movimiento"]
+        alquiler = alquileres_por_sfc.get(sfc, "0.00")
+        totales_por_sfc[f"{clave}_total"] = total
+        totales_por_sfc[f"{clave}_haber"] = io.money_str(
+            Decimal(total) - Decimal(alquiler)
+        )
+        totales_por_sfc[f"alquileres_{clave}"] = alquiler
 
     vouchers_confirmados = [
         {
@@ -886,13 +1032,8 @@ def _detalle_para_asiento(cierre, cruces, componentes):
             atc_neto = None
             atc_comision = None
 
-    return {
-        "sfc101_total": sfc101_total,
-        "sfc102_total": sfc102_total,
-        "sfc101_haber": sfc101_haber,
-        "sfc102_haber": sfc102_haber,
-        "alquileres_sfc101": alquileres_por_sfc.get("SFC101", "0.00"),
-        "alquileres_sfc102": alquileres_por_sfc.get("SFC102", "0.00"),
+    detalle = {
+        **totales_por_sfc,
         "vouchers_confirmados": vouchers_confirmados,
         "ci_validas": cruces["ci"]["detalle_validas"],
         "atc_neto": atc_neto,
@@ -902,6 +1043,11 @@ def _detalle_para_asiento(cierre, cruces, componentes):
         "atc_advertencias": atc_advertencias,
         "dolares": componentes["dolares"],
     }
+
+    if caja.reserva_posgrado:
+        detalle["reserva_posgrado"] = componentes["reserva_posgrado"]
+
+    return detalle
 
 
 # ---------------------------------------------------------------------------
@@ -916,15 +1062,15 @@ def _detalle_para_asiento(cierre, cruces, componentes):
 
 _SOCIEDAD = "BO01"
 _CENTRO_BENEFICIO = "10010101"
-_CUENTA_HABER = "110101001"
 _CUENTA_VOUCHER_ATC = "110103012"
 _CUENTA_ATC_COMISION = "110201008"
 
-# ETAPA 8: texto_posicion (SGTXT) autorizado para las 2 líneas HABER
-# normales (UNIVERSO_SFC101/UNIVERSO_SFC102). Literal, no se reconstruye
-# a partir de ningún otro dato del cierre.
-_TEXTO_HABER_SFC101 = "RECAUDACION CAJA SFC101"
-_TEXTO_HABER_SFC102 = "RECAUDACION CAJA SFC102"
+# La cuenta del HABER normal y el texto_posicion (SGTXT) de esas 2 líneas
+# viven ahora en config_cajas (CajaConfig.cuenta_haber / .texto_haber):
+# para TIQUIPAYA siguen siendo literalmente 110101001 y "RECAUDACION CAJA
+# SFC101"/"RECAUDACION CAJA SFC102"; para AMERICA, 110101003 y
+# "RECAUDACION CAJA SFC107"/"RECAUDACION CAJA SFC108". Ningún otro dato
+# del cierre interviene en esos textos.
 
 # CORRECCIÓN USD/DOLARES (post-ETAPA 8): cuenta "Caja M/E" y texto de
 # posición autorizados, validados end-to-end por Cowork sobre el cierre
@@ -975,10 +1121,12 @@ def _partida(cuenta_mayor, cargo, haber, asignacion, origen, sfc_origen,
     }
 
 
-def _validar_partidas(partidas, total_cargo, total_haber, diferencia):
+def _validar_partidas(partidas, total_cargo, total_haber, diferencia, caja=None):
     """Verifica, sin forzar nada, que el asiento ya construido cumpla las
     reglas obligatorias de ETAPA 5. Devuelve la lista de problemas
     encontrados (vacía si el asiento es válido)."""
+    caja = cfg.resolver_caja(caja)
+    origenes_universo = caja.origenes_universo
     problemas = []
 
     if total_cargo != total_haber:
@@ -986,9 +1134,16 @@ def _validar_partidas(partidas, total_cargo, total_haber, diferencia):
     if diferencia != 0:
         problemas.append("DIFERENCIA_DISTINTA_DE_CERO")
 
-    haber_normales = [p for p in partidas if p["origen"] in ("UNIVERSO_SFC101", "UNIVERSO_SFC102")]
+    haber_normales = [p for p in partidas if p["origen"] in origenes_universo]
     if len(haber_normales) != 2:
         problemas.append("CANTIDAD_HABER_NORMAL_INVALIDA")
+
+    reservas = [p for p in partidas if p["origen"] == cfg.ORIGEN_RESERVA_POSGRADO]
+    if reservas and not caja.reserva_posgrado:
+        # Una caja sin la regla NUNCA puede traer esta partida.
+        problemas.append("RESERVA_POSGRADO_NO_APLICA")
+    if len(reservas) > 1:
+        problemas.append("CANTIDAD_RESERVA_POSGRADO_INVALIDA")
 
     for p in partidas:
         cargo_dec = Decimal(p["cargo"])
@@ -1001,8 +1156,15 @@ def _validar_partidas(partidas, total_cargo, total_haber, diferencia):
         if cargo_dec > 0 and haber_dec > 0:
             problemas.append(f"CARGO_Y_HABER_SIMULTANEO:{p['origen']}")
 
-        if p["origen"] in ("UNIVERSO_SFC101", "UNIVERSO_SFC102") and p["cuenta_mayor"] != _CUENTA_HABER:
+        if p["origen"] in origenes_universo and p["cuenta_mayor"] != caja.cuenta_haber:
             problemas.append(f"HABER_CUENTA_INVALIDA:{p['origen']}")
+        if p["origen"] == cfg.ORIGEN_RESERVA_POSGRADO:
+            if p["cuenta_mayor"] != caja.cuenta_reserva_posgrado:
+                problemas.append("RESERVA_POSGRADO_CUENTA_INVALIDA")
+            if haber_dec <= 0:
+                # La partida solo existe cuando hay reserva real (>0); una
+                # de 0.00 nunca debió construirse.
+                problemas.append("RESERVA_POSGRADO_IMPORTE_INVALIDO")
         if p["origen"] == "VOUCHER" and p["cuenta_mayor"] != _CUENTA_VOUCHER_ATC:
             problemas.append("VOUCHER_CUENTA_INVALIDA")
         if p["origen"] == "CI" and (not p["cuenta_mayor"] or not p["asignacion"]):
@@ -1071,6 +1233,7 @@ def construir_asiento(resultado_v2):
     contra banco/MACROS).
     """
     fecha_cierre = resultado_v2.get("fecha")
+    caja = _caja_de(resultado_v2)
 
     condiciones_ok = (
         resultado_v2.get("estado") == "OK"
@@ -1112,16 +1275,37 @@ def construir_asiento(resultado_v2):
     correcciones_aplicadas = []
     advertencias = list(detalle.get("atc_advertencias") or [])
 
-    partidas.append(_partida(
-        cuenta_mayor=_CUENTA_HABER, cargo="0.00", haber=detalle["sfc101_haber"],
-        asignacion="SFC101", origen="UNIVERSO_SFC101", sfc_origen="SFC101",
-        texto_posicion=_TEXTO_HABER_SFC101,
-    ))
-    partidas.append(_partida(
-        cuenta_mayor=_CUENTA_HABER, cargo="0.00", haber=detalle["sfc102_haber"],
-        asignacion="SFC102", origen="UNIVERSO_SFC102", sfc_origen="SFC102",
-        texto_posicion=_TEXTO_HABER_SFC102,
-    ))
+    # HABER normal, una partida por hoja SFC de la caja. Para Tiquipaya
+    # esto reproduce EXACTAMENTE las dos partidas históricas (cuenta
+    # 110101001, asignación SFC101/SFC102, textos "RECAUDACION CAJA
+    # SFC101/SFC102"), en el mismo orden.
+    #
+    # El HABER normal NO descuenta la reserva de posgrado: sale de
+    # TOTAL MOVIMIENTO - ALQUILERES, y TOTAL MOVIMIENTO ya viene neto de
+    # reserva desde el propio cierre.
+    for sfc in caja.sfcs:
+        partidas.append(_partida(
+            cuenta_mayor=caja.cuenta_haber, cargo="0.00",
+            haber=detalle[f"{caja.clave_sfc(sfc)}_haber"],
+            asignacion=sfc, origen=caja.origen_universo(sfc), sfc_origen=sfc,
+            texto_posicion=caja.texto_haber(sfc),
+        ))
+
+    # HABER adicional: la reserva de posgrado que el día cobró por ATC pero
+    # todavía no facturó. Una sola partida por el total de las hojas SFC
+    # (misma cuenta y misma asignación POSTG-<MES>: dos líneas idénticas
+    # serían indistinguibles para CONTROL 1/CONTROL 3). Si la reserva es
+    # 0.00 la partida no existe. Su compensación posterior no se automatiza
+    # aquí.
+    reserva = Decimal(detalle.get("reserva_posgrado") or "0.00")
+    if caja.reserva_posgrado and reserva > 0:
+        partidas.append(_partida(
+            cuenta_mayor=caja.cuenta_reserva_posgrado,
+            cargo="0.00", haber=io.money_str(reserva),
+            asignacion=cfg.asignacion_reserva_posgrado(fecha_cierre),
+            origen=cfg.ORIGEN_RESERVA_POSGRADO, sfc_origen=None,
+            texto_posicion=cfg.TEXTO_RESERVA_POSGRADO,
+        ))
 
     for v in detalle["vouchers_confirmados"]:
         es_autocorreccion = v["estado"] == "AUTOCORRECCION_0_O"
@@ -1216,7 +1400,7 @@ def construir_asiento(resultado_v2):
     total_haber = sum((Decimal(p["haber"]) for p in partidas), Decimal("0"))
     diferencia = total_cargo - total_haber
 
-    problemas = _validar_partidas(partidas, total_cargo, total_haber, diferencia)
+    problemas = _validar_partidas(partidas, total_cargo, total_haber, diferencia, caja)
 
     # Si el asiento construido no pasa la validación (importes negativos,
     # cargo y haber simultáneos, ALQUILERES colado, cuentas inválidas,
@@ -1259,9 +1443,10 @@ def construir_asiento(resultado_v2):
 # mismo resultado_v2 y asiento que ejecutar_v2()+construir_asiento()
 # llamados individualmente sobre esa misma ruta.
 
-def ejecutar_lote_v2(rutas_cierres, ruta_macros, ruta_atc):
+def ejecutar_lote_v2(rutas_cierres, ruta_macros, ruta_atc, caja=None):
     """Procesa varios cierres del mismo mes reutilizando MACROS y ATC ya
-    cargados en memoria.
+    cargados en memoria. Todo el lote pertenece a UNA caja (por defecto
+    TIQUIPAYA): nunca se mezclan cajas en una misma corrida.
 
     - MACROS se abre UNA sola vez para todo el lote.
     - ATC se abre UNA sola vez para todo el lote.
@@ -1292,8 +1477,9 @@ def ejecutar_lote_v2(rutas_cierres, ruta_macros, ruta_atc):
     }
     """
     try:
+        caja = cfg.resolver_caja(caja)
         macros_idx = io.leer_macros_bnb(ruta_macros)   # UNA sola apertura para todo el lote
-        atc_idx = io.leer_atc_mensual(ruta_atc)         # UNA sola apertura para todo el lote
+        atc_idx = io.leer_atc_mensual(ruta_atc, caja=caja)  # UNA sola apertura para todo el lote
     except (ValueError, KeyError) as exc:
         return {
             "estado": "LOTE_ERROR_MAESTROS",
@@ -1305,7 +1491,7 @@ def ejecutar_lote_v2(rutas_cierres, ruta_macros, ruta_atc):
     resultados = []
     for ruta_cierre in rutas_cierres:
         try:
-            cierre = io.leer_cierre(ruta_cierre)  # UNA sola apertura por cierre
+            cierre = io.leer_cierre(ruta_cierre, caja=caja)  # UNA sola apertura por cierre
         except (ValueError, KeyError) as exc:
             resultado_v2 = {
                 "fecha": None,

@@ -241,9 +241,14 @@ def procesar_cierre_completo(
     ruta_resultado=None,
     hashes_procesados=None,
     registros_control=None,
+    caja=None,
 ):
     """Orquesta ETAPAS 1-6 sobre un único cierre, con control de
     procesamiento por SHA256 e idempotencia.
+
+    - `caja`: config_cajas.CajaConfig (o su `codigo`) del cierre. Por
+      defecto TIQUIPAYA, con lo que el comportamiento es idéntico al
+      histórico. Decide hojas SFC, cuenta HABER y filtro del ATC.
 
     - `ruta_maestro` se usa como MACROS y como ATC (maestro mensual único,
       ver HANDOFF_CODE_V2.md): motor_tiquipaya.ejecutar_v2(ruta_cierre,
@@ -320,7 +325,7 @@ def procesar_cierre_completo(
     if mismo_nombre_otro_hash:
         warnings_list.append(WARNING_MISMO_NOMBRE_HASH_DISTINTO)
 
-    resultado_v2 = motor.ejecutar_v2(ruta_cierre, ruta_maestro, ruta_maestro)
+    resultado_v2 = motor.ejecutar_v2(ruta_cierre, ruta_maestro, ruta_maestro, caja=caja)
     asiento = motor.construir_asiento(resultado_v2)
 
     blockers = resultado_v2.get("excepciones_bloqueantes", 0) or 0
@@ -566,6 +571,7 @@ def procesar_cierre_con_correccion(
     correccion,
     ruta_resultado=None,
     ya_publicado=False,
+    caja=None,
 ):
     """Reprocesa UN cierre aplicando una única corrección autorizada por el
     auditor, en memoria, sin modificar el .xlsm original ni ninguna regla
@@ -614,9 +620,9 @@ def procesar_cierre_con_correccion(
     hash_origen = correcciones.validar_sha256_origen(ruta_cierre, correccion["sha256_origen"])
     archivo_origen = os.path.basename(str(ruta_cierre))
 
-    cierre = io.leer_cierre(ruta_cierre)
+    cierre = io.leer_cierre(ruta_cierre, caja=caja)
     macros_idx = io.leer_macros_bnb(ruta_maestro)
-    atc_idx = io.leer_atc_mensual(ruta_maestro)
+    atc_idx = io.leer_atc_mensual(ruta_maestro, caja=caja)
 
     cierre_corregido, atc_idx_corregido = correcciones.aplicar_correccion_en_memoria(
         cierre, macros_idx, atc_idx, correccion
