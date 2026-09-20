@@ -23,9 +23,19 @@ no existe, sin fallback a otra hoja) y el nombre del GLOBAL debe seguir
 la convención canónica SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx (ERROR_TECNICO/
 GLOBAL_NOMBRE_NO_CANONICO si no, sin inferir un periodo de otra forma).
 
-EXCLUSIONES (SIN CAMBIOS): SFC101, SFC102, "TIQUIPAYA <MES>" (12
-abreviaturas oficiales), y CuentaMayor "110201008" (por cuenta, sin
-importar el texto de Asignacion). "FORTALEZA" SIEMPRE se evalúa.
+EXCLUSIONES: las asignaciones ESTRUCTURALES de cada caja (SFC101, SFC102,
+SFC107, SFC108), las 12 asignaciones POSTG-<MES> de la reserva de posgrado
+(POSTG-SEPT en septiembre), "TIQUIPAYA <MES>" (12 abreviaturas oficiales),
+y CuentaMayor "110201008" (por cuenta, sin importar el texto de
+Asignacion). "FORTALEZA" SIEMPRE se evalúa.
+
+Excluir aquí significa ÚNICAMENTE no evaluarlas en el detector de
+duplicados: nada se borra del SAP ni se ignora contablemente, y CONTROL 3
+(control_cxc_cxp.py) no se ve afectado — sigue leyendo la cuenta 210103003
+y acumulando POSTG-<MES> por CUENTA+ASIGNACION. Las listas POSTG y SFC se
+derivan de config_cajas (misma fuente que usa el motor para generarlas);
+POSTG es una allowlist EXPLÍCITA de 12 valores, nunca un prefijo, para que
+un typo como "POSTG-SET" siga siendo detectable.
 
 VALIDACIÓN HUMANA EN EXCEL:
 
@@ -130,6 +140,7 @@ import warnings
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 import openpyxl
+import config_cajas as cfg
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -154,9 +165,40 @@ _MESES_ABREV = (
     "JUL", "AGO", "SEP", "OCT", "NOV", "DIC",
 )
 
+# Asignaciones ESTRUCTURALES: las que el motor escribe en el HABER normal
+# de cada hoja SFC (asignacion=SFC101/SFC102 en Tiquipaya, SFC107/SFC108 en
+# América). Se repiten todos los días por diseño, así que repetirse no es
+# indicio de nada. Se derivan de config_cajas para que no puedan quedar
+# desincronizadas con lo que el motor realmente escribe.
+_ASIGNACIONES_SFC = frozenset(
+    sfc for caja in cfg.CAJAS.values() for sfc in caja.sfcs
+)
+
+# Las 12 asignaciones POSTG-<MES> autorizadas (POSTG-SEPT en septiembre,
+# no POSTG-SEP). La reserva de posgrado se acumula durante todo el mes bajo
+# una misma asignación: verla repetida es lo esperado.
+#
+# ALLOWLIST EXPLÍCITA, a propósito: son exactamente estos 12 valores, nunca
+# una regla por prefijo. Un valor mal formado —"POSTG-SET", "POSTG-SEPTIEMBRE",
+# "POSTGRADO-SEPT"— NO está en el conjunto y por lo tanto SIGUE siendo
+# detectable como duplicado; un startswith("POSTG") lo ocultaría.
+#
+# Se derivan de la MISMA función que usa el motor para generarlas
+# (config_cajas.asignacion_reserva_posgrado), de modo que ambas listas no
+# puedan divergir. El contenido literal queda fijado por
+# tests/test_control_america_postg.py.
+_ASIGNACIONES_POSTGRADO = frozenset(
+    cfg.asignacion_reserva_posgrado(f"2026-{mes:02d}-01") for mes in range(1, 13)
+)
+
 # Únicas exclusiones autorizadas. NUNCA agregar nada aquí sin autorización
 # explícita del usuario (ver reglas del proyecto CAJA TIQUIPAYA V2 CLOUD).
-_ASIGNACIONES_EXCLUIDAS = {"SFC101", "SFC102"} | {
+#
+# Excluir aquí significa UNA sola cosa: no evaluar esa asignación en el
+# detector de duplicados de CONTROL 1. No se borra del SAP, no se ignora
+# contablemente y no afecta a CONTROL 3 — que sigue leyendo la cuenta
+# 210103003 y acumulando POSTG-<MES> por CUENTA+ASIGNACION.
+_ASIGNACIONES_EXCLUIDAS = _ASIGNACIONES_SFC | _ASIGNACIONES_POSTGRADO | {
     f"TIQUIPAYA {mes}" for mes in _MESES_ABREV
 }
 
@@ -317,11 +359,15 @@ def _normalizar_cuenta(valor):
 
 
 def es_excluida(asignacion, cuenta_mayor):
-    """True para SFC101, SFC102, "TIQUIPAYA <MES>" (una de las 12
+    """True para las asignaciones estructurales de las cajas (SFC101,
+    SFC102, SFC107, SFC108), para las 12 asignaciones POSTG-<MES> de la
+    reserva de posgrado, para "TIQUIPAYA <MES>" (una de las 12
     abreviaturas oficiales), o cuando CuentaMayor es la cuenta de
     comisión ATC (110201008) — esta última exclusión es POR CUENTA,
     independientemente del texto de asignacion. Cualquier otro valor
-    —incluido "FORTALEZA"— NUNCA se excluye. SIN CAMBIOS."""
+    —incluido "FORTALEZA" y cualquier POSTG mal formado— NUNCA se
+    excluye. La comparación es por igualdad exacta contra el conjunto,
+    nunca por prefijo."""
     if asignacion in _ASIGNACIONES_EXCLUIDAS:
         return True
     return _normalizar_cuenta(cuenta_mayor) == _CUENTA_COMISION_ATC
