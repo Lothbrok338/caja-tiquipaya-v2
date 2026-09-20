@@ -39,6 +39,7 @@ from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import config_cajas as cfg  # noqa: E402  (reutilizado tal cual: resolver_caja)
 import run_batch  # noqa: E402  (reutilizado tal cual: generar_rango_fechas)
 import excel_io  # noqa: E402  (reutilizado tal cual: money_str)
 import correcciones_tiquipaya as correcciones  # noqa: E402  (reutilizado tal cual)
@@ -121,20 +122,43 @@ def _buscar_indice(lote, fecha):
 # PROCESAR — en 2 pasos, para no bloquear al front esperando 01→04 completo.
 # ---------------------------------------------------------------------------
 
-def crear_lote_pendiente(fecha_inicio, fecha_fin, usuario_auditor, base_dir_dev):
+def crear_lote_pendiente(fecha_inicio, fecha_fin, usuario_auditor, base_dir_dev, caja=None):
     """Paso 1 (rápido): registra el lote en PROCESANDO y devuelve su id de
     inmediato. n8n responde al navegador con este resultado ANTES de
     ejecutar la cadena 01→04 (ver `procesar_lote`), que sigue corriendo
     en segundo plano en la misma ejecución de n8n (nodo "Respond to
-    Webhook" + nodos posteriores)."""
+    Webhook" + nodos posteriores).
+
+    `caja` se resuelve UNA sola vez, aquí, con config_cajas.resolver_caja()
+    (None -> TIQUIPAYA, el default absoluto; código desconocido FALLA
+    CERRADO, nunca se adivina) y se persiste tal cual en el JSON del lote
+    (`lote["caja"]`). A partir de este momento esa es la identidad
+    INMUTABLE del lote: ninguna acción posterior (procesar/corregir/
+    publicar) vuelve a aceptar una caja del request — todas leen
+    `lote["caja"]` (ver `_caja_lote()`)."""
+    caja_resuelta = cfg.resolver_caja(caja)
     lote_id = uuid.uuid4().hex[:12]
     lote = {
         "lote_id": lote_id, "fecha_inicio": fecha_inicio, "fecha_fin": fecha_fin,
         "usuario_auditor": usuario_auditor, "estado_lote": PROCESANDO,
         "creado_en": datetime.now(timezone.utc).isoformat(), "cierres": [],
+        "caja": caja_resuelta.codigo,
     }
     _escribir_lote(lote, base_dir_dev)
-    return {"lote_id": lote_id, "estado_lote": PROCESANDO}
+    return {"lote_id": lote_id, "estado_lote": PROCESANDO, "caja": caja_resuelta.codigo}
+
+
+def _caja_lote(lote):
+    """Identidad INMUTABLE de un lote ya creado. SIEMPRE la caja persistida
+    en el JSON del lote (`lote["caja"]`); un lote histórico sin ese campo
+    se interpreta como TIQUIPAYA (compatibilidad, mismo default absoluto de
+    config_cajas.resolver_caja). Esta es la ÚNICA fuente de la caja para
+    cualquier acción posterior sobre un lote ya creado — por diseño, ninguna
+    de esas funciones (procesar_lote/aplicar_correccion/
+    publicar_seleccionados/cierres mensuales derivados del lote) acepta un
+    parámetro `caja` propio: así un request posterior nunca puede convertir
+    silenciosamente un lote América en Tiquipaya ni viceversa."""
+    return cfg.resolver_caja(lote.get("caja"))
 
 
 def procesar_lote(lote_id, base_dir_dev, origen_cierres_dir, ruta_maestro_origen,
@@ -166,6 +190,7 @@ def procesar_lote(lote_id, base_dir_dev, origen_cierres_dir, ruta_maestro_origen
     cierre cuyo origen en Drive no se pudo verificar. Default False para no
     alterar el comportamiento ya validado en DEV/tests (fixture local)."""
     lote = _leer_lote(lote_id, base_dir_dev)
+    caja_lote = _caja_lote(lote)  # identidad INMUTABLE del lote, nunca del request
     try:
         mes_rango = int(lote["fecha_inicio"].split("-")[1])
 
@@ -210,7 +235,7 @@ def procesar_lote(lote_id, base_dir_dev, origen_cierres_dir, ruta_maestro_origen
         # aqui, no solo "no procesado" dentro del motor).
         anotados_precheck = aplicar_precheck_maestro(materializados)
         aptos_para_motor = filtrar_aptos_para_motor(anotados_precheck)
-        procesados_motor = ejecutar_motor(aptos_para_motor, base_dir_dev, version_codigo)
+        procesados_motor = ejecutar_motor(aptos_para_motor, base_dir_dev, version_codigo, caja=caja_lote.codigo)
         procesados_motor_por_fecha = {c["fecha"]: c for c in procesados_motor}
         procesados = [procesados_motor_por_fecha.get(item["fecha"], item) for item in anotados_precheck]
 
@@ -405,6 +430,7 @@ def aplicar_correccion(lote_id, fecha, correccion_parcial, base_dir_dev):
     correcciones_tiquipaya.validar_schema_correccion() la rechaza tal cual
     lo haría para V2 — este módulo no relaja ni completa esos campos."""
     lote = _leer_lote(lote_id, base_dir_dev)
+    caja_lote = _caja_lote(lote)  # identidad INMUTABLE del lote, nunca del request
     idx = _buscar_indice(lote, fecha)
     item = lote["cierres"][idx]
 
@@ -418,8 +444,11 @@ def aplicar_correccion(lote_id, fecha, correccion_parcial, base_dir_dev):
     correccion["sha256_origen"] = correcciones.calcular_sha256_archivo(ruta_cierre)  # SIEMPRE servidor, nunca el navegador
     correccion["version_correccion"] = correcciones.calcular_version_correccion(correccion)  # idem
 
-    item_con_correccion = dict(item, correccion=correccion)
-    resultado = revisar_y_corregir_cierre(item_con_correccion, base_dir_dev, controles_dir_dev=lote.get("controles_dir_dev"))
+    # `caja` se fija SIEMPRE a la del lote (nunca a lo que trajera `item`
+    # ni, mucho menos, a algo del request): así un JSON de lote manipulado
+    # o un item de una versión anterior nunca puede reabrir la identidad.
+    item_con_correccion = dict(item, correccion=correccion, caja=caja_lote.codigo)
+    resultado = revisar_y_corregir_cierre(item_con_correccion, base_dir_dev, controles_dir_dev=lote.get("controles_dir_dev"), caja=caja_lote.codigo)
     lote["cierres"][idx] = resultado
     _escribir_lote(lote, base_dir_dev)
     # Cuadre real del reproceso (Universo/Recaudación explicada/Diferencia),
@@ -439,6 +468,7 @@ def publicar_seleccionados(lote_id, fechas, base_dir_dev, usuario_auditor, modo_
     if modo_oficial:
         exigir_no_bloqueo_para_publicacion_oficial()
     lote = _leer_lote(lote_id, base_dir_dev)
+    caja_lote = _caja_lote(lote)  # identidad INMUTABLE del lote, nunca del request
     fechas = set(fechas)
     elegibles, omitidos, indices = [], [], {}
 
@@ -447,12 +477,13 @@ def publicar_seleccionados(lote_id, fechas, base_dir_dev, usuario_auditor, modo_
             continue
         estado = c.get("resultado_reproceso") or c.get("estado_final")
         if estado == LISTO_PARA_PUBLICAR:
-            elegibles.append(c)
+            # `caja` se fija SIEMPRE a la del lote, igual que en aplicar_correccion.
+            elegibles.append(dict(c, caja=caja_lote.codigo))
             indices[c["fecha"]] = i
         else:
             omitidos.append({"fecha": c.get("fecha"), "motivo": f"Estado '{estado}' no habilita publicación (CONTRACT-011)."})
 
-    publicados = publicar_lote(elegibles, base_dir_dev, usuario_auditor, modo_oficial) if elegibles else []
+    publicados = publicar_lote(elegibles, base_dir_dev, usuario_auditor, modo_oficial, caja=caja_lote.codigo) if elegibles else []
     for p in publicados:
         lote["cierres"][indices[p["fecha"]]] = p
 
@@ -574,16 +605,23 @@ def preparar_procesar_entrada(lote_id, base_dir_dev):
 # este archivo.
 # ---------------------------------------------------------------------------
 
-def _ruta_global(base_dir_dev, anio, mes):
-    return os.path.join(base_dir_dev, "global", consolidador_mensual.nombre_sap_global(anio, mes))
+def _ruta_global(base_dir_dev, anio, mes, caja=None):
+    """`global/<nombre>.xlsx` para TIQUIPAYA (rutas históricas intactas);
+    `global/america/<nombre>.xlsx` para AMERICA — GLOBAL TIQ y AME nunca
+    comparten carpeta ni pueden pisarse entre sí."""
+    caja = cfg.resolver_caja(caja)
+    nombre = consolidador_mensual.nombre_sap_global(anio, mes, caja)
+    if caja.codigo == cfg.TIQUIPAYA.codigo:
+        return os.path.join(base_dir_dev, "global", nombre)
+    return os.path.join(base_dir_dev, "global", caja.codigo, nombre)
 
 
 def _periodo(anio, mes):
-    """PERIODO canonico (p.ej. 'SEPTIEMBRE_2026'), derivado del mismo nombre
-    que consolidador_mensual.nombre_sap_global() ya produce — nunca una
-    tabla de meses duplicada aparte."""
-    nombre = consolidador_mensual.nombre_sap_global(anio, mes)
-    return nombre[len("SAP_GLOBAL_TIQ_"):-len(".xlsx")]
+    """PERIODO canonico (p.ej. 'SEPTIEMBRE_2026'), independiente del
+    prefijo de caja — usa el helper de consolidador_mensual.py dedicado a
+    esto (periodo_sap_global), nunca slicing sobre el nombre de archivo
+    (que sí depende del prefijo TIQ/AME)."""
+    return consolidador_mensual.periodo_sap_global(anio, mes)
 
 
 def _validar_anio_mes(anio, mes):
@@ -595,13 +633,19 @@ def _validar_anio_mes(anio, mes):
         raise ValueError(f"PERIODO_INVALIDO: anio={anio}, mes={mes} fuera de rango")
 
 
-def global_entrada_dir(base_dir_dev, anio, mes):
+def global_entrada_dir(base_dir_dev, anio, mes, caja=None):
     """Snapshot temporal, AISLADO, de la carpeta SAP oficial del periodo en
-    Drive: `base_dir_dev/global_entrada/<YYYY-MM>/`. Es la ÚNICA fuente de
-    entrada de GLOBAL. `publicacion/sap/` (artefactos locales del flujo
-    diario, con residuos de pruebas DEV) nunca se usa como entrada."""
+    Drive: `base_dir_dev/global_entrada/<YYYY-MM>/` para TIQUIPAYA (rutas
+    históricas intactas) o `base_dir_dev/global_entrada/america/<YYYY-MM>/`
+    para AMERICA. Es la ÚNICA fuente de entrada de GLOBAL. `publicacion/sap/`
+    (artefactos locales del flujo diario, con residuos de pruebas DEV) nunca
+    se usa como entrada."""
     _validar_anio_mes(anio, mes)
-    return os.path.join(base_dir_dev, "global_entrada", f"{anio:04d}-{mes:02d}")
+    caja = cfg.resolver_caja(caja)
+    periodo = f"{anio:04d}-{mes:02d}"
+    if caja.codigo == cfg.TIQUIPAYA.codigo:
+        return os.path.join(base_dir_dev, "global_entrada", periodo)
+    return os.path.join(base_dir_dev, "global_entrada", caja.codigo, periodo)
 
 
 def _limpiar_y_crear_dir_periodo(destino, base_dir_dev, etiqueta):
@@ -616,37 +660,45 @@ def _limpiar_y_crear_dir_periodo(destino, base_dir_dev, etiqueta):
     os.makedirs(destino)
 
 
-def preparar_global_entrada(anio, mes, base_dir_dev):
-    """Deja `global_entrada/<periodo>/` VACÍO y listo para materializar la
-    carpeta SAP oficial desde Drive. Borra únicamente esa carpeta del
-    periodo (nunca `publicacion/sap`, nunca otros periodos, nunca Drive):
-    así ningún archivo de una corrida anterior puede contaminar GLOBAL."""
-    destino = global_entrada_dir(base_dir_dev, anio, mes)
+def preparar_global_entrada(anio, mes, base_dir_dev, caja=None):
+    """Deja `global_entrada/<periodo>/` (o `global_entrada/america/<periodo>/`)
+    VACÍO y listo para materializar la carpeta SAP oficial desde Drive.
+    Borra únicamente esa carpeta del periodo (nunca `publicacion/sap`,
+    nunca otros periodos ni la otra caja, nunca Drive): así ningún archivo
+    de una corrida anterior puede contaminar GLOBAL."""
+    destino = global_entrada_dir(base_dir_dev, anio, mes, caja)
     _limpiar_y_crear_dir_periodo(destino, base_dir_dev, "GLOBAL_ENTRADA")
     return {"dir_entrada": os.path.abspath(destino), "periodo": f"{anio:04d}-{mes:02d}"}
 
 
-def control1_entrada_dir(base_dir_dev, anio, mes):
+def control1_entrada_dir(base_dir_dev, anio, mes, caja=None):
     """Materialización AISLADA de las entradas de CONTROL 1 para UN periodo:
-    `base_dir_dev/control1_entrada/<YYYY-MM>/`. Contiene, y solo contiene,
-    lo que el backend descargó de Drive en ESA corrida (SAP_GLOBAL oficial,
-    HISTORICO_ASIGNACIONES.csv si existe, REVISION_ASIGNACIONES_<periodo>.xlsx
-    si existe) y lo que CONTROL 1 escribe encima (revisión, histórico,
-    GLOBAL corregido). Nunca `dev_workdir/global/` ni `publicacion/`."""
+    `base_dir_dev/control1_entrada/<YYYY-MM>/` para TIQUIPAYA (rutas
+    históricas intactas) o `base_dir_dev/control1_entrada/america/<YYYY-MM>/`
+    para AMERICA. Contiene, y solo contiene, lo que el backend descargó de
+    Drive en ESA corrida (SAP_GLOBAL oficial, HISTORICO_ASIGNACIONES.csv si
+    existe, REVISION_ASIGNACIONES_<periodo>.xlsx si existe) y lo que
+    CONTROL 1 escribe encima (revisión, histórico, GLOBAL corregido). Nunca
+    `dev_workdir/global/` ni `publicacion/`."""
     _validar_anio_mes(anio, mes)
-    return os.path.join(base_dir_dev, "control1_entrada", f"{anio:04d}-{mes:02d}")
+    caja = cfg.resolver_caja(caja)
+    periodo = f"{anio:04d}-{mes:02d}"
+    if caja.codigo == cfg.TIQUIPAYA.codigo:
+        return os.path.join(base_dir_dev, "control1_entrada", periodo)
+    return os.path.join(base_dir_dev, "control1_entrada", caja.codigo, periodo)
 
 
-def preparar_control1_entrada(anio, mes, base_dir_dev):
-    """Deja `control1_entrada/<periodo>/` VACÍO antes de materializar desde
-    Drive: ningún histórico, revisión o GLOBAL local de una corrida anterior
-    puede colarse en CONTROL 1."""
-    destino = control1_entrada_dir(base_dir_dev, anio, mes)
+def preparar_control1_entrada(anio, mes, base_dir_dev, caja=None):
+    """Deja `control1_entrada/<periodo>/` (o su variante `america/`) VACÍO
+    antes de materializar desde Drive: ningún histórico, revisión o GLOBAL
+    local de una corrida anterior (ni de la otra caja) puede colarse en
+    CONTROL 1."""
+    destino = control1_entrada_dir(base_dir_dev, anio, mes, caja)
     _limpiar_y_crear_dir_periodo(destino, base_dir_dev, "CONTROL1_ENTRADA")
     return {"dir_entrada": os.path.abspath(destino), "periodo": f"{anio:04d}-{mes:02d}"}
 
 
-def _verificar_periodo_no_cerrado(entrada_dir, anio, mes):
+def _verificar_periodo_no_cerrado(entrada_dir, anio, mes, caja=None):
     """Protección de GLOBAL tras el CIERRE DEFINITIVO de la Auditoría de
     Asignaciones. El backend descarga el histórico maestro (raíz de
     05_CONTROLES) a `global_entrada/<periodo>/HISTORICO_ASIGNACIONES.csv`
@@ -658,7 +710,7 @@ def _verificar_periodo_no_cerrado(entrada_dir, anio, mes):
     ruta = os.path.join(entrada_dir, "HISTORICO_ASIGNACIONES.csv")
     if not os.path.isfile(ruta):
         return
-    nombre = consolidador_mensual.nombre_sap_global(anio, mes)
+    nombre = consolidador_mensual.nombre_sap_global(anio, mes, caja)
     if control1_modos.periodo_cerrado(_ctrl1_v2.cargar_historico(ruta), nombre):
         raise RuntimeError(
             f"PERIODO_CERRADO_CONTROL1: la Auditoría de Asignaciones de {anio:04d}-{mes:02d} ya fue cerrada "
@@ -667,7 +719,7 @@ def _verificar_periodo_no_cerrado(entrada_dir, anio, mes):
         )
 
 
-def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None):
+def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None, caja=None):
     """Cierre MENSUAL — paso 1 (GENERAR GLOBAL). `sap_dir` por defecto es
     `base_dir_dev/global_entrada/<YYYY-MM>/` (ver global_entrada_dir): el
     snapshot que el backend materializó desde la carpeta SAP OFICIAL de
@@ -687,22 +739,23 @@ def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None)
     (y su JSON) con una versión recalculada, en vez de bloquear con
     SALIDA_YA_EXISTE_SIN_FORCE. La ruta de salida es determinística por
     periodo, así que nunca puede crear un duplicado."""
-    sap_dir = sap_dir or global_entrada_dir(base_dir_dev, anio, mes)
+    caja_resuelta = cfg.resolver_caja(caja)
+    sap_dir = sap_dir or global_entrada_dir(base_dir_dev, anio, mes, caja_resuelta)
     if not os.path.isdir(sap_dir):
         raise RuntimeError(
             f"GLOBAL_ENTRADA_NO_MATERIALIZADA: {sap_dir} no existe; el backend debe "
             f"materializar la carpeta SAP oficial de Drive antes de generar GLOBAL."
         )
-    _verificar_periodo_no_cerrado(sap_dir, anio, mes)
-    global_dir = os.path.join(base_dir_dev, "global")
+    _verificar_periodo_no_cerrado(sap_dir, anio, mes, caja_resuelta)
+    ruta_salida = _ruta_global(base_dir_dev, anio, mes, caja_resuelta)
+    global_dir = os.path.dirname(ruta_salida)
     _verificar_contenido_en_base_dir(os.path.join(global_dir, "_"), base_dir_dev)
     os.makedirs(global_dir, exist_ok=True)
-    ruta_salida = _ruta_global(base_dir_dev, anio, mes)
-    return generar_global_mensual(anio, mes, sap_dir, ruta_plantilla_origen, ruta_salida, force=True)
+    return generar_global_mensual(anio, mes, sap_dir, ruta_plantilla_origen, ruta_salida, force=True, caja=caja_resuelta)
 
 
 def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=False,
-                      modo_control1=None, confirmacion_cierre=False):
+                      modo_control1=None, confirmacion_cierre=False, caja=None):
     """Cierre MENSUAL — paso 2 (AUDITORÍA DE ASIGNACIONES / CONTROL 1).
 
     DRIVE OFICIAL = fuente de verdad; LOCAL = materialización temporal de la
@@ -732,13 +785,14 @@ def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=
     la revisión, el detalle y una copia-snapshot del histórico al cierre viven
     en `05_CONTROLES/CONTROL_1_ASIGNACIONES/<YYYY-MM>/`. Esa copia por periodo
     es solo evidencia: nunca es la fuente maestra (aquí nunca se lee)."""
-    entrada = control1_entrada_dir(base_dir_dev, anio, mes)
+    caja_resuelta = cfg.resolver_caja(caja)
+    entrada = control1_entrada_dir(base_dir_dev, anio, mes, caja_resuelta)
     if not os.path.isdir(entrada):
         raise RuntimeError(
             f"CONTROL1_ENTRADA_NO_MATERIALIZADA: {entrada} no existe; el backend debe "
             f"materializar GLOBAL/histórico/revisión desde Drive antes de ejecutar CONTROL 1."
         )
-    nombre_global = consolidador_mensual.nombre_sap_global(anio, mes)
+    nombre_global = consolidador_mensual.nombre_sap_global(anio, mes, caja_resuelta)
     ruta_global = os.path.join(entrada, nombre_global)
     if not os.path.isfile(ruta_global):
         raise RuntimeError(
@@ -751,11 +805,12 @@ def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=
     ruta_detalle = os.path.join(entrada, f"CONTROL_ASIGNACIONES_{periodo_esperado}.json")
     if modo == control1_modos.PRELIMINAR:
         resultado = control1_modos.ejecutar_control1_preliminar(
-            ruta_global, ruta_historico, entrada, ruta_detalle_json=ruta_detalle, dry_run=dry_run)
+            ruta_global, ruta_historico, entrada, ruta_detalle_json=ruta_detalle, dry_run=dry_run,
+            caja=caja_resuelta)
     else:
         resultado = control1_modos.ejecutar_control1_cierre(
             ruta_global, ruta_historico, entrada, ruta_detalle_json=ruta_detalle, dry_run=dry_run,
-            ruta_revision_json=ruta_revision_json)
+            ruta_revision_json=ruta_revision_json, caja=caja_resuelta)
     resultado["dir_entrada"] = os.path.abspath(entrada)
     resultado["ruta_global_materializado"] = os.path.abspath(ruta_global)
     if resultado.get("periodo") not in (None, periodo_esperado):
@@ -765,28 +820,35 @@ def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=
     return resultado
 
 
-def control3_entrada_dir(base_dir_dev, anio, mes):
+def control3_entrada_dir(base_dir_dev, anio, mes, caja=None):
     """Materialización AISLADA de las entradas de CONTROL 3 para UN periodo:
-    `base_dir_dev/control3_entrada/<YYYY-MM>/`. Contiene, y solo contiene, lo que
-    el backend descargó de Drive en ESA corrida (SAP_GLOBAL oficial,
-    HISTORICO_CXC_CXP.csv y HISTORICO_CXC_CXP_PERIODOS.json maestros si existen,
-    y el reporte previo del periodo si existe) y lo que CONTROL 3 escribe encima.
-    Nunca `dev_workdir/global/` ni `publicacion/`."""
+    `base_dir_dev/control3_entrada/<YYYY-MM>/` para TIQUIPAYA (rutas
+    históricas intactas) o `base_dir_dev/control3_entrada/america/<YYYY-MM>/`
+    para AMERICA. Contiene, y solo contiene, lo que el backend descargó de
+    Drive en ESA corrida (SAP_GLOBAL oficial, HISTORICO_CXC_CXP.csv y
+    HISTORICO_CXC_CXP_PERIODOS.json maestros si existen, y el reporte previo
+    del periodo si existe) y lo que CONTROL 3 escribe encima. Nunca
+    `dev_workdir/global/` ni `publicacion/`."""
     _validar_anio_mes(anio, mes)
-    return os.path.join(base_dir_dev, "control3_entrada", f"{anio:04d}-{mes:02d}")
+    caja = cfg.resolver_caja(caja)
+    periodo = f"{anio:04d}-{mes:02d}"
+    if caja.codigo == cfg.TIQUIPAYA.codigo:
+        return os.path.join(base_dir_dev, "control3_entrada", periodo)
+    return os.path.join(base_dir_dev, "control3_entrada", caja.codigo, periodo)
 
 
-def preparar_control3_entrada(anio, mes, base_dir_dev):
-    """Deja `control3_entrada/<periodo>/` VACÍO antes de materializar desde
-    Drive: ningún histórico, libro, reporte o GLOBAL local de una corrida
-    anterior puede colarse en CONTROL 3."""
-    destino = control3_entrada_dir(base_dir_dev, anio, mes)
+def preparar_control3_entrada(anio, mes, base_dir_dev, caja=None):
+    """Deja `control3_entrada/<periodo>/` (o su variante `america/`) VACÍO
+    antes de materializar desde Drive: ningún histórico, libro, reporte o
+    GLOBAL local de una corrida anterior (ni de la otra caja) puede
+    colarse en CONTROL 3."""
+    destino = control3_entrada_dir(base_dir_dev, anio, mes, caja)
     _limpiar_y_crear_dir_periodo(destino, base_dir_dev, "CONTROL3_ENTRADA")
     return {"dir_entrada": os.path.abspath(destino), "periodo": f"{anio:04d}-{mes:02d}"}
 
 
 def ejecutar_control3(anio, mes, base_dir_dev, ruta_observaciones_json=None, dry_run=False,
-                      modo_control3=None, confirmacion_cierre=False):
+                      modo_control3=None, confirmacion_cierre=False, caja=None):
     """Cierre MENSUAL — paso 3 (AUDITORÍA CxC / CxP / CONTROL 3).
 
     DRIVE OFICIAL = fuente de verdad; LOCAL = materialización temporal limpia.
@@ -803,13 +865,14 @@ def ejecutar_control3(anio, mes, base_dir_dev, ruta_observaciones_json=None, dry
     ESTRUCTURA EN DRIVE: los maestros viven en la raíz de `05_CONTROLES`; el
     reporte (y, al cierre, una copia-snapshot de ambos) en
     `05_CONTROLES/CONTROL_3_CXC_CXP/<YYYY-MM>/`. CONTROL 3 nunca modifica el GLOBAL."""
-    entrada = control3_entrada_dir(base_dir_dev, anio, mes)
+    caja_resuelta = cfg.resolver_caja(caja)
+    entrada = control3_entrada_dir(base_dir_dev, anio, mes, caja_resuelta)
     if not os.path.isdir(entrada):
         raise RuntimeError(
             f"CONTROL3_ENTRADA_NO_MATERIALIZADA: {entrada} no existe; el backend debe "
             f"materializar GLOBAL/históricos/reporte desde Drive antes de ejecutar CONTROL 3."
         )
-    nombre_global = consolidador_mensual.nombre_sap_global(anio, mes)
+    nombre_global = consolidador_mensual.nombre_sap_global(anio, mes, caja_resuelta)
     ruta_global = os.path.join(entrada, nombre_global)
     if not os.path.isfile(ruta_global):
         raise RuntimeError(
@@ -819,10 +882,12 @@ def ejecutar_control3(anio, mes, base_dir_dev, ruta_observaciones_json=None, dry
     modo = control3_modos.validar_modo(modo_control3, confirmacion_cierre)
     if modo == control3_modos.PRELIMINAR:
         resultado = control3_modos.ejecutar_control3_preliminar(
-            ruta_global, entrada, dry_run=dry_run, ruta_observaciones_json=ruta_observaciones_json)
+            ruta_global, entrada, dry_run=dry_run, ruta_observaciones_json=ruta_observaciones_json,
+            caja=caja_resuelta)
     else:
         resultado = control3_modos.ejecutar_control3_cierre(
-            ruta_global, entrada, dry_run=dry_run, ruta_observaciones_json=ruta_observaciones_json)
+            ruta_global, entrada, dry_run=dry_run, ruta_observaciones_json=ruta_observaciones_json,
+            caja=caja_resuelta)
     resultado["dir_entrada"] = os.path.abspath(entrada)
     resultado["ruta_global_materializado"] = os.path.abspath(ruta_global)
     periodo_esperado = _periodo(anio, mes)
@@ -855,7 +920,7 @@ def main(argv=None):
 
     try:
         if args.accion == "crear_lote_pendiente":
-            r = crear_lote_pendiente(datos["fecha_inicio"], datos["fecha_fin"], datos.get("usuario_auditor"), datos["base_dir_dev"])
+            r = crear_lote_pendiente(datos["fecha_inicio"], datos["fecha_fin"], datos.get("usuario_auditor"), datos["base_dir_dev"], datos.get("caja"))
             salida = {"resultado": "OK", **r}
         elif args.accion == "procesar_lote":
             r = procesar_lote(
@@ -887,31 +952,33 @@ def main(argv=None):
         elif args.accion == "generar_global":
             salida = {"resultado": "OK", **generar_global(
                 datos["anio"], datos["mes"], datos["base_dir_dev"], datos["ruta_plantilla_origen"],
-                datos.get("sap_dir"),
+                datos.get("sap_dir"), datos.get("caja"),
             )}
         elif args.accion == "preparar_global_entrada":
             salida = {"resultado": "OK", **preparar_global_entrada(
-                datos["anio"], datos["mes"], datos["base_dir_dev"],
+                datos["anio"], datos["mes"], datos["base_dir_dev"], datos.get("caja"),
             )}
         elif args.accion == "preparar_control1_entrada":
             salida = {"resultado": "OK", **preparar_control1_entrada(
-                datos["anio"], datos["mes"], datos["base_dir_dev"],
+                datos["anio"], datos["mes"], datos["base_dir_dev"], datos.get("caja"),
             )}
         elif args.accion == "preparar_control3_entrada":
             salida = {"resultado": "OK", **preparar_control3_entrada(
-                datos["anio"], datos["mes"], datos["base_dir_dev"],
+                datos["anio"], datos["mes"], datos["base_dir_dev"], datos.get("caja"),
             )}
         elif args.accion == "ejecutar_control1":
             salida = {"resultado": "OK", **ejecutar_control1(
                 datos["anio"], datos["mes"], datos["base_dir_dev"],
                 datos.get("ruta_revision_json"), datos.get("dry_run", False),
                 datos.get("modo_control1"), datos.get("confirmacion_cierre", False),
+                datos.get("caja"),
             )}
         elif args.accion == "ejecutar_control3":
             salida = {"resultado": "OK", **ejecutar_control3(
                 datos["anio"], datos["mes"], datos["base_dir_dev"],
                 datos.get("ruta_observaciones_json"), datos.get("dry_run", False),
                 datos.get("modo_control3"), datos.get("confirmacion_cierre", False),
+                datos.get("caja"),
             )}
     except Exception as exc:
         salida = {"resultado": "ERROR", "codigo": type(exc).__name__, "mensaje": str(exc)}
