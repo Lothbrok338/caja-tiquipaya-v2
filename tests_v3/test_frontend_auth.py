@@ -214,9 +214,18 @@ def test_raiz_credenciales_incorrectas_401(lanzar_proxy):
     assert headers.get("WWW-Authenticate") == 'Basic realm="CAJAS GABO"'
 
 
-def test_raiz_credenciales_correctas_200(lanzar_proxy):
+def test_raiz_credenciales_correctas_redirige_302_a_v3_control_cierres(lanzar_proxy):
     proxy = lanzar_proxy({"TIQ_AUTH_USERNAME": USUARIO, "TIQ_AUTH_PASSWORD": CLAVE})
-    status, _, _ = proxy.request("GET", "/", headers=_basic_auth_header(USUARIO, CLAVE))
+    status, headers, _ = proxy.request("GET", "/", headers=_basic_auth_header(USUARIO, CLAVE))
+    assert status == 302
+    assert headers.get("Location") == "/v3_control_cierres.html"
+
+
+def test_v3_control_cierres_html_acceso_directo_autenticado_200(lanzar_proxy):
+    proxy = lanzar_proxy({"TIQ_AUTH_USERNAME": USUARIO, "TIQ_AUTH_PASSWORD": CLAVE})
+    status, _, _ = proxy.request(
+        "GET", "/v3_control_cierres.html", headers=_basic_auth_header(USUARIO, CLAVE)
+    )
     assert status == 200
 
 
@@ -335,7 +344,7 @@ def test_no_se_registran_credenciales_ni_authorization_en_logs(lanzar_proxy):
     proxy = lanzar_proxy({"TIQ_AUTH_USERNAME": USUARIO, "TIQ_AUTH_PASSWORD": CLAVE})
     proxy.request("GET", "/")  # 401 sin auth
     proxy.request("GET", "/", headers=_basic_auth_header(USUARIO, "mala-clave"))  # 401
-    proxy.request("GET", "/", headers=_basic_auth_header(USUARIO, CLAVE))  # 200
+    proxy.request("GET", "/", headers=_basic_auth_header(USUARIO, CLAVE))  # 302
 
     salida = proxy.terminar_y_leer_salida()
 

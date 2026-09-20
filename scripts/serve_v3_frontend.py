@@ -113,6 +113,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if not self._autenticar():
             return
+        if self.path == "/":
+            # Evita el listado de directorio ("Directory listing for /") de
+            # SimpleHTTPRequestHandler: no hay index.html en n8n_frontend/,
+            # asi que la raiz redirige a la interfaz real de CAJAS GABO.
+            self.send_response(302)
+            self.send_header("Location", "/v3_control_cierres.html")
+            self.end_headers()
+            return
         if self.path.startswith("/webhook/"):
             return self._proxy("GET")
         return super().do_GET()
