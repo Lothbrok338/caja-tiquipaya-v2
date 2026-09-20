@@ -120,7 +120,7 @@ from v3.consolidador_mensual_v3 import (  # noqa: E402
 
 
 def generar_global_mensual(anio, mes, sap_dir, plantilla, salida,
-                            archivos_lista=None, force=False):
+                            archivos_lista=None, force=False, caja=None):
     """GLOBAL — delega en v3.consolidador_mensual_v3.ejecutar_consolidacion_v3()
     para TODO lo que consolidador_mensual.py (V2) ya hacía bien: validar
     estructura/cuadre de cada SAP diario, deduplicar por SHA256, escribir
@@ -131,12 +131,18 @@ def generar_global_mensual(anio, mes, sap_dir, plantilla, salida,
     v3/consolidador_mensual_v3.py para el porqué y el detalle exacto de
     qué se reutiliza tal cual y qué se reinterpreta.
 
+    `caja` (None -> TIQUIPAYA, comportamiento histórico exacto) se
+    propaga tal cual al descubrimiento y a la consolidación: caja
+    desconocida falla cerrado (ValueError de config_cajas.resolver_caja),
+    nunca se adivina ni se cae en silencio a TIQUIPAYA.
+
     Qué decide `archivos_lista`:
       - si el llamador lo pasa explícito, se respeta tal cual;
       - si no (el caso normal desde dev_api.generar_global), este wrapper
-        llama a `descubrir_sap_oficiales_del_mes(sap_dir, anio, mes)` y
-        arma la lista él mismo, aceptando SAP_DD-MM-YYYY.xlsx (legacy) y
-        SAP_TIQ_DD-MM-YYYY.xlsx (V3) de la carpeta SAP oficial.
+        llama a `descubrir_sap_oficiales_del_mes(sap_dir, anio, mes, caja)`
+        y arma la lista él mismo, aceptando SAP_DD-MM-YYYY.xlsx (legacy,
+        SOLO para TIQUIPAYA) y SAP_<prefijo>_DD-MM-YYYY.xlsx (V3, prefijo
+        de `caja`) de la carpeta SAP oficial.
 
     Los blockers de ambigüedad de fecha que detecte el descubrimiento
     (DUPLICADO_FECHA_AMBIGUA) entran al consolidador como `blockers_previos`:
@@ -158,12 +164,13 @@ def generar_global_mensual(anio, mes, sap_dir, plantilla, salida,
 
     descubrimiento = None
     if archivos_lista is None:
-        descubrimiento = descubrir_sap_oficiales_del_mes(sap_dir, anio, mes)
+        descubrimiento = descubrir_sap_oficiales_del_mes(sap_dir, anio, mes, caja)
         archivos_lista = descubrimiento["archivos"]
 
     resultado = ejecutar_consolidacion_v3(
         anio, mes, plantilla, salida, archivos_lista, force,
         blockers_previos=(descubrimiento["blockers"] if descubrimiento is not None else None),
+        caja=caja,
     )
 
     fechas_con_sap = set()
@@ -173,7 +180,7 @@ def generar_global_mensual(anio, mes, sap_dir, plantilla, salida,
         fechas_con_sap = {item["fecha"] for item in descubrimiento["sap_incluidos"]}
     else:
         for nombre in resultado.get("sap_incluidos") or []:
-            fecha, _origen = _fecha_y_origen_desde_nombre_sap(nombre)
+            fecha, _origen = _fecha_y_origen_desde_nombre_sap(nombre, caja)
             if fecha is not None:
                 fechas_con_sap.add(fecha.isoformat())
 

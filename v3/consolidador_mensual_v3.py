@@ -58,6 +58,7 @@ from decimal import Decimal
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import consolidador_mensual as cm  # noqa: E402  (reutilizado tal cual — funciones públicas, sin cambios)
+import config_cajas as cfg  # noqa: E402  (misma fuente de verdad de caja que consolidador_mensual.py)
 from excel_io import money_str  # noqa: E402  (reutilizado tal cual, igual que consolidador_mensual.py)
 
 
@@ -65,43 +66,60 @@ from excel_io import money_str  # noqa: E402  (reutilizado tal cual, igual que c
 # 1. Descubrimiento de SAP diarios oficiales del mes (legacy + V3).
 # ---------------------------------------------------------------------------
 
-# consolidador_mensual.py (V2) solo reconoce SAP_TIQ_DD-MM-YYYY.xlsx en su
-# propio escaneo de directorio (`_RE_SAP_DIARIO`/`seleccionar_sap_directorio`).
-# GLOBAL debe consolidar TODO SAP diario válido de la carpeta oficial del
-# mes, sin importar si viene de V2 (nombre legacy) o V3 -- por eso este
+# consolidador_mensual.py (V2) solo reconoce SAP_<prefijo>_DD-MM-YYYY.xlsx
+# en su propio escaneo de directorio (`_RE_SAP_DIARIO`/
+# `seleccionar_sap_directorio`), con `<prefijo>` fijado por `caja`
+# (cfg.resolver_caja) -- "TIQ" para TIQUIPAYA (default), "AME" para
+# AMERICA. GLOBAL debe consolidar TODO SAP diario válido de la carpeta
+# oficial del mes que corresponda a la MISMA caja, sin importar si viene
+# de V2 (nombre legacy, SOLO válido para TIQUIPAYA) o V3 -- por eso este
 # descubrimiento vive aquí y el resultado se pasa a `resolver_archivos`-
 # equivalente de este módulo como una lista explícita ya resuelta.
-_RE_SAP_DIARIO_V3 = re.compile(r"^SAP_TIQ_(\d{2})-(\d{2})-(\d{4})\.xlsx$", re.IGNORECASE)
+#
+# El formato legacy (SAP_DD-MM-YYYY.xlsx, sin prefijo de caja) es
+# EXCLUSIVO de TIQUIPAYA -- AMERICA nunca existió antes de que hubiera
+# prefijo de caja, así que no tiene equivalente legacy que aceptar.
 _RE_SAP_DIARIO_LEGACY = re.compile(r"^SAP_(\d{2})-(\d{2})-(\d{4})\.xlsx$", re.IGNORECASE)
 
 
-def _fecha_y_origen_desde_nombre_sap(nombre):
-    """Reconoce los dos formatos válidos de SAP diario oficial. Nunca
-    matchea SAP_GLOBAL_*.xlsx (no tiene dígitos justo después de "SAP_"),
+def _re_sap_diario_v3(caja):
+    prefijo = re.escape(cfg.resolver_caja(caja).prefijo_archivo)
+    return re.compile(rf"^SAP_{prefijo}_(\d{{2}})-(\d{{2}})-(\d{{4}})\.xlsx$", re.IGNORECASE)
+
+
+def _fecha_y_origen_desde_nombre_sap(nombre, caja=None):
+    """Reconoce los formatos válidos de SAP diario oficial para `caja`
+    (None -> TIQUIPAYA, comportamiento histórico exacto). Nunca matchea
+    SAP_GLOBAL_*.xlsx (no tiene dígitos justo después de "SAP_<prefijo>_"),
     RESULTADO_*.json, ni ningún otro archivo -- ambigüedad de nombre
-    imposible entre los dos patrones porque uno exige literalmente "TIQ_"
-    y el otro un dígito en esa misma posición. Devuelve (fecha, origen) o
-    (None, None) si `nombre` no es ninguno de los dos."""
-    m = _RE_SAP_DIARIO_V3.match(nombre)
+    imposible entre los dos patrones porque uno exige literalmente
+    "<prefijo>_" y el otro (solo disponible para TIQUIPAYA) un dígito en
+    esa misma posición. Devuelve (fecha, origen) o (None, None) si
+    `nombre` no matchea ninguno de los formatos válidos para `caja`."""
+    caja = cfg.resolver_caja(caja)
+    m = _re_sap_diario_v3(caja).match(nombre)
     if m:
         dia, mes, anio = m.groups()
         return datetime.date(int(anio), int(mes), int(dia)), "v3"
-    m = _RE_SAP_DIARIO_LEGACY.match(nombre)
-    if m:
-        dia, mes, anio = m.groups()
-        return datetime.date(int(anio), int(mes), int(dia)), "legacy"
+    if caja.codigo == cfg.TIQUIPAYA.codigo:
+        m = _RE_SAP_DIARIO_LEGACY.match(nombre)
+        if m:
+            dia, mes, anio = m.groups()
+            return datetime.date(int(anio), int(mes), int(dia)), "legacy"
     return None, None
 
 
-def descubrir_sap_oficiales_del_mes(sap_dir, anio, mes):
+def descubrir_sap_oficiales_del_mes(sap_dir, anio, mes, caja=None):
     """Escanea `sap_dir` (la carpeta SAP oficial del mes, materializada
-    localmente) y decide qué SAP diarios entran al universo de GLOBAL,
-    aceptando ambos formatos válidos (ver _fecha_y_origen_desde_nombre_sap)
-    y filtrando por año/mes -- SAP_GLOBAL_*.xlsx, archivos de otro
-    mes/año, temporales (`consolidador_mensual._es_temporal`) y cualquier
-    nombre no reconocido quedan fuera. GLOBAL nunca depende de marker,
-    publicación o resultado V3: solo de que el archivo esté válidamente en
-    la carpeta oficial del mes pedido.
+    localmente) y decide qué SAP diarios de `caja` (None -> TIQUIPAYA,
+    comportamiento histórico exacto) entran al universo de GLOBAL,
+    aceptando los formatos válidos de esa caja (ver
+    _fecha_y_origen_desde_nombre_sap) y filtrando por año/mes --
+    SAP_GLOBAL_*.xlsx, archivos de otro mes/año, de otra caja, temporales
+    (`consolidador_mensual._es_temporal`) y cualquier nombre no reconocido
+    quedan fuera. GLOBAL nunca depende de marker, publicación o resultado
+    V3: solo de que el archivo esté válidamente en la carpeta oficial del
+    mes pedido para la caja pedida.
 
     Protección por fecha: como máximo un SAP efectivo por fecha. Si dos
     (o más) nombres distintos representan la MISMA fecha:
@@ -131,7 +149,7 @@ def descubrir_sap_oficiales_del_mes(sap_dir, anio, mes):
     for nombre in sorted(os.listdir(sap_dir)):
         if cm._es_temporal(nombre):
             continue
-        fecha, origen = _fecha_y_origen_desde_nombre_sap(nombre)
+        fecha, origen = _fecha_y_origen_desde_nombre_sap(nombre, caja)
         if fecha is None:
             continue
         if fecha.year != anio or fecha.month != mes:
@@ -227,7 +245,8 @@ def _reinterpretar_problemas_entrada_v3(problemas):
 #    funciones públicas sin cambios salvo el paso 2 de arriba.
 # ---------------------------------------------------------------------------
 
-def ejecutar_consolidacion_v3(anio, mes, plantilla, salida, archivos_lista, force, blockers_previos=None):
+def ejecutar_consolidacion_v3(anio, mes, plantilla, salida, archivos_lista, force,
+                               blockers_previos=None, caja=None):
     """Igual que consolidador_mensual.ejecutar_consolidacion(), mismo
     formato de resultado JSON, mismas garantías (nunca abre un SAP diario
     ni la plantilla en modo escritura, nunca duplica partidas, nunca
@@ -238,10 +257,19 @@ def ejecutar_consolidacion_v3(anio, mes, plantilla, salida, archivos_lista, forc
     `descubrir_sap_oficiales_del_mes()` (o pasado explícito por el
     llamador); este orquestador no vuelve a escanear `sap_dir`.
 
+    `caja` (None -> TIQUIPAYA, comportamiento histórico exacto) se
+    propaga tal cual a las funciones ya parametrizadas de
+    consolidador_mensual.py (`leer_y_validar_sap_diario`,
+    `construir_metadata_cabecera_global`, `nombre_sap_global`,
+    `nombre_resultado_json`) -- caja desconocida falla cerrado vía
+    `config_cajas.resolver_caja` (ValueError), nunca se adivina ni se cae
+    en silencio a TIQUIPAYA.
+
     `blockers_previos`: blockers ya detectados aguas arriba (p.ej.
     DUPLICADO_FECHA_AMBIGUA del descubrimiento). Cuentan como cualquier
     otro blocker: NO se escribe el SAP GLOBAL — un mes con una fecha
     ambigua nunca produce un GLOBAL parcial que parezca completo."""
+    caja = cfg.resolver_caja(caja)
     if not os.path.isfile(plantilla):
         raise RuntimeError(f"PLANTILLA_NO_ENCONTRADA: {plantilla}")
 
@@ -262,7 +290,7 @@ def ejecutar_consolidacion_v3(anio, mes, plantilla, salida, archivos_lista, forc
     partidas_por_archivo = {}
     if not duplicados_diferentes:
         for ruta in rutas_unicas:
-            resultado_archivo = cm.leer_y_validar_sap_diario(ruta)
+            resultado_archivo = cm.leer_y_validar_sap_diario(ruta, caja)
             partidas_por_archivo[ruta] = resultado_archivo["partidas"]
             for problema in _reinterpretar_problemas_entrada_v3(resultado_archivo["problemas"]):
                 blockers.append(f"SAP_INVALIDO:{os.path.basename(ruta)}:{problema}")
@@ -293,15 +321,16 @@ def ejecutar_consolidacion_v3(anio, mes, plantilla, salida, archivos_lista, forc
     if not blockers:
         # construir_metadata_cabecera_global() sigue usando
         # _TIPO_ASIENTO_GLOBAL="DB" sin cambios: la SALIDA de GLOBAL sigue
-        # llevando C10="DB" -- eso nunca cambió, solo la ENTRADA.
-        metadata = cm.construir_metadata_cabecera_global(anio, mes)
+        # llevando C10="DB" -- eso nunca cambió, solo la ENTRADA. La
+        # cabecera L10 sí depende de `caja` (nombre_sap: "CAJA TIQUIPAYA"
+        # o "CAJA AMERICA").
+        metadata = cm.construir_metadata_cabecera_global(anio, mes, caja)
         cm.escribir_sap_global(todas_partidas, plantilla, salida, metadata)
         ruta_global_generado = os.path.abspath(salida)
 
     estado = "VALIDADO_PENDIENTE_PUBLICACION" if not blockers else "ERROR_REVISAR"
 
-    nombre_periodo = cm.nombre_sap_global(anio, mes)[len("SAP_GLOBAL_TIQ_"):-len(".xlsx")]
-    mes_nombre = nombre_periodo.rsplit("_", 1)[0]
+    mes_nombre = cm.periodo_sap_global(anio, mes).rsplit("_", 1)[0]
 
     resultado_json = {
         "anio": anio,
@@ -326,7 +355,7 @@ def ejecutar_consolidacion_v3(anio, mes, plantilla, salida, archivos_lista, forc
 
     ruta_json = os.path.join(
         os.path.dirname(os.path.abspath(salida)) or ".",
-        cm.nombre_resultado_json(anio, mes),
+        cm.nombre_resultado_json(anio, mes, caja),
     )
     with open(ruta_json, "w", encoding="utf-8") as f:
         json.dump(resultado_json, f, ensure_ascii=False, indent=2)
