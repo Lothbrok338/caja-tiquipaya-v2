@@ -17,6 +17,8 @@ const {
   verificarCierreEnEntrada,
   verificarCierreEnProcesados,
   markerYaExiste,
+  validarPrefijoArchivo,
+  resolverDestinosDrive,
 } = require('./logic_reference');
 
 let pasados = 0;
@@ -210,6 +212,81 @@ test('ambiguedad en 00_ENTRADA_CIERRES (2 archivos con el mismo nombre exacto) =
     ),
     'ERROR_AMBIGUO_CIERRE_ENTRADA'
   );
+});
+
+// -----------------------------------------------------------------------
+// 8) AISLAMIENTO DRIVE POR CAJA (nodo RESOLVER - Destinos Drive por caja).
+// -----------------------------------------------------------------------
+test('TIQ resuelve los 5 destinos historicos sin ninguna variable de entorno', () => {
+  const r = resolverDestinosDrive('tiquipaya', {});
+  assert.strictEqual(r.folder_entrada, '1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1');
+  assert.strictEqual(r.folder_sap, '1mid4gUHnCmZbISlsAYMwWta3RudTSE13');
+  assert.strictEqual(r.folder_resultado, '16Z7Uhf-NgiZ6YuqWLnReaIozRIiOg5HO');
+  assert.strictEqual(r.folder_procesados, '1BkNC6lnonMM7YeWDKck-TM8WTyY2BJJP');
+  assert.strictEqual(r.folder_marker, '1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu');
+});
+
+test('caja vacia (ENTRADA sin campo caja) se comporta como tiquipaya: mismos destinos', () => {
+  const sinCaja = resolverDestinosDrive(undefined, {});
+  const explicitoTiq = resolverDestinosDrive('tiquipaya', {});
+  assert.deepStrictEqual(sinCaja, explicitoTiq);
+});
+
+test('AME resuelve destinos DISTINTOS a los de TIQ cuando las 5 variables estan configuradas', () => {
+  const env = {
+    DRIVE_ENTRADA_AME: 'ame-entrada-1',
+    DRIVE_SAP_AME: 'ame-sap-1',
+    DRIVE_RESULTADO_AME: 'ame-resultado-1',
+    DRIVE_PROCESADOS_AME: 'ame-procesados-1',
+    DRIVE_MARKER_AME: 'ame-marker-1',
+  };
+  const r = resolverDestinosDrive('america', env);
+  const tiq = resolverDestinosDrive('tiquipaya', {});
+  assert.strictEqual(r.folder_entrada, 'ame-entrada-1');
+  assert.notStrictEqual(r.folder_entrada, tiq.folder_entrada);
+  assert.notStrictEqual(r.folder_sap, tiq.folder_sap);
+  assert.notStrictEqual(r.folder_resultado, tiq.folder_resultado);
+  assert.notStrictEqual(r.folder_procesados, tiq.folder_procesados);
+  assert.notStrictEqual(r.folder_marker, tiq.folder_marker);
+});
+
+test('AME sin sus variables de entorno configuradas: falla cerrado, NUNCA cae al folder de TIQ', () => {
+  assertLanza(() => resolverDestinosDrive('america', {}), 'DRIVE_AME_PENDIENTE');
+});
+
+test('AME con solo ALGUNAS variables configuradas: la que falta tambien falla cerrado', () => {
+  assertLanza(
+    () => resolverDestinosDrive('america', { DRIVE_ENTRADA_AME: 'ame-entrada-1' }),
+    'DRIVE_AME_PENDIENTE'
+  );
+});
+
+test('caja desconocida en ENTRADA => CAJA_DESCONOCIDA, no se adivina', () => {
+  assertLanza(() => resolverDestinosDrive('brasil', {}), 'CAJA_DESCONOCIDA');
+});
+
+test('prefijo TIQ publicandose como AME => PREFIJO_CAJA_NO_COINCIDE (fail closed)', () => {
+  assertLanza(
+    () => validarPrefijoArchivo('america', 'SAP_TIQ_10-09-2026.xlsx'),
+    'PREFIJO_CAJA_NO_COINCIDE'
+  );
+});
+
+test('prefijo AME publicandose como TIQ => PREFIJO_CAJA_NO_COINCIDE (fail closed)', () => {
+  assertLanza(
+    () => validarPrefijoArchivo('tiquipaya', 'RESULTADO_AME_10-09-2026.json'),
+    'PREFIJO_CAJA_NO_COINCIDE'
+  );
+});
+
+test('prefijo propio: TIQ con nombre TIQ y AME con nombre AME no lanzan nada', () => {
+  validarPrefijoArchivo('tiquipaya', 'SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx');
+  validarPrefijoArchivo('america', 'SAP_GLOBAL_AME_SEPTIEMBRE_2026.xlsx');
+});
+
+test('nombre sin prefijo reconocido (p. ej. el cierre original) no es responsabilidad de este validador', () => {
+  validarPrefijoArchivo('tiquipaya', 'CIERRE 10-09-2026.xlsm');
+  validarPrefijoArchivo('america', 'CIERRE 10-09-2026.xlsm');
 });
 
 // -----------------------------------------------------------------------

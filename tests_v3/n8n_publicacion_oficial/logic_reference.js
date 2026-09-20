@@ -95,9 +95,74 @@ function markerYaExiste(items) {
   return items.length > 0 && !!items[0].id;
 }
 
+// ---------------------------------------------------------------------
+// AISLAMIENTO DRIVE POR CAJA -- copia de referencia EXACTA del nodo Code
+// "RESOLVER - Destinos Drive por caja" (presente, con el mismo jsCode, en
+// AMBOS workflows: 06B PUBLICACION OFICIAL wcgxNei3duWfMDp1 y PREFLIGHT
+// OFICIAL sJVgoBRpBntc96vf). Espejo de config_drive_oficial.py en el
+// backend Python; mantener ambas copias sincronizadas.
+// ---------------------------------------------------------------------
+const DEFAULTS_TIQ = {
+  entrada: '1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1',
+  sap: '1mid4gUHnCmZbISlsAYMwWta3RudTSE13',
+  resultado: '16Z7Uhf-NgiZ6YuqWLnReaIozRIiOg5HO',
+  procesados: '1BkNC6lnonMM7YeWDKck-TM8WTyY2BJJP',
+  marker: '1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu',
+};
+
+const PREFIJOS_CAJA = {
+  tiquipaya: ['SAP_TIQ_', 'SAP_GLOBAL_TIQ_', 'RESULTADO_TIQ_'],
+  america: ['SAP_AME_', 'SAP_GLOBAL_AME_', 'RESULTADO_AME_'],
+};
+
+function validarPrefijoArchivo(caja, nombreArchivo) {
+  if (!nombreArchivo) return;
+  const propios = PREFIJOS_CAJA[caja];
+  if (propios.some(function (p) { return nombreArchivo.startsWith(p); })) return;
+  const otras = Object.keys(PREFIJOS_CAJA).filter(function (c) { return c !== caja; });
+  for (const otra of otras) {
+    if (PREFIJOS_CAJA[otra].some(function (p) { return nombreArchivo.startsWith(p); })) {
+      throw new Error(
+        'PREFIJO_CAJA_NO_COINCIDE: "' + nombreArchivo + '" tiene prefijo de ' +
+        otra.toUpperCase() + ' pero se esta publicando como ' + caja.toUpperCase() + '.'
+      );
+    }
+  }
+}
+
+function resolverDestinosDrive(cajaCruda, env) {
+  env = env || {};
+  const caja = (cajaCruda || 'tiquipaya').toString().trim().toLowerCase();
+  if (caja !== 'tiquipaya' && caja !== 'america') {
+    throw new Error('CAJA_DESCONOCIDA: "' + caja + '". Cajas validas: america, tiquipaya.');
+  }
+
+  function resolverDestino(clave) {
+    const envVar = 'DRIVE_' + clave.toUpperCase() + '_' + (caja === 'america' ? 'AME' : 'TIQ');
+    const valor = env[envVar];
+    if (valor) return valor;
+    if (caja === 'tiquipaya') return DEFAULTS_TIQ[clave];
+    throw new Error(
+      'DRIVE_AME_PENDIENTE: falta configurar ' + envVar +
+      ' (carpeta "' + clave + '" de CAJA AMERICA todavia no existe en Drive).'
+    );
+  }
+
+  return {
+    caja: caja,
+    folder_entrada: resolverDestino('entrada'),
+    folder_sap: resolverDestino('sap'),
+    folder_resultado: resolverDestino('resultado'),
+    folder_procesados: resolverDestino('procesados'),
+    folder_marker: resolverDestino('marker'),
+  };
+}
+
 module.exports = {
   verificarArtefactoExistente,
   verificarCierreEnEntrada,
   verificarCierreEnProcesados,
   markerYaExiste,
+  validarPrefijoArchivo,
+  resolverDestinosDrive,
 };
