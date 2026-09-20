@@ -67,9 +67,17 @@ class _FakeN8NHandler(http.server.BaseHTTPRequestHandler):
     """n8n falso: registra cada request recibida (para probar que las no
     autenticadas nunca llegan hasta acá) y responde 200 con eco del path,
     salvo /webhook/no-existe que responde 404 (para probar que el proxy
-    propaga errores de n8n igual que antes)."""
+    propaga errores de n8n igual que antes). /healthz/readiness (el probe
+    de GestorN8N, ver test_n8n_lazy_lifecycle.py) responde 200 sin
+    registrarse: no es una llamada funcional al webhook."""
 
     def _atender(self):
+        if self.path == "/healthz/readiness":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status": "ok"}')
+            return
         length = int(self.headers.get("Content-Length", 0) or 0)
         body = self.rfile.read(length) if length else b""
         self.server.recibidas.append({

@@ -35,24 +35,31 @@ dormir el contenedor de verdad: n8n sostiene conexiones persistentes a
 Postgres y el proceso quedaba usando ~0.54 GB de RAM sin uso real. Ahora
 GestorN8N (mas abajo) arranca n8n (via scripts/start_n8n.sh) recien
 cuando llega la primera request de /webhook/* autenticada, espera a que
-localhost:5678 este escuchando antes de reenviar, y lo apaga solo (SIGTERM
-limpio) despues de TIQ_N8N_IDLE_TIMEOUT_SECONDS sin actividad de webhook
--- nunca mientras haya una request en curso. Si llega otro webhook despues
-de apagarse, se vuelve a arrancar automaticamente. /healthz NUNCA toca
+este REALMENTE listo antes de reenviar, y lo apaga solo (SIGTERM limpio)
+despues de TIQ_N8N_IDLE_TIMEOUT_SECONDS sin actividad de webhook -- nunca
+mientras haya una request en curso. Si llega otro webhook despues de
+apagarse, se vuelve a arrancar automaticamente. /healthz NUNCA toca
 GestorN8N: responde 200 este n8n arriba o dormido. Nada de esto cambia
 autenticacion, fail-closed, el no-reenvio de Authorization, ni ningun
 workflow/regla de negocio.
+
+Fix de carrera de readiness (Railway, 2026-09): el puerto 5678 abre ANTES
+de que n8n termine de activar los workflows (evidencia real: puerto
+escuchando ~13:46:57, workflows activos recien ~13:47:01-02) -- un simple
+"socket abierto" no basta, el primer webhook llegaba antes de tiempo y
+n8n respondia 404 (workflow todavia no registrado). GestorN8N ahora
+considera a n8n listo UNICAMENTE cuando `GET {N8N_ORIGIN}/healthz/readiness`
+responde HTTP 200 (endpoint propio de n8n para esto), reintentando cada
+0.2s hasta TIQ_N8N_START_TIMEOUT_SECONDS. Sin sleep fijo.
 """
 import base64
 import hmac
 import http.server
 import os
-import socket
 import subprocess
 import threading
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -62,10 +69,6 @@ os.chdir(os.path.join(RAIZ, "n8n_frontend"))
 
 N8N_ORIGIN = os.environ.get("TIQ_N8N_ORIGIN", "http://localhost:5678")
 LISTEN_PORT = int(os.environ.get("PORT", "8090"))
-
-_N8N_URL = urllib.parse.urlparse(N8N_ORIGIN)
-N8N_HOST = _N8N_URL.hostname or "localhost"
-N8N_PORT = _N8N_URL.port or 5678
 
 # Override solo para tests (fake_n8n_starter en vez del script real, que
 # arranca n8n de verdad y no existe en el sandbox de test). En produccion
@@ -83,9 +86,8 @@ class GestorN8N:
     levantando, y para que el reaper de inactividad nunca apague n8n con
     una request en curso."""
 
-    def __init__(self, host, port, start_script, cwd, idle_timeout, start_timeout, reaper_interval):
-        self._host = host
-        self._port = port
+    def __init__(self, n8n_origin, start_script, cwd, idle_timeout, start_timeout, reaper_interval):
+        self._readiness_url = n8n_origin.rstrip("/") + "/healthz/readiness"
         self._start_script = start_script
         self._cwd = cwd
         self._idle_timeout = idle_timeout
@@ -98,36 +100,46 @@ class GestorN8N:
         hilo = threading.Thread(target=self._loop_reaper, daemon=True)
         hilo.start()
 
-    def _escuchando(self):
+    def _listo(self):
+        """True UNICAMENTE cuando /healthz/readiness responde HTTP 200.
+        Que el puerto este abierto no alcanza: n8n lo abre antes de
+        terminar de activar los workflows (carrera real vista en
+        Railway), asi que un simple connect-and-close daba falsos
+        positivos y el primer webhook llegaba antes de tiempo (404)."""
         try:
-            with socket.create_connection((self._host, self._port), timeout=0.5):
-                return True
+            with urllib.request.urlopen(self._readiness_url, timeout=1.0) as r:
+                return r.status == 200
         except OSError:
+            # Cubre tanto fallos de conexion (n8n todavia ni abrio el
+            # puerto) como urllib.error.HTTPError por un status != 2xx
+            # (p.ej. 503 mientras los workflows todavia se activan):
+            # HTTPError y URLError son subclases de OSError.
             return False
 
     def preparar_para_webhook(self):
         """Llamar al inicio de cada request que se va a reenviar a n8n:
         marca actividad, arranca n8n si hace falta (sin duplicar proceso
-        si ya esta arrancando/arriba) y bloquea hasta que este escuchando.
-        Lanza TimeoutError si no levanta a tiempo. SIEMPRE debe ir seguido
-        de liberar_despues_de_webhook() en un finally, haya o no lanzado."""
+        si ya esta arrancando/arriba) y bloquea hasta que este REALMENTE
+        listo (ver _listo). Lanza TimeoutError si no levanta a tiempo.
+        SIEMPRE debe ir seguido de liberar_despues_de_webhook() en un
+        finally, haya o no lanzado."""
         with self._lock:
             self._solicitudes_activas += 1
             self._ultima_actividad = time.time()
             if self._proceso is not None and self._proceso.poll() is not None:
                 self._proceso = None  # crasheo solo -- se puede reintentar
-            if self._proceso is None and not self._escuchando():
+            if self._proceso is None and not self._listo():
                 self._proceso = subprocess.Popen(["bash", self._start_script], cwd=self._cwd)
             limite = time.time() + self._start_timeout
             listo = False
             while time.time() < limite:
-                if self._escuchando():
+                if self._listo():
                     listo = True
                     break
                 time.sleep(0.2)
         if not listo:
             raise TimeoutError(
-                "n8n no respondio en {}:{} dentro de {}s".format(self._host, self._port, self._start_timeout)
+                "n8n no quedo listo ({}) dentro de {}s".format(self._readiness_url, self._start_timeout)
             )
 
     def liberar_despues_de_webhook(self):
@@ -156,7 +168,7 @@ class GestorN8N:
 
 
 N8N_MANAGER = GestorN8N(
-    N8N_HOST, N8N_PORT, N8N_START_SCRIPT, RAIZ,
+    N8N_ORIGIN, N8N_START_SCRIPT, RAIZ,
     N8N_IDLE_TIMEOUT_SECONDS, N8N_START_TIMEOUT_SECONDS, N8N_REAPER_INTERVAL_SECONDS,
 )
 
