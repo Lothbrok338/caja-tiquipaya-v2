@@ -127,7 +127,7 @@ def test_ids_de_nodo_no_desaparecen_y_solo_se_agregan_las_guardas_deliberadas():
 
 def test_guardas_shadow_presentes_y_cableadas_antes_del_primer_nodo():
     destinos_originales = {
-        "wcgxNei3duWfMDp1_06b_publicacion_oficial.json": "BUSCAR - Marker existente en Drive",
+        "wcgxNei3duWfMDp1_06b_publicacion_oficial.json": "RESOLVER - Destinos Drive por caja",
         "HhuQCVP2oCubavzY_07d_publicar_oficial.json": "BUSCAR - Archivo por nombre en carpeta",
         "Lht5xRinJ9nJpHCW_07e_buscar_crear_carpeta.json": "BUSCAR - Subcarpeta por nombre",
     }
@@ -138,6 +138,17 @@ def test_guardas_shadow_presentes_y_cableadas_antes_del_primer_nodo():
         trigger_conn = wf["connections"]["ENTRADA (Execute Workflow Trigger)"]
         assert trigger_conn["main"][0][0]["node"] == NOMBRE_GUARDIA
         assert wf["connections"][NOMBRE_GUARDIA]["main"][0][0]["node"] == destino
+
+    # 06B: la guardia debe seguir precediendo a RESOLVER, que a su vez
+    # sigue enrutando hacia BUSCAR - Marker existente en Drive, sin saltarse
+    # el nodo de resolución de destinos añadido después de la guardia SHADOW.
+    wf_06b = json.load(
+        open(os.path.join(DST_DIR, "wcgxNei3duWfMDp1_06b_publicacion_oficial.json"), encoding="utf-8")
+    )
+    assert (
+        wf_06b["connections"]["RESOLVER - Destinos Drive por caja"]["main"][0][0]["node"]
+        == "BUSCAR - Marker existente en Drive"
+    )
 
 
 def test_plantilla_sap_maestra_runtime_existe_y_es_valida():
