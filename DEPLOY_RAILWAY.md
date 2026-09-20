@@ -49,13 +49,14 @@ aplicación + el Postgres ya existente, nada más.
 | `railway.json` | Declara build por Dockerfile |
 | `scripts/railway_entrypoint.sh` | Arranca n8n (background) + `serve_v3_frontend.py` (foreground, proceso público) |
 | `scripts/start_n8n.sh` | Adaptado: detecta Codespaces / Railway / genérico para la URL pública de n8n; soporte Codespaces intacto |
-| `scripts/serve_v3_frontend.py` | Adaptado: puerto y origen de n8n desde `PORT`/`TIQ_N8N_ORIGIN`, con el mismo default de antes |
+| `scripts/serve_v3_frontend.py` | Adaptado: puerto y origen de n8n desde `PORT`/`TIQ_N8N_ORIGIN`, con el mismo default de antes; autenticación HTTP Basic (ver §5B) |
 | `v3/shadow_guard.py` | Guarda de entorno SHADOW MODE (ver §5) |
 | `v3/dev_api.py` | 2 puntos de enganche de la guarda (`publicar_seleccionados`, `consolidar_publicacion_oficial`) — nada más cambió |
 | `scripts/adapt_workflows_for_railway.py` | Genera `snapshots/railway-shadow/*.json` parametrizando rutas hardcodeadas de Codespaces en los 2 workflows que las tenían |
 | `snapshots/railway-shadow/*.json` | Copias de los 7 workflows activos, listas para importar en Railway (`snapshots/v3-final/` queda intacto) |
 | `scripts/import_workflows_railway.sh` | Importa esos 7 workflows en la instancia n8n del contenedor (manual, una vez) |
 | `tests_v3/frontend/test_frontend.js` | Bug de portabilidad corregido: ruta `/workspaces/caja-tiquipaya-v2` hardcodeada → relativa a `__dirname` |
+| `tests_v3/test_frontend_auth.py` | Tests de la autenticación HTTP Basic del proxy público (ver §5B) |
 
 ## 4. Qué rutas hardcodeadas de Codespaces se parametrizaron (y por qué es seguro)
 
@@ -102,6 +103,43 @@ que queda bloqueado: escritura productiva en Drive, publicación oficial, marcad
 oficiales — un marcador local DEV nunca equivale a publicación oficial (hotfix `fd2eccb`,
 sin tocar).
 
+## 5B. Autenticación HTTP Basic del proxy público (pre go-live, 2026-09)
+
+`scripts/serve_v3_frontend.py` es el único proceso público del servicio (frontend +
+proxy `/webhook/*` hacia n8n). Antes del go-live se le agregó autenticación HTTP Basic
+**en ese mismo proceso Python** — n8n no se toca, sigue solo en `localhost:5678`.
+
+- Credenciales: `TIQ_AUTH_USERNAME` / `TIQ_AUTH_PASSWORD` (env vars de Railway, nunca
+  hardcodeadas, nunca logueadas, nunca commiteadas).
+- Rutas protegidas: `/`, los archivos estáticos del frontend, `GET /webhook/*` y
+  `POST /webhook/*` — es decir, todo salvo `GET /healthz`.
+- **`GET /healthz` es la única ruta pública, siempre `200 OK` en texto plano**, exista o
+  no la configuración de auth — así Railway puede seguir dando por sano el contenedor
+  aunque las credenciales todavía no estén fijadas.
+- **Fail closed**: si `TIQ_AUTH_USERNAME`/`TIQ_AUTH_PASSWORD` faltan o alguna está vacía,
+  el proceso arranca igual (para no tumbar el contenedor) pero **todas** las rutas
+  protegidas responden `503` — nunca quedan abiertas sin autenticación.
+- Con credenciales configuradas: sin `Authorization` o con credenciales incorrectas →
+  `401` + `WWW-Authenticate: Basic realm="CAJAS GABO"`; con las credenciales correctas
+  (comparadas con `hmac.compare_digest`, tiempo constante) → comportamiento idéntico al
+  de antes de este cambio.
+- El header `Authorization` del cliente público **nunca se reenvía a n8n** (`_proxy()`
+  solo reenvía `Content-Type`, igual que antes de este cambio).
+- Tests: `tests_v3/test_frontend_auth.py` (subproceso real del script contra un n8n
+  falso en memoria) — cubre las 10 condiciones de la especificación, incluida la
+  verificación de que ninguna credencial ni el header `Authorization` aparecen en los
+  logs del proceso.
+
+**Pendiente de aplicar en Railway (NO aplicado todavía — solo documentado acá):**
+
+1. Fijar `TIQ_AUTH_USERNAME` y `TIQ_AUTH_PASSWORD` como variables del servicio
+   `cajas-gabo-shadow` (secretas, nunca en este repo) — mientras no estén fijadas, el
+   servicio queda cerrado (503) en todo salvo `/healthz`, por diseño.
+2. Cambiar el healthcheck del servicio de `/` a **`/healthz`** — `railway.json` ya trae
+   `healthCheckPath: "/healthz"` preparado (ver §3), pero el servicio Railway en vivo
+   sigue con su configuración actual hasta el próximo deploy; ese deploy no se ejecutó en
+   esta vuelta.
+
 ## 6. Variables de entorno del servicio `cajas-gabo-shadow`
 
 Nunca copiar valores reales de credenciales en este archivo ni en el repo. Referencias de
@@ -120,6 +158,8 @@ variable (`${{Postgres.X}}`) en vez de secretos pegados.
 | `N8N_BLOCK_ENV_ACCESS_IN_NODE` | `false` | los Code/Execute-Command nodes necesitan leer `$env`/`process.env` para `TIQ_REPO_ROOT`/`TIQ_BASE_DIR` |
 | `GENERIC_TIMEZONE` | `America/La_Paz` | zona horaria de Tiquipaya, Bolivia |
 | `N8N_RUNNERS_ENABLED` | `true` | recomendado por n8n para Code nodes en versiones recientes |
+| `TIQ_AUTH_USERNAME` | (secreto, no en este repo) | **pendiente de fijar** — auth HTTP Basic del proxy público, ver §5B. Sin esto (y sin `TIQ_AUTH_PASSWORD`) el servicio queda cerrado (503) en todo salvo `/healthz` |
+| `TIQ_AUTH_PASSWORD` | (secreto, no en este repo) | **pendiente de fijar** — ídem |
 
 `TIQ_REPO_ROOT`, `TIQ_PYTHON_BIN`, `TIQ_BASE_DIR`, `PORT` ya tienen default correcto en el
 `Dockerfile` (`/app`, `/usr/bin/python3`, `/app/dev_workdir`, `8090`) — no hace falta
