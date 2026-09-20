@@ -43,6 +43,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import config_cajas as cfg  # noqa: E402  (reutilizado tal cual)
 import pipeline_tiquipaya as pipeline  # noqa: E402  (reutilizado tal cual)
 import run_batch  # noqa: E402  (reutilizado tal cual)
 import correcciones_tiquipaya as correcciones  # noqa: E402  (reutilizado tal cual)
@@ -52,17 +53,25 @@ from v3.motor import _ESTADO_MOTOR_MAP_RESULTADO, PROCESADO as MOTOR_PROCESADO  
 from v3.clasificacion import clasificar_cierre  # noqa: E402
 
 
-def revisar_y_corregir_cierre(item, base_dir_dev, version_codigo=None, controles_dir_dev=None):
+def revisar_y_corregir_cierre(item, base_dir_dev, version_codigo=None, controles_dir_dev=None, caja=None):
     """`item`: registro combinado de los módulos 01+02+03+04 para UN cierre
     con estado_final == ERROR_REVISAR, MÁS una clave "correccion": el
     schema completo de HANDOFF §16.3 (dict) autorizado por el auditor
     humano, o None si todavía no se aportó ninguna decisión (el cierre
     sigue pendiente, sin reprocesar — nunca se inventa una corrección).
 
+    `caja`: igual criterio que v3.motor.ejecutar_motor_cierre — si el item
+    ya trae `"caja"` (típicamente propagada por el Módulo 03/MOTOR), esa
+    identidad gana sobre el parámetro del lote: una corrección sobre un
+    cierre de América SIEMPRE se reprocesa como América, nunca cae
+    silenciosamente a TIQUIPAYA. Sin `caja` (ni en el item ni en el
+    parámetro), comportamiento histórico exacto (TIQUIPAYA).
+
     Nunca lanza: cualquier problema se refleja en el resultado de ESTE
     cierre, sin afectar al resto del lote (ver ejecutar_revision)."""
     fecha = item.get("fecha")
     correccion = item.get("correccion")
+    caja_resuelta = cfg.resolver_caja(item.get("caja") or caja)
 
     def _salida(correccion_aplicada, correccion_valida, campos_corregidos,
                 resultado_reproceso, mensaje, **extra):
@@ -90,6 +99,7 @@ def revisar_y_corregir_cierre(item, base_dir_dev, version_codigo=None, controles
             "ruta_resultado": None, "ruta_sap": None, "cargo": None, "haber": None,
             "version_correccion": None, "ruta_correccion_guardada": None,
             "usuario_auditor": usuario_auditor, "mensaje": mensaje, "mensajes": mensajes,
+            "caja": caja_resuelta.codigo,
         })
         base.update(extra)
         return base
@@ -147,7 +157,7 @@ def revisar_y_corregir_cierre(item, base_dir_dev, version_codigo=None, controles
     os.makedirs(os.path.dirname(ruta_resultado_reproceso), exist_ok=True)
     os.makedirs(os.path.dirname(ruta_sap_reproceso), exist_ok=True)
 
-    metadata_cabecera = run_batch.construir_metadata_cabecera(fecha_correccion)
+    metadata_cabecera = run_batch.construir_metadata_cabecera(fecha_correccion, caja_resuelta)
     version_codigo = version_codigo or run_batch._resolver_version_codigo(None)
 
     try:
@@ -156,6 +166,7 @@ def revisar_y_corregir_cierre(item, base_dir_dev, version_codigo=None, controles
             ruta_sap_salida=ruta_sap_reproceso, metadata_cabecera=metadata_cabecera,
             version_codigo=version_codigo, correccion=correccion,
             ruta_resultado=ruta_resultado_reproceso, ya_publicado=ya_publicado,
+            caja=caja_resuelta,
         )
     except ValueError as exc:  # CIERRE_YA_PUBLICADO_NO_CORREGIBLE, CORRECCION_*, etc.
         codigo, _, detalle = str(exc).partition(":")
@@ -207,21 +218,25 @@ def revisar_y_corregir_cierre(item, base_dir_dev, version_codigo=None, controles
     )
 
 
-def ejecutar_revision(cierres_con_correccion, base_dir_dev, version_codigo=None, controles_dir_dev=None):
+def ejecutar_revision(cierres_con_correccion, base_dir_dev, version_codigo=None, controles_dir_dev=None, caja=None):
     """Aplica revisar_y_corregir_cierre() a cada item del lote. Un error en
     UNA corrección nunca detiene el resto (mismo criterio de aislamiento
-    que los módulos 01-03)."""
+    que los módulos 01-03).
+
+    `caja`: default de lote (propagado a cada item que no traiga ya su
+    propia `caja`); ver revisar_y_corregir_cierre()."""
     resultados = []
     for item in cierres_con_correccion:
         try:
-            resultados.append(revisar_y_corregir_cierre(item, base_dir_dev, version_codigo, controles_dir_dev))
+            resultados.append(revisar_y_corregir_cierre(item, base_dir_dev, version_codigo, controles_dir_dev, caja))
         except Exception as exc:  # red de seguridad adicional a nivel de lote
+            caja_resuelta = cfg.resolver_caja(item.get("caja") or caja)
             resultados.append({
                 "fecha": item.get("fecha"), "correccion_aplicada": False, "correccion_valida": False,
                 "campos_corregidos": [], "resultado_reproceso": None, "diferencia": None,
                 "bloqueadores": None, "ruta_resultado": None, "ruta_sap": None, "cargo": None,
                 "haber": None, "version_correccion": None, "ruta_correccion_guardada": None,
-                "mensaje": f"{type(exc).__name__}: {exc}",
+                "mensaje": f"{type(exc).__name__}: {exc}", "caja": caja_resuelta.codigo,
             })
     return resultados
 
@@ -235,7 +250,7 @@ def main(argv=None):
     import json
 
     parser = argparse.ArgumentParser(description="Modulo 05 REVISION/CORRECCION de V3 (DEV, adaptador sobre V2).")
-    parser.add_argument("--input", required=True, help="JSON {'cierres_con_correccion':[...], 'base_dir_dev':str, 'version_codigo':str|null, 'controles_dir_dev':str|null}")
+    parser.add_argument("--input", required=True, help="JSON {'cierres_con_correccion':[...], 'base_dir_dev':str, 'version_codigo':str|null, 'controles_dir_dev':str|null, 'caja':str|null}")
     parser.add_argument("--output", required=True)
     args = parser.parse_args(argv)
 
@@ -244,7 +259,7 @@ def main(argv=None):
 
     resultado = ejecutar_revision(
         datos["cierres_con_correccion"], datos["base_dir_dev"], datos.get("version_codigo"),
-        datos.get("controles_dir_dev"),
+        datos.get("controles_dir_dev"), datos.get("caja"),
     )
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump({"resultado": "OK", "cierres": resultado}, f, ensure_ascii=False, indent=2)

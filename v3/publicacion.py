@@ -41,6 +41,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import config_cajas as cfg  # noqa: E402  (reutilizado tal cual)
 import pipeline_tiquipaya as pipeline  # noqa: E402  (reutilizado tal cual)
 from v3.materializacion import _verificar_contenido_en_base_dir  # noqa: E402
 from v3.clasificacion import LISTO_PARA_PUBLICAR, YA_PROCESADO  # noqa: E402
@@ -58,19 +59,23 @@ ERROR_PUBLICACION = "ERROR_PUBLICACION"
 _ESTADOS_HABILITADOS = (LISTO_PARA_PUBLICAR,)  # CONTRACT-011: unicamente este estado autoriza publicar
 
 
-def _nombre_sap_oficial(fecha_iso):
+def _nombre_sap_oficial(fecha_iso, caja=None):
     """Nombre del SAP diario tal como lo espera consolidador_mensual.py
-    para la futura consolidación GLOBAL: `SAP_TIQ_DD-MM-YYYY.xlsx`
-    (`_RE_SAP_DIARIO` en consolidador_mensual.py). run_batch._nombre_sap_esperado()
-    (V2, reutilizado tal cual por v3.motor para generar el SAP) produce
-    `SAP_DD-MM-YYYY.xlsx` — sin 'TIQ' — un mismatch histórico de V2 que
-    consolidador_mensual.py nunca reconcilia (V2 no se toca desde aquí).
-    Esta función SOLO renombra la COPIA que este módulo ya hace al publicar
-    (nunca el archivo original que produjo el motor): el SAP oficial que
-    queda publicado (en DEV y, después, en Drive) ya nace con el nombre
-    que GLOBAL podrá consumir."""
+    para la futura consolidación GLOBAL: `SAP_TIQ_DD-MM-YYYY.xlsx` (TIQ) /
+    `SAP_AME_DD-MM-YYYY.xlsx` (América) — `_RE_SAP_DIARIO`/`_patron_sap_diario`
+    en consolidador_mensual.py, parametrizado por `caja.prefijo_archivo`.
+    run_batch._nombre_sap_esperado() (V2, reutilizado tal cual por v3.motor
+    para generar el SAP) produce `SAP_DD-MM-YYYY.xlsx` — sin prefijo de
+    caja — un mismatch histórico de V2 que consolidador_mensual.py nunca
+    reconcilia (V2 no se toca desde aquí). Esta función SOLO renombra la
+    COPIA que este módulo ya hace al publicar (nunca el archivo original
+    que produjo el motor): el SAP oficial que queda publicado (en DEV y,
+    después, en Drive) ya nace con el nombre que GLOBAL podrá consumir.
+    Sin `caja` (o con caja="tiquipaya") produce EXACTAMENTE el nombre
+    histórico."""
     anio, mes, dia = fecha_iso.split("-")
-    return f"SAP_TIQ_{dia}-{mes}-{anio}.xlsx"
+    prefijo = cfg.resolver_caja(caja).prefijo_archivo
+    return f"SAP_{prefijo}_{dia}-{mes}-{anio}.xlsx"
 
 
 def _directorios_publicacion(base_dir_dev):
@@ -87,7 +92,7 @@ def _directorios_publicacion(base_dir_dev):
     return dirs
 
 
-def _salida(item, estado_publicacion, publicado, mensaje, usuario_auditor=None, **extra):
+def _salida(item, estado_publicacion, publicado, mensaje, usuario_auditor=None, caja=None, **extra):
     # Preserva TODO lo que el item ya traía de los Módulos 01-05
     # (archivo_esperado, estado_ingesta, estado_materializacion,
     # estado_final/resultado_reproceso, etc.) — necesario para que el
@@ -105,19 +110,24 @@ def _salida(item, estado_publicacion, publicado, mensaje, usuario_auditor=None, 
     mensajes = list(item.get("mensajes") or [])
     if not mensajes or mensajes[-1] != mensaje:
         mensajes.append(mensaje)
+    # REGLA DE DEFENSA: si el item ya trae "caja" (propagada por los
+    # Módulos 03/05), esa identidad SIEMPRE gana sobre `caja` — nunca una
+    # llamada posterior (p. ej. publicar_lote() sin `caja` explícita)
+    # convierte silenciosamente un item América en Tiquipaya.
+    caja_resuelta = cfg.resolver_caja(item.get("caja") or caja)
     base = dict(item)
     base.update({
         "fecha": item.get("fecha"), "estado_publicacion": estado_publicacion, "publicado": publicado,
         "sha256": None, "ruta_sap_publicado": None, "ruta_resultado_publicado": None,
         "ruta_cierre_procesado": None, "ruta_marker": None,
         "usuario_auditor": usuario_auditor or item.get("usuario_auditor"),
-        "mensaje": mensaje, "mensajes": mensajes,
+        "mensaje": mensaje, "mensajes": mensajes, "caja": caja_resuelta.codigo,
     })
     base.update(extra)
     return base
 
 
-def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=False):
+def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=False, caja=None):
     """`item`: registro combinado (01-05) para UN cierre. Debe traer
     `estado_final` (del Módulo 04) o, si vino de una corrección aplicada
     en el Módulo 05, `resultado_reproceso` — ambos usan los MISMOS 5
@@ -129,6 +139,12 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=F
     para cualquier otro estado (ERROR_REVISAR/SIN_ARCHIVO/ERROR_TECNICO/
     AMBIGUO/bloqueado) rechaza sin tocar nada — CONTRACT-011.
 
+    `caja`: default de lote, SOLO usado si el item no trae ya su propia
+    `"caja"` (Módulos 03/05) — REGLA DE DEFENSA: si el item ya la trae,
+    esa identidad gana siempre (ver _salida()); nunca se convierte
+    silenciosamente un item América en Tiquipaya. Decide el nombre SAP
+    oficial (SAP_TIQ_/SAP_AME_DD-MM-YYYY.xlsx, ver _nombre_sap_oficial()).
+
     `modo_oficial=True` (backend en modo official): la publicación local es solo
     la PREPARACIÓN de los archivos que 06B sube a Drive. Un marcador local
     previo (residuo de una publicación DEV) NO cuenta como publicación ni
@@ -139,16 +155,17 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=F
     Nunca lanza: cualquier problema se refleja en el resultado de ESTE
     cierre (ver publicar_lote() para el aislamiento de lote)."""
     estado = item.get("resultado_reproceso") or item.get("estado_final")
+    caja_resuelta = cfg.resolver_caja(item.get("caja") or caja)
 
     if estado == YA_PROCESADO:
         return _salida(item, YA_PUBLICADO, False,
                         "Cierre YA_PROCESADO según el motor (idempotencia SHA256 de V2): nada que publicar.",
-                        usuario_auditor)
+                        usuario_auditor, caja=caja)
 
     if estado not in _ESTADOS_HABILITADOS:
         return _salida(item, NO_PUBLICABLE, False,
                         f"Estado '{estado}' no habilita publicación (CONTRACT-011: solo {_ESTADOS_HABILITADOS}).",
-                        usuario_auditor)
+                        usuario_auditor, caja=caja)
 
     ruta_cierre = item.get("ruta_cierre_local")
     ruta_sap = item.get("ruta_sap")
@@ -156,7 +173,7 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=F
     if not ruta_cierre or not ruta_sap or not ruta_resultado:
         return _salida(item, ERROR_PUBLICACION, False,
                         "PUBLICACION_INCOMPLETA: faltan rutas (cierre/sap/resultado) para publicar.",
-                        usuario_auditor)
+                        usuario_auditor, caja=caja)
 
     try:
         sha256 = pipeline.calcular_sha256(ruta_cierre)  # REUTILIZADO tal cual (solo lectura)
@@ -165,7 +182,7 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=F
         nombre_marker = pipeline.nombre_marcador_procesado(sha256)  # REUTILIZADO tal cual
         ruta_marker = os.path.join(dirs["markers"], nombre_marker)
 
-        nombre_sap_oficial = _nombre_sap_oficial(item.get("fecha"))
+        nombre_sap_oficial = _nombre_sap_oficial(item.get("fecha"), caja_resuelta)
 
         if os.path.isfile(ruta_marker) and not modo_oficial:
             # CONTRACT-008/009: idempotencia — el marcador ya existe, NUNCA
@@ -176,7 +193,7 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=F
             return _salida(
                 item, YA_PUBLICADO, False,
                 "Marcador ya existente en publicacion/markers/: no se republica (idempotencia SHA256).",
-                usuario_auditor,
+                usuario_auditor, caja=caja,
                 sha256=sha256,
                 ruta_sap_publicado=ruta_sap_existente if os.path.isfile(ruta_sap_existente) else None,
                 ruta_resultado_publicado=ruta_resultado_existente if os.path.isfile(ruta_resultado_existente) else None,
@@ -221,35 +238,38 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=F
             return _salida(
                 item, PUBLICACION_LOCAL_PREPARADA, False,
                 "Publicación local preparada (SAP + resultado + procesado + marcador): pendiente de la confirmación oficial de Drive (06B).",
-                usuario_auditor,
+                usuario_auditor, caja=caja,
                 sha256=sha256, ruta_sap_publicado=ruta_sap_dest, ruta_resultado_publicado=ruta_resultado_dest,
                 ruta_cierre_procesado=ruta_cierre_dest, ruta_marker=ruta_marker,
             )
         return _salida(
             item, PUBLICADO, True,
             "Cierre publicado en DEV: SAP + resultado + procesado + marcador.",
-            usuario_auditor,
+            usuario_auditor, caja=caja,
             sha256=sha256, ruta_sap_publicado=ruta_sap_dest, ruta_resultado_publicado=ruta_resultado_dest,
             ruta_cierre_procesado=ruta_cierre_dest, ruta_marker=ruta_marker,
         )
     except ValueError as exc:  # MARCADOR_NO_AUTORIZADO u otro rechazo explicito de V2
         codigo, _, detalle = str(exc).partition(":")
-        return _salida(item, ERROR_PUBLICACION, False, f"{codigo}: {detalle or exc}", usuario_auditor)
+        return _salida(item, ERROR_PUBLICACION, False, f"{codigo}: {detalle or exc}", usuario_auditor, caja=caja)
     except Exception as exc:  # aislamiento tecnico: nunca se propaga fuera de este cierre
-        return _salida(item, ERROR_PUBLICACION, False, f"{type(exc).__name__}: {exc}", usuario_auditor)
+        return _salida(item, ERROR_PUBLICACION, False, f"{type(exc).__name__}: {exc}", usuario_auditor, caja=caja)
 
 
-def publicar_lote(cierres, base_dir_dev, usuario_auditor=None, modo_oficial=False):
+def publicar_lote(cierres, base_dir_dev, usuario_auditor=None, modo_oficial=False, caja=None):
     """Aplica publicar_cierre_dev() a cada cierre de la lista — LA MISMA
     función que se usa para publicar un único cierre (ver docstring del
     módulo: no existen dos caminos de lógica). Un error en UNO nunca
-    detiene la publicación de los demás."""
+    detiene la publicación de los demás.
+
+    `caja`: default de lote (ver publicar_cierre_dev/REGLA DE DEFENSA en
+    _salida: un item que ya trae su propia `"caja"` nunca la pierde)."""
     resultados = []
     for item in cierres:
         try:
-            resultados.append(publicar_cierre_dev(item, base_dir_dev, usuario_auditor, modo_oficial))
+            resultados.append(publicar_cierre_dev(item, base_dir_dev, usuario_auditor, modo_oficial, caja))
         except Exception as exc:  # red de seguridad adicional a nivel de lote
-            resultados.append(_salida(item, ERROR_PUBLICACION, False, f"{type(exc).__name__}: {exc}", usuario_auditor))
+            resultados.append(_salida(item, ERROR_PUBLICACION, False, f"{type(exc).__name__}: {exc}", usuario_auditor, caja=caja))
     return resultados
 
 
@@ -261,14 +281,17 @@ def main(argv=None):
     import argparse
 
     parser = argparse.ArgumentParser(description="Modulo 06 PUBLICACION de V3 (DEV, adaptador sobre V2).")
-    parser.add_argument("--input", required=True, help="JSON {'cierres':[...], 'base_dir_dev':str, 'usuario_auditor':str|null}")
+    parser.add_argument("--input", required=True, help="JSON {'cierres':[...], 'base_dir_dev':str, 'usuario_auditor':str|null, 'caja':str|null}")
     parser.add_argument("--output", required=True)
     args = parser.parse_args(argv)
 
     with open(args.input, "r", encoding="utf-8") as f:
         datos = json.load(f)
 
-    resultado = publicar_lote(datos["cierres"], datos["base_dir_dev"], datos.get("usuario_auditor"))
+    resultado = publicar_lote(
+        datos["cierres"], datos["base_dir_dev"], datos.get("usuario_auditor"),
+        caja=datos.get("caja"),
+    )
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump({"resultado": "OK", "cierres": resultado}, f, ensure_ascii=False, indent=2)
     return 0

@@ -523,18 +523,27 @@ def escribir_sap_global(partidas, ruta_plantilla, ruta_salida, metadata):
 # Sección 11 — trazabilidad (RESULTADO_GLOBAL_TIQ_<MES>_<AÑO>.json)
 # ---------------------------------------------------------------------------
 
+def periodo_sap_global(anio, mes):
+    """Periodo canónico que ya usa el SAP GLOBAL mensual
+    ('<MES_NOMBRE>_<AÑO>', p. ej. 'SEPTIEMBRE_2026'), independiente del
+    prefijo de caja (TIQ/AME). Helper puro: no lee archivos, no resuelve
+    caja, no cambia el comportamiento histórico de nombre_sap_global()/
+    nombre_resultado_json() (ambos lo usan internamente)."""
+    return f"{_MES_NOMBRE[mes]}_{anio}"
+
+
 def nombre_sap_global(anio, mes, caja=None):
     """'SAP_GLOBAL_<prefijo>_<MES>_<AÑO>.xlsx'. Sin `caja` (o con
     caja="tiquipaya") produce EXACTAMENTE el nombre histórico
     'SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx' — v3/consolidador_mensual_v3.py
     (no tocado en esta tarea) depende de ese literal exacto."""
     prefijo = cfg.resolver_caja(caja).prefijo_archivo
-    return f"SAP_GLOBAL_{prefijo}_{_MES_NOMBRE[mes]}_{anio}.xlsx"
+    return f"SAP_GLOBAL_{prefijo}_{periodo_sap_global(anio, mes)}.xlsx"
 
 
 def nombre_resultado_json(anio, mes, caja=None):
     prefijo = cfg.resolver_caja(caja).prefijo_archivo
-    return f"RESULTADO_GLOBAL_{prefijo}_{_MES_NOMBRE[mes]}_{anio}.json"
+    return f"RESULTADO_GLOBAL_{prefijo}_{periodo_sap_global(anio, mes)}.json"
 
 
 # ---------------------------------------------------------------------------

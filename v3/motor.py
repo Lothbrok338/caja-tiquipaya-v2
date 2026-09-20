@@ -39,6 +39,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import config_cajas as cfg  # noqa: E402  (reutilizado tal cual)
 import pipeline_tiquipaya as pipeline  # noqa: E402  (reutilizado tal cual)
 import run_batch  # noqa: E402  (reutilizado tal cual)
 from v3.materializacion import MATERIALIZADO, _verificar_contenido_en_base_dir  # noqa: E402
@@ -79,23 +80,34 @@ def _propagar(item_materializacion, estado_motor, resultado, mensaje, **extra):
     return salida
 
 
-def ejecutar_motor_cierre(item_materializacion, base_dir_dev, version_codigo=None):
+def ejecutar_motor_cierre(item_materializacion, base_dir_dev, version_codigo=None, caja=None):
     """Ejecuta (o no) el motor determinístico de V2 sobre UN cierre ya
     materializado. `item_materializacion`: dict con la forma que produce
     v3.materializacion.ejecutar_materializacion() (fecha, archivo_esperado,
     estado_ingesta, estado_materializacion, ruta_cierre_local,
     ruta_maestro_local, ruta_template_sap_local, ruta_markers_local).
 
+    `caja`: config_cajas.CajaConfig (o su `codigo`) de ESTE cierre. Si el
+    item ya trae una `caja` (p. ej. propagada por un módulo anterior), esa
+    identidad gana sobre el parámetro del lote — nunca se convierte
+    silenciosamente un cierre de una caja en otro. Sin `caja` (ni en el
+    item ni en el parámetro) el comportamiento es EXACTAMENTE el
+    histórico: TIQUIPAYA. El resultado siempre trae `"caja"` con el
+    código ya resuelto ("tiquipaya"/"america"), para que los módulos 05/06
+    lo propaguen sin volver a decidirlo.
+
     Nunca lanza: cualquier problema técnico se refleja como ERROR_MOTOR en
     el resultado de ESTE cierre, sin afectar a los demás (ver
     ejecutar_motor() para el aislamiento a nivel de lote)."""
     fecha = item_materializacion.get("fecha")
     estado_mat = item_materializacion.get("estado_materializacion")
+    caja_resuelta = cfg.resolver_caja(item_materializacion.get("caja") or caja)
 
     if estado_mat != MATERIALIZADO:
         return _propagar(
             item_materializacion, NO_PROCESADO, estado_mat,
             f"No se ejecuta el motor: estado_materializacion={estado_mat}.",
+            caja=caja_resuelta.codigo,
         )
 
     try:
@@ -121,9 +133,11 @@ def ejecutar_motor_cierre(item_materializacion, base_dir_dev, version_codigo=Non
         os.makedirs(resultados_dir, exist_ok=True)
 
         ruta_sap_salida = os.path.join(salidas_dir, run_batch._nombre_sap_esperado(fecha))
-        ruta_resultado = os.path.join(resultados_dir, pipeline.nombre_resultado_json(fecha))
+        ruta_resultado = os.path.join(
+            resultados_dir, pipeline.nombre_resultado_json(fecha, caja_resuelta)
+        )
 
-        metadata_cabecera = run_batch.construir_metadata_cabecera(fecha)  # reutilizado tal cual
+        metadata_cabecera = run_batch.construir_metadata_cabecera(fecha, caja_resuelta)  # reutilizado tal cual
         version_codigo = version_codigo or run_batch._resolver_version_codigo(None)
 
         hashes_procesados, registros_control = set(), []
@@ -137,6 +151,7 @@ def ejecutar_motor_cierre(item_materializacion, base_dir_dev, version_codigo=Non
             ruta_sap_salida=ruta_sap_salida, metadata_cabecera=metadata_cabecera,
             version_codigo=version_codigo, ruta_resultado=ruta_resultado,
             hashes_procesados=hashes_procesados, registros_control=registros_control,
+            caja=caja_resuelta,
         )
         resultado_json = resultado.get("resultado_json") or {}
 
@@ -150,21 +165,31 @@ def ejecutar_motor_cierre(item_materializacion, base_dir_dev, version_codigo=Non
             ruta_sap=resultado_json.get("sap_archivo"),
             cargo=resultado_json.get("cargo"),
             haber=resultado_json.get("haber"),
+            caja=caja_resuelta.codigo,
         )
     except Exception as exc:  # aislamiento: nunca se propaga fuera de este cierre
-        return _propagar(item_materializacion, ERROR_MOTOR, None, f"{type(exc).__name__}: {exc}")
+        return _propagar(
+            item_materializacion, ERROR_MOTOR, None, f"{type(exc).__name__}: {exc}",
+            caja=caja_resuelta.codigo,
+        )
 
 
-def ejecutar_motor(cierres_materializados, base_dir_dev, version_codigo=None):
+def ejecutar_motor(cierres_materializados, base_dir_dev, version_codigo=None, caja=None):
     """Aplica ejecutar_motor_cierre() a cada cierre del lote. Un problema
     técnico inesperado en UN cierre nunca detiene el resto (mismo criterio
-    de aislamiento que run_batch.py y v3.ingesta/v3.materializacion)."""
+    de aislamiento que run_batch.py y v3.ingesta/v3.materializacion).
+
+    `caja`: default de lote (propagado a cada cierre que no traiga ya su
+    propia `caja`); ver ejecutar_motor_cierre()."""
     resultados = []
     for item in cierres_materializados:
         try:
-            resultados.append(ejecutar_motor_cierre(item, base_dir_dev, version_codigo))
+            resultados.append(ejecutar_motor_cierre(item, base_dir_dev, version_codigo, caja))
         except Exception as exc:  # red de seguridad adicional a nivel de lote
-            resultados.append(_propagar(item, ERROR_MOTOR, None, f"{type(exc).__name__}: {exc}"))
+            caja_resuelta = cfg.resolver_caja(item.get("caja") or caja)
+            resultados.append(_propagar(
+                item, ERROR_MOTOR, None, f"{type(exc).__name__}: {exc}", caja=caja_resuelta.codigo,
+            ))
     return resultados
 
 
@@ -177,7 +202,7 @@ def main(argv=None):
     import json
 
     parser = argparse.ArgumentParser(description="Modulo 03 MOTOR PYTHON de V3 (DEV, adaptador sobre V2).")
-    parser.add_argument("--input", required=True, help="JSON {'cierres_materializados':[...], 'base_dir_dev':str, 'version_codigo':str|null}")
+    parser.add_argument("--input", required=True, help="JSON {'cierres_materializados':[...], 'base_dir_dev':str, 'version_codigo':str|null, 'caja':str|null}")
     parser.add_argument("--output", required=True)
     args = parser.parse_args(argv)
 
@@ -186,6 +211,7 @@ def main(argv=None):
 
     resultado = ejecutar_motor(
         datos["cierres_materializados"], datos["base_dir_dev"], datos.get("version_codigo"),
+        datos.get("caja"),
     )
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump({"resultado": "OK", "cierres": resultado}, f, ensure_ascii=False, indent=2)
