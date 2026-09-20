@@ -293,8 +293,13 @@ def procesar_cierre(fecha_iso, ruta_cierre, ruta_maestro, ruta_plantilla,
     individual se refleja como ERROR_REVISAR y se devuelve normalmente
     (no lanza excepción); solo un fallo técnico inesperado se captura
     aquí para no detener el resto del batch."""
+    # SAP_DD-MM-YYYY.xlsx: nombre LOCAL/interno, sin prefijo de caja
+    # (legacy V2 — v3/publicacion.py es quien lo renombra al oficial
+    # SAP_TIQ_.../SAP_AME_... al publicar; no se toca en esta fase).
     ruta_sap_salida = os.path.join(salidas_dir, _nombre_sap_esperado(fecha_iso))
-    ruta_resultado = os.path.join(resultados_dir, pipeline.nombre_resultado_json(fecha_iso))
+    ruta_resultado = os.path.join(
+        resultados_dir, pipeline.nombre_resultado_json(fecha_iso, caja)
+    )
     metadata_cabecera = construir_metadata_cabecera(fecha_iso, caja)
 
     t0 = time.perf_counter()

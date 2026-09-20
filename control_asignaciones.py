@@ -140,10 +140,11 @@ import warnings
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 import openpyxl
-import config_cajas as cfg
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
+
+import config_cajas as cfg
 
 # ---------------------------------------------------------------------------
 # Constantes de layout del GLOBAL (ver sap_writer.py / consolidador_mensual.py
@@ -259,7 +260,19 @@ _COLUMNAS_TEXTO_AJUSTADO = ("GLOSA", "OBSERVACION_AUDITOR", "ANTECEDENTE_HISTORI
 
 # Convención canónica OBLIGATORIA del nombre del GLOBAL mensual. Sin esto
 # no se puede derivar el periodo, y sin periodo el control se detiene.
-_RE_NOMBRE_GLOBAL = re.compile(r"^SAP_GLOBAL_TIQ_([A-Za-z]+)_(\d{4})\.xlsx$", re.IGNORECASE)
+#
+# El prefijo (TIQ/AME) es EXCLUSIVO de la caja que se está auditando: un
+# GLOBAL con el prefijo equivocado (SAP_GLOBAL_AME_... al auditar
+# tiquipaya, o viceversa) simplemente no matchea -> periodo=None ->
+# GLOBAL_NOMBRE_NO_CANONICO, el mismo fallo cerrado que ya existía para
+# cualquier nombre no canónico. `_RE_NOMBRE_GLOBAL` se conserva como alias
+# módulo-level del patrón de TIQUIPAYA (comportamiento histórico exacto).
+def _patron_nombre_global(caja=None):
+    prefijo = re.escape(cfg.resolver_caja(caja).prefijo_archivo)
+    return re.compile(rf"^SAP_GLOBAL_{prefijo}_([A-Za-z]+)_(\d{{4}})\.xlsx$", re.IGNORECASE)
+
+
+_RE_NOMBRE_GLOBAL = _patron_nombre_global()
 
 
 class HojaNoEncontradaError(RuntimeError):
@@ -598,25 +611,26 @@ def detectar_duplicados(candidatas_nuevas, historico, nombre_archivo_global):
 # partir del nombre canónico del GLOBAL — SIN fallback.
 # ---------------------------------------------------------------------------
 
-def _derivar_periodo(nombre_archivo_global):
-    """Convención canónica OBLIGATORIA: SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx.
-    Devuelve "<MES>_<AÑO>" en mayúsculas, o None si el nombre no calza —
-    SIN fallback: un nombre no canónico detiene el control."""
+def _derivar_periodo(nombre_archivo_global, caja=None):
+    """Convención canónica OBLIGATORIA: SAP_GLOBAL_<prefijo>_<MES>_<AÑO>.xlsx
+    (prefijo de `caja`, TIQ por defecto). Devuelve "<MES>_<AÑO>" en
+    mayúsculas, o None si el nombre no calza —SIN fallback: un nombre no
+    canónico (incluido el de OTRA caja) detiene el control."""
     if not nombre_archivo_global:
         return None
-    m = _RE_NOMBRE_GLOBAL.match(nombre_archivo_global)
+    m = _patron_nombre_global(caja).match(nombre_archivo_global)
     if not m:
         return None
     mes, anio = m.groups()
     return f"{mes.upper()}_{anio}"
 
 
-def _periodo_para_mostrar(nombre_archivo_global):
+def _periodo_para_mostrar(nombre_archivo_global, caja=None):
     """Variante NO estricta, solo para mostrar el periodo de un
     antecedente histórico de forma legible (puede referenciar un
     archivo_global grabado antes de exigir el nombre canónico). Nunca se
     usa para decidir el periodo del GLOBAL que se audita ahora."""
-    periodo = _derivar_periodo(nombre_archivo_global)
+    periodo = _derivar_periodo(nombre_archivo_global, caja)
     if periodo:
         return periodo
     if not nombre_archivo_global:
@@ -1006,7 +1020,13 @@ def _resoluciones_por_fila(filas):
 
 def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
                       dry_run=False, ruta_detalle_json=None, directorio_revision=None,
-                      ruta_revision_json=None):
+                      ruta_revision_json=None, caja=None):
+    """`caja` (config_cajas.CajaConfig o su `codigo`, por defecto
+    TIQUIPAYA) decide el prefijo del nombre canónico exigido
+    (SAP_GLOBAL_TIQ_.../SAP_GLOBAL_AME_...). Un GLOBAL con el prefijo de
+    OTRA caja se trata exactamente igual que cualquier nombre no
+    canónico: GLOBAL_NOMBRE_NO_CANONICO, sin leer nada."""
+    caja = cfg.resolver_caja(caja)
     if not ruta_global or not os.path.isfile(ruta_global):
         return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_NO_ENCONTRADO"],
                 "ruta_global": ruta_global}
@@ -1016,7 +1036,7 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
 
     # Nombre canónico OBLIGATORIO, sin fallback: se detiene ANTES de leer
     # historico/partidas y antes de tocar REVISION/HISTORICO/GLOBAL.
-    periodo = _derivar_periodo(nombre_archivo_global)
+    periodo = _derivar_periodo(nombre_archivo_global, caja)
     if periodo is None:
         return {
             "estado": "ERROR_TECNICO",
@@ -1025,9 +1045,10 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
             "sha256_archivo": sha256_actual,
             "mensaje": (
                 f"'{nombre_archivo_global}' no sigue la convención canónica "
-                "SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx; no se puede derivar el "
-                "periodo de forma segura. El control se detiene sin leer "
-                "partidas ni tocar REVISION/HISTORICO/GLOBAL."
+                f"SAP_GLOBAL_{caja.prefijo_archivo}_<MES>_<AÑO>.xlsx (caja="
+                f"{caja.codigo!r}); no se puede derivar el periodo de forma "
+                "segura. El control se detiene sin leer partidas ni tocar "
+                "REVISION/HISTORICO/GLOBAL."
             ),
         }
 
@@ -1394,6 +1415,10 @@ def _parse_args(argv=None):
                               "para esta corrida (nunca se leen ni se escriben).")
     parser.add_argument("--dry-run", action="store_true",
                          help="No incorpora nada al histórico, no corrige el GLOBAL ni escribe REVISION; solo reporta.")
+    parser.add_argument("--caja", default=cfg.CAJA_POR_DEFECTO.codigo,
+                         choices=sorted(cfg.CAJAS),
+                         help="Caja a auditar (por defecto: tiquipaya). Determina el prefijo "
+                              "canónico exigido del GLOBAL (SAP_GLOBAL_TIQ_.../SAP_GLOBAL_AME_...).")
     return parser.parse_args(argv)
 
 
@@ -1407,6 +1432,7 @@ def main(argv=None):
         ruta_detalle_json=args.ruta_detalle_json,
         directorio_revision=args.directorio_revision,
         ruta_revision_json=args.ruta_revision_json,
+        caja=args.caja,
     )
     print(json.dumps(resumen, ensure_ascii=False))
     return 0 if resumen.get("estado") != "ERROR_TECNICO" else 1

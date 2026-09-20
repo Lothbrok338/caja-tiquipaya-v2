@@ -29,6 +29,7 @@ import os
 from datetime import datetime
 from decimal import Decimal
 
+import config_cajas as cfg
 import correcciones_tiquipaya as correcciones
 import excel_io as io
 import motor_tiquipaya as motor
@@ -113,10 +114,16 @@ def _escribir_control(ruta_control, filas):
 # Resultado estructurado (RESULTADO_TIQ_DD-MM-YYYY.json)
 # ---------------------------------------------------------------------------
 
-def nombre_resultado_json(fecha_cierre):
-    """'RESULTADO_TIQ_DD-MM-YYYY.json' a partir de fecha_cierre YYYY-MM-DD."""
+def nombre_resultado_json(fecha_cierre, caja=None):
+    """'RESULTADO_<prefijo>_DD-MM-YYYY.json' a partir de fecha_cierre
+    YYYY-MM-DD. `caja` (config_cajas.CajaConfig o su `codigo`, por
+    defecto TIQUIPAYA) decide el prefijo: sin `caja` o con
+    caja="tiquipaya" produce EXACTAMENTE 'RESULTADO_TIQ_DD-MM-YYYY.json'
+    (el nombre histórico, sin cambios); con caja="america" produce
+    'RESULTADO_AME_DD-MM-YYYY.json'."""
     anio, mes, dia = fecha_cierre.split("-")
-    return f"RESULTADO_TIQ_{dia}-{mes}-{anio}.json"
+    prefijo = cfg.resolver_caja(caja).prefijo_archivo
+    return f"RESULTADO_{prefijo}_{dia}-{mes}-{anio}.json"
 
 
 def _construir_resultado_json(fecha_cierre, archivo_origen, hash_origen,

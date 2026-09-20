@@ -31,6 +31,13 @@ class CajaConfig:
     atc_caja                valor esperado en la columna CAJA de la hoja
                             "ATC TIQUIPAYA" del maestro (el NOMBRE de esa
                             hoja no cambia para ninguna caja).
+    prefijo_archivo         prefijo que identifica a la caja en los NOMBRES
+                            de archivo (SAP_<prefijo>_DD-MM-YYYY.xlsx,
+                            SAP_GLOBAL_<prefijo>_<MES>_<AÑO>.xlsx,
+                            RESULTADO_<prefijo>_DD-MM-YYYY.json). Es un
+                            campo EXPLÍCITO, deliberadamente independiente
+                            de `codigo`/`nombre_sap`: nunca se deriva del
+                            nombre de la caja.
     reserva_posgrado        True si la caja aplica la regla POSGRADO RESERVA.
     cuenta_reserva_posgrado cuenta CxP del HABER adicional de la reserva;
                             None si la caja no aplica la regla.
@@ -41,6 +48,7 @@ class CajaConfig:
     cuenta_haber: str
     nombre_sap: str
     atc_caja: str
+    prefijo_archivo: str
     reserva_posgrado: bool = False
     cuenta_reserva_posgrado: str = None
 
@@ -77,6 +85,7 @@ TIQUIPAYA = CajaConfig(
     cuenta_haber="110101001",
     nombre_sap="CAJA TIQUIPAYA",
     atc_caja="TIQUIPAYA",
+    prefijo_archivo="TIQ",
     reserva_posgrado=False,
     cuenta_reserva_posgrado=None,
 )
@@ -87,6 +96,7 @@ AMERICA = CajaConfig(
     cuenta_haber="110101003",
     nombre_sap="CAJA AMERICA",
     atc_caja="AMERICA",
+    prefijo_archivo="AME",
     reserva_posgrado=True,
     cuenta_reserva_posgrado="210103003",
 )

@@ -2,9 +2,11 @@
 consolidador_mensual.py — CONSOLIDADOR MENSUAL SAP (módulo separado, posterior
 al V2 diario).
 
-Toma SAP diarios YA VALIDADOS por el usuario (archivos `SAP_TIQ_DD-MM-YYYY.xlsx`
+Toma SAP diarios YA VALIDADOS por el usuario (archivos `SAP_<prefijo>_DD-MM-YYYY.xlsx`
 ya generados y publicados por el flujo diario) y produce UN NUEVO archivo SAP
-GLOBAL mensual: `SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx`.
+GLOBAL mensual: `SAP_GLOBAL_<prefijo>_<MES>_<AÑO>.xlsx`. El prefijo (TIQ por
+defecto, AME para Caja América) lo decide `--caja` / config_cajas.py — ver
+ejemplos con TIQUIPAYA más abajo, sin cambios de comportamiento por defecto.
 
 MUY IMPORTANTE — este módulo es de solo lectura sobre sus entradas:
 
@@ -63,6 +65,7 @@ from decimal import Decimal
 
 import openpyxl
 
+import config_cajas as cfg
 from excel_io import money_str, to_decimal
 
 
@@ -76,13 +79,10 @@ _FILA_CABECERA = 10
 _FILA_PRIMERA_PARTIDA = 16
 _FORMATO_FECHA_CORTA = "dd/mm/yyyy"
 
-_CABECERA_ESPERADA = {"B": "BO01", "C": "DB", "H": "BOB", "L": "CAJA TIQUIPAYA"}
-
 # Cabecera del SAP GLOBAL mensual (sección 8 de la especificación).
 _SOCIEDAD_GLOBAL = "BO01"
 _TIPO_ASIENTO_GLOBAL = "DB"
 _MONEDA_GLOBAL = "BOB"
-_REFERENCIA_GLOBAL = "CAJA TIQUIPAYA"
 
 _MES_ABREV = {
     1: "ENE", 2: "FEB", 3: "MAR", 4: "ABR", 5: "MAY", 6: "JUN",
@@ -94,7 +94,38 @@ _MES_NOMBRE = {
     12: "DICIEMBRE",
 }
 
-_RE_SAP_DIARIO = re.compile(r"^SAP_TIQ_(\d{2})-(\d{2})-(\d{4})\.xlsx$", re.IGNORECASE)
+
+# ---------------------------------------------------------------------------
+# Identidad de caja: nombres/cabecera derivados EXCLUSIVAMENTE de
+# config_cajas.CajaConfig.prefijo_archivo / .nombre_sap. `caja=None` ->
+# TIQUIPAYA en cada función pública de este módulo, de modo que ninguna
+# llamada histórica (sin `caja`) cambia de comportamiento.
+#
+# Nunca se acepta el SAP diario/GLOBAL de una caja como si fuera de otra:
+# el patrón de nombre es específico de `caja.prefijo_archivo` y un archivo
+# con el prefijo equivocado simplemente no matchea (se ignora en el
+# escaneo de directorio, o produce GLOBAL_NOMBRE_NO_CANONICO más abajo en
+# CONTROL 1/CONTROL 3 — no aquí, este módulo no valida el nombre del
+# GLOBAL de salida más que por los guardarrieles de --salida).
+# ---------------------------------------------------------------------------
+
+def _cabecera_esperada(caja=None):
+    return {"B": "BO01", "C": "DB", "H": "BOB", "L": cfg.resolver_caja(caja).nombre_sap}
+
+
+def _patron_sap_diario(caja=None):
+    prefijo = re.escape(cfg.resolver_caja(caja).prefijo_archivo)
+    return re.compile(rf"^SAP_{prefijo}_(\d{{2}})-(\d{{2}})-(\d{{4}})\.xlsx$", re.IGNORECASE)
+
+
+# Alias módulo-level de la caja por defecto (TIQUIPAYA), EXACTAMENTE los
+# valores históricos — se conservan por compatibilidad con cualquier
+# código/test que los referencie directamente (p. ej.
+# tests_v3/test_auditoria_mensual.py verifica cm._CABECERA_ESPERADA y
+# cm._RE_SAP_DIARIO.pattern literalmente).
+_RE_SAP_DIARIO = _patron_sap_diario()
+_CABECERA_ESPERADA = _cabecera_esperada()
+_REFERENCIA_GLOBAL = cfg.TIQUIPAYA.nombre_sap
 
 
 # ---------------------------------------------------------------------------
@@ -130,8 +161,8 @@ def _es_temporal(nombre):
     return nombre.startswith("~$") or nombre.startswith(".") or nombre.lower().endswith(".tmp")
 
 
-def _fecha_desde_nombre_sap(nombre):
-    m = _RE_SAP_DIARIO.match(nombre)
+def _fecha_desde_nombre_sap(nombre, caja=None):
+    m = _patron_sap_diario(caja).match(nombre)
     if not m:
         return None
     dia, mes, anio = m.groups()
@@ -142,11 +173,13 @@ def _fecha_desde_nombre_sap(nombre):
 # Sección 3 — selección de SAP diarios del mes solicitado
 # ---------------------------------------------------------------------------
 
-def seleccionar_sap_directorio(sap_dir, anio, mes):
+def seleccionar_sap_directorio(sap_dir, anio, mes, caja=None):
     """Escanea `sap_dir` y devuelve, ordenadas cronológicamente, las rutas
-    absolutas de los `SAP_TIQ_DD-MM-YYYY.xlsx` que correspondan a `anio`/
-    `mes`. Ignora `SAP_GLOBAL_*` (no matchea el patrón), archivos
-    temporales/ocultos y cualquier otro mes o nombre no compatible."""
+    absolutas de los `SAP_<prefijo>_DD-MM-YYYY.xlsx` (prefijo de `caja`,
+    TIQ por defecto) que correspondan a `anio`/`mes`. Ignora
+    `SAP_GLOBAL_*` (no matchea el patrón), archivos temporales/ocultos,
+    cualquier otro mes, y el SAP diario de CUALQUIER OTRA caja (nunca se
+    acepta un SAP_AME_... al consolidar tiquipaya, ni viceversa)."""
     if not os.path.isdir(sap_dir):
         raise RuntimeError(f"SAP_DIR_NO_ENCONTRADO: {sap_dir}")
 
@@ -154,7 +187,7 @@ def seleccionar_sap_directorio(sap_dir, anio, mes):
     for nombre in sorted(os.listdir(sap_dir)):
         if _es_temporal(nombre):
             continue
-        fecha = _fecha_desde_nombre_sap(nombre)
+        fecha = _fecha_desde_nombre_sap(nombre, caja)
         if fecha is None:
             continue
         if fecha.year != anio or fecha.month != mes:
@@ -165,12 +198,12 @@ def seleccionar_sap_directorio(sap_dir, anio, mes):
     return [ruta for _, ruta in candidatos]
 
 
-def resolver_archivos(args):
+def resolver_archivos(args, caja=None):
     """Si se pasa --archivos-lista, se consolidan EXCLUSIVAMENTE esos
     archivos (sin filtrar por --sap-dir/año/mes), ordenados cronológicamente
     cuando el nombre permite determinar la fecha (si no, se conserva el
     orden recibido). Sin --archivos-lista, se usa el escaneo por defecto de
-    --sap-dir (sección 3)."""
+    --sap-dir (sección 3), ya filtrado por `caja`."""
     if args.archivos_lista:
         rutas = [os.path.abspath(r) for r in args.archivos_lista]
         for ruta in rutas:
@@ -181,7 +214,7 @@ def resolver_archivos(args):
 
         def _clave(item):
             idx, ruta = item
-            fecha = _fecha_desde_nombre_sap(os.path.basename(ruta))
+            fecha = _fecha_desde_nombre_sap(os.path.basename(ruta), caja)
             return (0, fecha) if fecha else (1, idx)
 
         indexadas.sort(key=_clave)
@@ -189,7 +222,7 @@ def resolver_archivos(args):
 
     if not args.sap_dir:
         raise RuntimeError("FALTA_SAP_DIR_O_ARCHIVOS_LISTA")
-    return seleccionar_sap_directorio(args.sap_dir, args.anio, args.mes)
+    return seleccionar_sap_directorio(args.sap_dir, args.anio, args.mes, caja)
 
 
 # ---------------------------------------------------------------------------
@@ -251,12 +284,13 @@ def detectar_duplicados(rutas):
 # Sección 2 — guardarraíles absolutos sobre --salida
 # ---------------------------------------------------------------------------
 
-def validar_guardarrieles_salida(ruta_salida, ruta_plantilla, rutas_origen, force):
+def validar_guardarrieles_salida(ruta_salida, ruta_plantilla, rutas_origen, force, caja=None):
     """Nunca permite que --salida coincida con la plantilla, con un SAP
-    origen, o con el patrón de nombre de un SAP diario; y exige --force
-    explícito para reemplazar una salida global ya existente. --force
-    jamás habilita reemplazar un SAP diario ni la plantilla: solo se abre
-    en modo escritura la propia ruta de --salida."""
+    origen, o con el patrón de nombre de un SAP diario de `caja`; y exige
+    --force explícito para reemplazar una salida global ya existente.
+    --force jamás habilita reemplazar un SAP diario ni la plantilla: solo
+    se abre en modo escritura la propia ruta de --salida."""
+    caja = cfg.resolver_caja(caja)
     salida_abs = os.path.abspath(ruta_salida)
 
     if os.path.abspath(ruta_plantilla) == salida_abs:
@@ -267,11 +301,11 @@ def validar_guardarrieles_salida(ruta_salida, ruta_plantilla, rutas_origen, forc
         raise RuntimeError("RUTA_SALIDA_IGUAL_A_SAP_ORIGEN")
 
     nombre_salida = os.path.basename(salida_abs)
-    if _RE_SAP_DIARIO.match(nombre_salida):
+    if _patron_sap_diario(caja).match(nombre_salida):
         raise RuntimeError(
             f"RUTA_SALIDA_NOMBRE_SAP_DIARIO: '{nombre_salida}' coincide con "
-            f"el patrón de un SAP diario (SAP_TIQ_DD-MM-YYYY.xlsx); la "
-            f"salida global nunca puede llevar ese nombre."
+            f"el patrón de un SAP diario (SAP_{caja.prefijo_archivo}_DD-MM-YYYY.xlsx); "
+            f"la salida global nunca puede llevar ese nombre."
         )
 
     if os.path.exists(salida_abs) and not force:
@@ -286,18 +320,20 @@ def validar_guardarrieles_salida(ruta_salida, ruta_plantilla, rutas_origen, forc
 # Sección 5 — validación mínima de cada SAP diario (solo lectura)
 # ---------------------------------------------------------------------------
 
-def leer_y_validar_sap_diario(ruta):
+def leer_y_validar_sap_diario(ruta, caja=None):
     """Abre `ruta` EXCLUSIVAMENTE en modo lectura (read_only, data_only) y
-    valida su estructura mínima: hoja "1", cabecera fija, y partidas desde
-    la fila 16 (cuentas no vacías, Cargo/Haber consistentes por partida,
-    Cargo total = Haber total del propio SAP). No reinterpreta reglas
-    contables ni vuelve a revisar vouchers/CI/ATC/USD.
+    valida su estructura mínima: hoja "1", cabecera fija (L10 según
+    `caja.nombre_sap`), y partidas desde la fila 16 (cuentas no vacías,
+    Cargo/Haber consistentes por partida, Cargo total = Haber total del
+    propio SAP). No reinterpreta reglas contables ni vuelve a revisar
+    vouchers/CI/ATC/USD.
 
     Devuelve {"partidas": [...], "problemas": [...], "cargo_total": Decimal,
     "haber_total": Decimal}. `partidas` conserva, sin alterar, Sociedad,
     Cuenta, TextoPosicion, Cargo, Haber, CentroBeneficio, FechaValor,
     Asignacion y XREF1/2/3 tal cual están en el archivo.
     """
+    cabecera_esperada = _cabecera_esperada(caja)
     try:
         wb = _abrir_libro(ruta, read_only=True, data_only=True)
     except Exception as exc:  # noqa: BLE001 — archivo ilegible, se reporta y bloquea
@@ -319,7 +355,7 @@ def leer_y_validar_sap_diario(ruta):
             }
         ws = wb[_HOJA_SAP]
 
-        for col, esperado in _CABECERA_ESPERADA.items():
+        for col, esperado in cabecera_esperada.items():
             valor = _texto_celda(ws[f"{col}{_FILA_CABECERA}"].value)
             if valor != esperado:
                 problemas.append(
@@ -396,7 +432,7 @@ def leer_y_validar_sap_diario(ruta):
 # agrupar) de todas las partidas.
 # ---------------------------------------------------------------------------
 
-def construir_metadata_cabecera_global(anio, mes):
+def construir_metadata_cabecera_global(anio, mes, caja=None):
     return {
         "sociedad": _SOCIEDAD_GLOBAL,
         "tipo_asiento": _TIPO_ASIENTO_GLOBAL,
@@ -405,7 +441,7 @@ def construir_metadata_cabecera_global(anio, mes):
         "mes": mes,
         "texto_cabecera": f"INGRESOS {_MES_ABREV[mes]} CBBA",
         "moneda": _MONEDA_GLOBAL,
-        "referencia": _REFERENCIA_GLOBAL,
+        "referencia": cfg.resolver_caja(caja).nombre_sap,
     }
 
 
@@ -487,12 +523,18 @@ def escribir_sap_global(partidas, ruta_plantilla, ruta_salida, metadata):
 # Sección 11 — trazabilidad (RESULTADO_GLOBAL_TIQ_<MES>_<AÑO>.json)
 # ---------------------------------------------------------------------------
 
-def nombre_sap_global(anio, mes):
-    return f"SAP_GLOBAL_TIQ_{_MES_NOMBRE[mes]}_{anio}.xlsx"
+def nombre_sap_global(anio, mes, caja=None):
+    """'SAP_GLOBAL_<prefijo>_<MES>_<AÑO>.xlsx'. Sin `caja` (o con
+    caja="tiquipaya") produce EXACTAMENTE el nombre histórico
+    'SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx' — v3/consolidador_mensual_v3.py
+    (no tocado en esta tarea) depende de ese literal exacto."""
+    prefijo = cfg.resolver_caja(caja).prefijo_archivo
+    return f"SAP_GLOBAL_{prefijo}_{_MES_NOMBRE[mes]}_{anio}.xlsx"
 
 
-def nombre_resultado_json(anio, mes):
-    return f"RESULTADO_GLOBAL_TIQ_{_MES_NOMBRE[mes]}_{anio}.json"
+def nombre_resultado_json(anio, mes, caja=None):
+    prefijo = cfg.resolver_caja(caja).prefijo_archivo
+    return f"RESULTADO_GLOBAL_{prefijo}_{_MES_NOMBRE[mes]}_{anio}.json"
 
 
 # ---------------------------------------------------------------------------
@@ -500,12 +542,18 @@ def nombre_resultado_json(anio, mes):
 # ---------------------------------------------------------------------------
 
 def ejecutar_consolidacion(args):
+    # `caja` es opcional en args (getattr, no atributo obligatorio) para no
+    # romper a ningún llamador que construya el Namespace a mano — mismo
+    # patrón que run_batch.ejecutar_batch. Sin --caja -> TIQUIPAYA, el
+    # comportamiento histórico exacto.
+    caja = cfg.resolver_caja(getattr(args, "caja", None))
+
     if not os.path.isfile(args.plantilla):
         raise RuntimeError(f"PLANTILLA_NO_ENCONTRADA: {args.plantilla}")
 
-    rutas_candidatas = resolver_archivos(args)
+    rutas_candidatas = resolver_archivos(args, caja)
 
-    validar_guardarrieles_salida(args.salida, args.plantilla, rutas_candidatas, args.force)
+    validar_guardarrieles_salida(args.salida, args.plantilla, rutas_candidatas, args.force, caja)
 
     rutas_unicas, sha256_por_archivo, duplicados_identicos, duplicados_diferentes = \
         detectar_duplicados(rutas_candidatas)
@@ -517,7 +565,7 @@ def ejecutar_consolidacion(args):
     partidas_por_archivo = {}
     if not duplicados_diferentes:
         for ruta in rutas_unicas:
-            resultado_archivo = leer_y_validar_sap_diario(ruta)
+            resultado_archivo = leer_y_validar_sap_diario(ruta, caja)
             partidas_por_archivo[ruta] = resultado_archivo["partidas"]
             for problema in resultado_archivo["problemas"]:
                 blockers.append(f"SAP_INVALIDO:{os.path.basename(ruta)}:{problema}")
@@ -546,7 +594,7 @@ def ejecutar_consolidacion(args):
 
     ruta_global_generado = None
     if not blockers:
-        metadata = construir_metadata_cabecera_global(args.anio, args.mes)
+        metadata = construir_metadata_cabecera_global(args.anio, args.mes, caja)
         escribir_sap_global(todas_partidas, args.plantilla, args.salida, metadata)
         ruta_global_generado = os.path.abspath(args.salida)
 
@@ -575,7 +623,7 @@ def ejecutar_consolidacion(args):
 
     ruta_json = os.path.join(
         os.path.dirname(os.path.abspath(args.salida)) or ".",
-        nombre_resultado_json(args.anio, args.mes),
+        nombre_resultado_json(args.anio, args.mes, caja),
     )
     with open(ruta_json, "w", encoding="utf-8") as f:
         json.dump(resultado_json, f, ensure_ascii=False, indent=2)
@@ -602,6 +650,10 @@ def construir_parser():
                               "(si se pasa, se ignora --sap-dir y no se filtra por año/mes)")
     parser.add_argument("--force", action="store_true",
                          help="Permite reemplazar --salida si ya existe (nunca afecta SAP diarios ni la plantilla)")
+    parser.add_argument("--caja", default=cfg.CAJA_POR_DEFECTO.codigo,
+                         choices=sorted(cfg.CAJAS),
+                         help="Caja a consolidar (por defecto: tiquipaya). Determina el prefijo de "
+                              "los SAP diarios esperados (TIQ/AME) y la cabecera L10 exigida.")
     return parser
 
 

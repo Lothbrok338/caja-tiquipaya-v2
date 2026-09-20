@@ -199,6 +199,8 @@ import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+import config_cajas as cfg
+
 # ---------------------------------------------------------------------------
 # Universo de cuentas controladas (ÚNICAS 6 de esta primera versión).
 # ---------------------------------------------------------------------------
@@ -231,8 +233,17 @@ _COL_HABER = "F"
 _COL_FECHA_VALOR = "O"
 _COL_ASIGNACION = "R"
 
-# Convención canónica OBLIGATORIA del nombre del GLOBAL mensual.
-_RE_NOMBRE_GLOBAL = re.compile(r"^SAP_GLOBAL_TIQ_([A-Za-z]+)_(\d{4})\.xlsx$", re.IGNORECASE)
+# Convención canónica OBLIGATORIA del nombre del GLOBAL mensual. El
+# prefijo (TIQ/AME) es EXCLUSIVO de la caja que se está auditando: un
+# GLOBAL con el prefijo de otra caja no matchea -> periodo=None ->
+# GLOBAL_NOMBRE_NO_CANONICO. `_RE_NOMBRE_GLOBAL` se conserva como alias
+# módulo-level del patrón de TIQUIPAYA (comportamiento histórico exacto).
+def _patron_nombre_global(caja=None):
+    prefijo = re.escape(cfg.resolver_caja(caja).prefijo_archivo)
+    return re.compile(rf"^SAP_GLOBAL_{prefijo}_([A-Za-z]+)_(\d{{4}})\.xlsx$", re.IGNORECASE)
+
+
+_RE_NOMBRE_GLOBAL = _patron_nombre_global()
 
 _ESTADO_ABIERTO = "ABIERTO"
 _ESTADO_CERRADO = "CERRADO"
@@ -429,10 +440,10 @@ def cargar_json(ruta):
 # fallback: un nombre no canónico detiene el control.
 # ---------------------------------------------------------------------------
 
-def _derivar_periodo(nombre_archivo_global):
+def _derivar_periodo(nombre_archivo_global, caja=None):
     if not nombre_archivo_global:
         return None
-    m = _RE_NOMBRE_GLOBAL.match(nombre_archivo_global)
+    m = _patron_nombre_global(caja).match(nombre_archivo_global)
     if not m:
         return None
     mes, anio = m.groups()
@@ -1105,14 +1116,24 @@ def guardar_control_xlsx(ruta, filas):
 
 def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
                       ruta_salida_xlsx=None, ruta_salida_json=None,
-                      ruta_observaciones_json=None, dry_run=False):
+                      ruta_observaciones_json=None, dry_run=False, caja=None):
+    """`caja` (config_cajas.CajaConfig o su `codigo`, por defecto
+    TIQUIPAYA) decide el prefijo del nombre canónico exigido
+    (SAP_GLOBAL_TIQ_.../SAP_GLOBAL_AME_...). Un GLOBAL con el prefijo de
+    OTRA caja se trata exactamente igual que cualquier nombre no
+    canónico: GLOBAL_NOMBRE_NO_CANONICO, sin leer nada. No cambia
+    _CUENTAS_CONTROL, la llave CUENTA+ASIGNACION, ni el cálculo de
+    saldo/estado: CONTROL 3 sigue acumulando cada cuenta+asignación
+    controlada exactamente igual (incluida 210103003), solo con el
+    nombre del GLOBAL validado contra la caja correcta."""
+    caja = cfg.resolver_caja(caja)
     if not ruta_global or not os.path.isfile(ruta_global):
         return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_NO_ENCONTRADO"], "ruta_global": ruta_global}
 
     nombre_archivo_global = nombre_archivo_global or os.path.basename(ruta_global)
     sha_actual = _hash_archivo(ruta_global)
 
-    periodo = _derivar_periodo(nombre_archivo_global)
+    periodo = _derivar_periodo(nombre_archivo_global, caja)
     if periodo is None:
         return {
             "estado": "ERROR_TECNICO",
@@ -1121,9 +1142,10 @@ def ejecutar_control(ruta_global, ruta_historico, nombre_archivo_global=None,
             "sha256_global": sha_actual,
             "mensaje": (
                 f"'{nombre_archivo_global}' no sigue la convención canónica "
-                "SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx; no se puede derivar el "
-                "periodo de forma segura. El control se detiene sin leer "
-                "partidas ni tocar HISTORICO/XLSX/JSON."
+                f"SAP_GLOBAL_{caja.prefijo_archivo}_<MES>_<AÑO>.xlsx (caja="
+                f"{caja.codigo!r}); no se puede derivar el periodo de forma "
+                "segura. El control se detiene sin leer partidas ni tocar "
+                "HISTORICO/XLSX/JSON."
             ),
         }
 
@@ -1331,6 +1353,12 @@ def _parse_args(argv=None):
     parser.add_argument("--dry-run", action="store_true",
                          help="No modifica el histórico, no genera/reemplaza xlsx ni json; "
                               "solo calcula y reporta qué ocurriría.")
+    parser.add_argument("--caja", default=cfg.CAJA_POR_DEFECTO.codigo,
+                         choices=sorted(cfg.CAJAS),
+                         help="Caja a auditar (por defecto: tiquipaya). Determina el prefijo "
+                              "canónico exigido del GLOBAL (SAP_GLOBAL_TIQ_.../SAP_GLOBAL_AME_...). "
+                              "No afecta el universo de cuentas controladas (_CUENTAS_CONTROL) ni "
+                              "el cálculo de saldo/estado, que son los mismos para toda caja.")
     return parser.parse_args(argv)
 
 
@@ -1344,6 +1372,7 @@ def main(argv=None):
         ruta_salida_json=args.ruta_salida_json,
         ruta_observaciones_json=args.ruta_observaciones_json,
         dry_run=args.dry_run,
+        caja=args.caja,
     )
     print(json.dumps(resumen, ensure_ascii=False))
     return 0 if resumen.get("estado") != "ERROR_TECNICO" else 1
