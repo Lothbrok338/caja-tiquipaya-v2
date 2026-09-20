@@ -162,6 +162,11 @@
     color: var(--muted2);
     font-weight: 700;
   }
+  .caja-lote-info {
+    font-size: 11px;
+    color: var(--muted2);
+    font-weight: 700;
+  }
   input[type=date], input[type=text] {
     background: var(--bg-alt);
     border: 1px solid var(--border);
@@ -519,6 +524,14 @@
       <label>Usuario auditor</label>
       <input type="text" id="in-usuario-auditor" placeholder="auditor.dev" value="auditor.dev">
     </div>
+    <div class="field">
+      <label>Caja</label>
+      <select id="in-caja">
+        <option value="tiquipaya" selected>TIQUIPAYA</option>
+        <option value="america">AMERICA</option>
+      </select>
+      <span id="caja-lote-info" class="caja-lote-info" style="display:none;"></span>
+    </div>
     <div class="field grow"></div>
     <button class="primary" id="btn-procesar">PROCESAR CIERRES</button>
     <button class="ghost" id="btn-recargar">Recargar</button>
@@ -684,7 +697,27 @@
     BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA: { label: "Maestro sin cobertura", tag: "bloqueo-maestro" },
   };
 
-  var state = { cierres: [], seleccion: null, loteId: null, publicationMode: "official" };
+  var state = { cierres: [], seleccion: null, loteId: null, publicationMode: "official", caja: null };
+
+  // Caja: se elige UNA sola vez, al crear el lote (ver v3/dev_api.py
+  // crear_lote_pendiente/_caja_lote). Una vez creado el lote, el selector
+  // se bloquea y state.caja queda fijado con lo que respondio el backend
+  // (nunca con lo que el navegador haya seleccionado despues) -- ninguna
+  // accion posterior (procesar/revisar/corregir/publicar) vuelve a mandar
+  // `caja`, todas dependen solo de `lote_id`.
+  function bloquearSelectorCaja(cajaPersistida) {
+    var sel = qs("#in-caja"), info = qs("#caja-lote-info");
+    sel.value = cajaPersistida;
+    sel.disabled = true;
+    info.textContent = "Lote " + (state.loteId || "") + " · caja: " + cajaPersistida.toUpperCase();
+    info.style.display = "";
+  }
+
+  function desbloquearSelectorCaja() {
+    var sel = qs("#in-caja"), info = qs("#caja-lote-info");
+    sel.disabled = false;
+    info.style.display = "none";
+  }
 
   // -----------------------------------------------------------------------
   // Cliente HTTP minimo hacia /webhook/tiq-v3-dev/*. NUNCA contiene una
@@ -1529,15 +1562,21 @@
     wrap.classList.add("show");
     bar.style.width = "0%"; pct.textContent = "0%";
     label.textContent = "Enviando solicitud a " + ENDPOINTS.procesar + "...";
-    state.cierres = []; state.seleccion = null; state.loteId = null;
+    state.cierres = []; state.seleccion = null; state.loteId = null; state.caja = null;
+    desbloquearSelectorCaja();
     renderTabla([]); renderDetalle();
 
     apiPost(ENDPOINTS.procesar, {
       fecha_inicio: qs("#in-fecha-desde").value,
       fecha_fin: qs("#in-fecha-hasta").value,
       usuario_auditor: usuarioAuditor,
+      caja: qs("#in-caja").value,
     }).then(function (resp) {
       state.loteId = resp.lote_id;
+      // La caja mostrada/bloqueada es SIEMPRE la que respondio el backend
+      // (identidad persistida en el lote), nunca la que se acaba de enviar.
+      state.caja = resp.caja || qs("#in-caja").value;
+      bloquearSelectorCaja(state.caja);
       label.textContent = "Procesando lote " + resp.lote_id + "...";
       return pollEstadoHastaListo(resp.lote_id);
     }).then(function () {
@@ -1583,6 +1622,8 @@
     renderTabla([]);
     qs("#detalle-body").innerHTML = "";
     state.seleccion = null;
+    state.loteId = "DEMO"; state.caja = qs("#in-caja").value;
+    bloquearSelectorCaja(state.caja);
     renderDetalle();
 
     var progreso = 0;

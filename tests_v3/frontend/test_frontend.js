@@ -101,11 +101,112 @@ async function test_procesar_rango_valido() {
   ok(!!procesarCall, "se llamó a POST /webhook/tiq-v3-dev/procesar");
   const body = procesarCall ? JSON.parse(procesarCall.opts.body) : {};
   ok(body.fecha_inicio === "2026-09-01" && body.fecha_fin === "2026-09-01" && !!body.usuario_auditor, "body de /procesar trae fecha_inicio/fecha_fin/usuario_auditor");
+  ok(body.caja === "tiquipaya", "body de /procesar trae caja='tiquipaya' por default (" + body.caja + ")");
   ok(calls.some((c) => c.url.indexOf("/estado?lote_id=lote-1") !== -1), "se hizo polling de /estado con el lote_id devuelto");
   ok(calls.some((c) => c.url.indexOf("/datos?lote_id=lote-1") !== -1), "se pidió /datos tras estado_lote != PROCESANDO");
   const fila = window.document.querySelector("#tabla-body tr");
   ok(fila && fila.textContent.indexOf("Listo") !== -1, "la fila muestra el estado LISTO_PARA_PUBLICAR");
   ok(fila && fila.querySelector("button.publicar") !== null, "aparece boton Publicar para el cierre habilitado");
+  dom.window.close();
+}
+
+// ---------------------------------------------------------------------------
+// Caja América: selector visible con TIQUIPAYA/AMERICA (default TIQUIPAYA),
+// crear lote manda la caja elegida, y tras crear el lote esa identidad
+// queda bloqueada (no se puede cambiar) para el resto de acciones del lote.
+// ---------------------------------------------------------------------------
+async function test_selector_caja_opciones_y_default() {
+  console.log("\n[CAJA] El selector tiene TIQUIPAYA/AMERICA con default TIQUIPAYA");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.fetch = function () { return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }); };
+  await waitFor(() => window.document.getElementById("in-caja"));
+  const sel = window.document.getElementById("in-caja");
+  const valores = Array.prototype.map.call(sel.options, (o) => o.value).sort();
+  ok(valores.length === 2 && valores[0] === "america" && valores[1] === "tiquipaya", "opciones exactas: america, tiquipaya (" + valores.join(",") + ")");
+  ok(sel.value === "tiquipaya", "valor por default es tiquipaya (" + sel.value + ")");
+  ok(sel.disabled === false, "el selector empieza habilitado (sin lote creado todavía)");
+  await sleep(50);
+  dom.window.close();
+}
+
+async function test_crear_lote_america_manda_caja_america() {
+  console.log("\n[CAJA] Crear lote con AMERICA manda caja='america'");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  const calls = [];
+  window.fetch = function (url, opts) {
+    calls.push({ url: url, opts: opts });
+    if (url.indexOf("/procesar") !== -1) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-ame-1", estado_lote: "PROCESANDO", caja: "america" }) });
+    }
+    if (url.indexOf("/estado") !== -1) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-ame-1", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
+    }
+    if (url.indexOf("/datos") !== -1) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-ame-1", cierres: [] }) });
+    }
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  await waitFor(() => window.document.getElementById("in-caja"));
+  window.document.getElementById("in-fecha-desde").value = "2026-09-01";
+  window.document.getElementById("in-fecha-hasta").value = "2026-09-01";
+  window.document.getElementById("in-caja").value = "america";
+  window.document.getElementById("btn-procesar").click();
+
+  await waitFor(() => calls.some((c) => c.url.indexOf("/datos") !== -1), 5000);
+  const procesarCall = calls.find((c) => c.url.indexOf("/procesar") !== -1);
+  const body = procesarCall ? JSON.parse(procesarCall.opts.body) : {};
+  ok(body.caja === "america", "body de /procesar trae caja='america' (" + body.caja + ")");
+
+  await waitFor(() => window.document.getElementById("in-caja").disabled === true, 3000);
+  const sel = window.document.getElementById("in-caja");
+  const info = window.document.getElementById("caja-lote-info");
+  ok(sel.disabled === true, "el selector se bloquea tras crear el lote");
+  ok(sel.value === "america", "el selector queda fijado en la caja persistida por el backend");
+  ok(info && info.textContent.indexOf("AMERICA") !== -1, "se muestra la caja asociada al lote (" + (info && info.textContent) + ")");
+  await sleep(50);
+  dom.window.close();
+}
+
+async function test_acciones_posteriores_no_mandan_ni_cambian_caja() {
+  console.log("\n[CAJA] revisar/corregir/publicar no mandan `caja` ni permiten cambiarla");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  window.confirm = function () { return true; };
+  const calls = [];
+  window.fetch = function (url, opts) {
+    calls.push({ url: url, opts: opts });
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-ame-2", estado_lote: "PROCESANDO", caja: "america" }) });
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
+    if (url.indexOf("/datos") !== -1) return Promise.resolve({
+      ok: true, json: () => Promise.resolve({
+        resultado: "OK", cierres: [{ fecha: "2026-09-01", archivo_esperado: "CIERRE 01-09-2026.xlsm", estado_final: "LISTO_PARA_PUBLICAR", requiere_revision: false, publicado: false, mensajes: [] }],
+      }),
+    });
+    if (url.indexOf("/publicar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", publicados: [{ fecha: "2026-09-01", estado_publicacion: "PUBLICADO", publicado: true }], omitidos: [] }) });
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  await waitFor(() => window.document.getElementById("in-caja"));
+  window.document.getElementById("in-caja").value = "america";
+  window.document.getElementById("btn-procesar").click();
+  await waitFor(() => window.document.querySelectorAll("#tabla-body tr[data-hash] button.publicar").length === 1, 5000);
+
+  // Manipular el DOM del selector (ya deshabilitado) nunca debe colarse en un
+  // request posterior: publicar/corregir dependen solo de lote_id/fecha.
+  window.document.getElementById("btn-recargar"); // noop, solo confirma que el DOM sigue vivo
+  window.document.querySelector("#tabla-body tr[data-hash] button.publicar").click();
+  await waitFor(() => calls.some((c) => c.url.indexOf("/publicar") !== -1), 3000);
+
+  const publicarCall = calls.find((c) => c.url.indexOf("/publicar") !== -1);
+  const bodyPublicar = JSON.parse(publicarCall.opts.body);
+  ok(!("caja" in bodyPublicar), "el body de /publicar NO trae `caja`");
+  ok(window.document.getElementById("in-caja").disabled === true, "el selector sigue bloqueado durante el ciclo de vida del lote");
+  await sleep(50);
   dom.window.close();
 }
 
@@ -1155,6 +1256,9 @@ async function test_flujo_diario_nunca_llama_endpoints_mensuales() {
 (async () => {
   await test_demo_no_llama_backend();
   await test_procesar_rango_valido();
+  await test_selector_caja_opciones_y_default();
+  await test_crear_lote_america_manda_caja_america();
+  await test_acciones_posteriores_no_mandan_ni_cambian_caja();
   await test_sin_archivo();
   await test_revision_y_correccion();
   await test_campos_aplicables_por_excepcion();
