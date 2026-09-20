@@ -10,6 +10,15 @@
 # servicio es scripts/serve_v3_frontend.py, que sirve el HTML y reenvia
 # /webhook/* a n8n. Esto reproduce exactamente la arquitectura descrita en
 # V3_OPEN_MONTH_STATE.md, sin reescribir nada del motor.
+#
+# Serverless Sleep (Railway, 2026-09): n8n YA NO arranca aca al inicio del
+# contenedor. Arrancaba siempre en background y quedaba con conexiones
+# persistentes a Postgres, asi que aunque Railway tuviera
+# sleepApplication=true el contenedor nunca bajaba de ~0.54 GB de RAM ni
+# entraba realmente en sleep. Ahora serve_v3_frontend.py arranca n8n bajo
+# demanda en el primer /webhook/* y lo apaga solo tras un periodo sin uso
+# (ver GestorN8N / TIQ_N8N_IDLE_TIMEOUT_SECONDS en ese archivo) -- este
+# script ya no lo toca en absoluto.
 set -euo pipefail
 
 echo "[railway_entrypoint] TIQ_BLOCK_OFFICIAL_PUBLISH=${TIQ_BLOCK_OFFICIAL_PUBLISH:-<no fijada>}"
@@ -25,17 +34,8 @@ fi
 # aqui, antes de arrancar n8n, nunca dentro de un nodo del workflow.
 mkdir -p "${TIQ_BASE_DIR:-/app/dev_workdir}/tiq_v3_tmp"
 
-# n8n en background, en la red interna del contenedor unicamente.
-bash /app/scripts/start_n8n.sh &
-N8N_PID=$!
-
-cleanup() {
-  kill "$N8N_PID" 2>/dev/null || true
-}
-trap cleanup EXIT INT TERM
-
-# Frontend + proxy /webhook/* en foreground: es el proceso principal del
-# contenedor (Railway enruta $PORT hacia el). Si n8n aun no respondio la
-# primera vez que alguien llama /webhook/*, el proxy devuelve el error de
-# conexion tal cual (no reintenta, no oculta el fallo).
+# Frontend + proxy /webhook/* en foreground: es el UNICO proceso que este
+# entrypoint arranca ahora, y es el proceso principal del contenedor
+# (Railway enruta $PORT hacia el). n8n lo arranca y lo apaga el propio
+# serve_v3_frontend.py bajo demanda -- ver GestorN8N ahi.
 exec python3 /app/scripts/serve_v3_frontend.py

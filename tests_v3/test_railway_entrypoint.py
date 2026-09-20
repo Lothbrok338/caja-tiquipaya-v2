@@ -3,8 +3,14 @@
 Fix mínimo: n8n fallaba antes de invocar Python porque
 ${TIQ_BASE_DIR}/tiq_v3_tmp no existía todavía en un contenedor nuevo.
 Verifica que scripts/railway_entrypoint.sh crea ese directorio ANTES de
-arrancar n8n, y que la línea realmente funciona si se ejecuta (no solo
-que el texto esté presente).
+arrancar el proceso principal, y que la línea realmente funciona si se
+ejecuta (no solo que el texto esté presente).
+
+Serverless Sleep (2026-09): el entrypoint ya NO arranca n8n (arrancaba
+siempre en background y le impedía a Railway `sleepApplication` dormir
+el contenedor de verdad). Ahora n8n arranca bajo demanda desde
+scripts/serve_v3_frontend.py (GestorN8N, ver tests_v3/test_n8n_lazy_lifecycle.py)
+y este archivo solo verifica que el entrypoint ya no lo toque.
 
 No requiere Docker/Railway/n8n: corre bash directamente sobre un
 tmp_path local.
@@ -31,11 +37,11 @@ def test_mkdir_tiq_v3_tmp_presente_una_sola_vez():
     assert contenido.count(_MKDIR_LINEA) == 1
 
 
-def test_mkdir_ocurre_antes_de_arrancar_n8n():
+def test_mkdir_ocurre_antes_del_exec_final():
     contenido = _contenido()
     pos_mkdir = contenido.index(_MKDIR_LINEA)
-    pos_start_n8n = contenido.index("start_n8n.sh")
-    assert pos_mkdir < pos_start_n8n, "el directorio debe crearse ANTES de arrancar n8n"
+    pos_exec = contenido.index("exec python3 /app/scripts/serve_v3_frontend.py")
+    assert pos_mkdir < pos_exec, "el directorio debe crearse ANTES de entregarle el control a Python"
 
 
 def test_mkdir_crea_realmente_el_directorio_runtime(tmp_path):
@@ -67,12 +73,16 @@ def test_mkdir_usa_default_cuando_tiq_base_dir_no_esta_fijada():
     assert r.stdout.strip() == "/app/dev_workdir/tiq_v3_tmp"
 
 
-def test_no_se_toco_nada_mas_del_entrypoint():
-    """Guarda de alcance: el fix es exclusivamente esta línea — el resto
-    del entrypoint (guarda TIQ_BLOCK_OFFICIAL_PUBLISH, arranque de n8n en
-    background, cleanup, exec del proxy en foreground) sigue intacto."""
+def test_entrypoint_ya_no_arranca_n8n_directamente():
+    """Guarda de alcance de la migración a n8n bajo demanda (Serverless
+    Sleep, 2026-09): el entrypoint ya NO arranca n8n el mismo -- eso lo
+    hace GestorN8N en scripts/serve_v3_frontend.py, bajo demanda, para
+    que Railway sleepApplication pueda dormir el contenedor de verdad.
+    El resto del entrypoint (guarda TIQ_BLOCK_OFFICIAL_PUBLISH, mkdir de
+    tiq_v3_tmp, exec del proxy en foreground) sigue intacto."""
     contenido = _contenido()
     assert "TIQ_BLOCK_OFFICIAL_PUBLISH" in contenido
-    assert "bash /app/scripts/start_n8n.sh &" in contenido
+    assert "start_n8n.sh" not in contenido
+    assert _MKDIR_LINEA in contenido
     assert "exec python3 /app/scripts/serve_v3_frontend.py" in contenido
     assert re.search(r"^set -euo pipefail$", contenido, re.MULTILINE)

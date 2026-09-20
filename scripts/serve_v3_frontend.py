@@ -27,18 +27,138 @@ no sea /healthz exige Basic auth valido (comparacion en tiempo constante
 via hmac.compare_digest) o responde 401 con WWW-Authenticate. El header
 Authorization nunca se reenvia hacia n8n (_proxy ya solo reenviaba
 Content-Type; ver seccion correspondiente).
+
+n8n bajo demanda / Serverless Sleep (Railway, 2026-09): n8n ya NO arranca
+al iniciar el contenedor (scripts/railway_entrypoint.sh ya no lo toca).
+Mantenerlo siempre arriba le impedia a Railway (sleepApplication=true)
+dormir el contenedor de verdad: n8n sostiene conexiones persistentes a
+Postgres y el proceso quedaba usando ~0.54 GB de RAM sin uso real. Ahora
+GestorN8N (mas abajo) arranca n8n (via scripts/start_n8n.sh) recien
+cuando llega la primera request de /webhook/* autenticada, espera a que
+localhost:5678 este escuchando antes de reenviar, y lo apaga solo (SIGTERM
+limpio) despues de TIQ_N8N_IDLE_TIMEOUT_SECONDS sin actividad de webhook
+-- nunca mientras haya una request en curso. Si llega otro webhook despues
+de apagarse, se vuelve a arrancar automaticamente. /healthz NUNCA toca
+GestorN8N: responde 200 este n8n arriba o dormido. Nada de esto cambia
+autenticacion, fail-closed, el no-reenvio de Authorization, ni ningun
+workflow/regla de negocio.
 """
 import base64
 import hmac
 import http.server
 import os
+import socket
+import subprocess
+import threading
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
-os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "n8n_frontend"))
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+RAIZ = os.path.dirname(_SCRIPTS_DIR)
+
+os.chdir(os.path.join(RAIZ, "n8n_frontend"))
 
 N8N_ORIGIN = os.environ.get("TIQ_N8N_ORIGIN", "http://localhost:5678")
 LISTEN_PORT = int(os.environ.get("PORT", "8090"))
+
+_N8N_URL = urllib.parse.urlparse(N8N_ORIGIN)
+N8N_HOST = _N8N_URL.hostname or "localhost"
+N8N_PORT = _N8N_URL.port or 5678
+
+# Override solo para tests (fake_n8n_starter en vez del script real, que
+# arranca n8n de verdad y no existe en el sandbox de test). En produccion
+# siempre es scripts/start_n8n.sh.
+N8N_START_SCRIPT = os.environ.get("TIQ_N8N_START_SCRIPT", os.path.join(_SCRIPTS_DIR, "start_n8n.sh"))
+N8N_IDLE_TIMEOUT_SECONDS = float(os.environ.get("TIQ_N8N_IDLE_TIMEOUT_SECONDS", "300"))
+N8N_START_TIMEOUT_SECONDS = float(os.environ.get("TIQ_N8N_START_TIMEOUT_SECONDS", "60"))
+N8N_REAPER_INTERVAL_SECONDS = float(os.environ.get("TIQ_N8N_REAPER_INTERVAL_SECONDS", "30"))
+
+
+class GestorN8N:
+    """Ciclo de vida de n8n bajo demanda: un solo lock protege arranque,
+    conteo de requests activas y apagado, para que no se dupliquen
+    procesos si varias requests de webhook coinciden mientras n8n esta
+    levantando, y para que el reaper de inactividad nunca apague n8n con
+    una request en curso."""
+
+    def __init__(self, host, port, start_script, cwd, idle_timeout, start_timeout, reaper_interval):
+        self._host = host
+        self._port = port
+        self._start_script = start_script
+        self._cwd = cwd
+        self._idle_timeout = idle_timeout
+        self._start_timeout = start_timeout
+        self._reaper_interval = reaper_interval
+        self._lock = threading.Lock()
+        self._proceso = None
+        self._ultima_actividad = time.time()
+        self._solicitudes_activas = 0
+        hilo = threading.Thread(target=self._loop_reaper, daemon=True)
+        hilo.start()
+
+    def _escuchando(self):
+        try:
+            with socket.create_connection((self._host, self._port), timeout=0.5):
+                return True
+        except OSError:
+            return False
+
+    def preparar_para_webhook(self):
+        """Llamar al inicio de cada request que se va a reenviar a n8n:
+        marca actividad, arranca n8n si hace falta (sin duplicar proceso
+        si ya esta arrancando/arriba) y bloquea hasta que este escuchando.
+        Lanza TimeoutError si no levanta a tiempo. SIEMPRE debe ir seguido
+        de liberar_despues_de_webhook() en un finally, haya o no lanzado."""
+        with self._lock:
+            self._solicitudes_activas += 1
+            self._ultima_actividad = time.time()
+            if self._proceso is not None and self._proceso.poll() is not None:
+                self._proceso = None  # crasheo solo -- se puede reintentar
+            if self._proceso is None and not self._escuchando():
+                self._proceso = subprocess.Popen(["bash", self._start_script], cwd=self._cwd)
+            limite = time.time() + self._start_timeout
+            listo = False
+            while time.time() < limite:
+                if self._escuchando():
+                    listo = True
+                    break
+                time.sleep(0.2)
+        if not listo:
+            raise TimeoutError(
+                "n8n no respondio en {}:{} dentro de {}s".format(self._host, self._port, self._start_timeout)
+            )
+
+    def liberar_despues_de_webhook(self):
+        with self._lock:
+            self._solicitudes_activas = max(0, self._solicitudes_activas - 1)
+            self._ultima_actividad = time.time()
+
+    def _apagar_si_corresponde(self):
+        with self._lock:
+            if self._proceso is None or self._solicitudes_activas > 0:
+                return
+            if time.time() - self._ultima_actividad < self._idle_timeout:
+                return
+            proceso, self._proceso = self._proceso, None
+        proceso.terminate()
+        try:
+            proceso.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            proceso.kill()
+            proceso.wait(timeout=5)
+
+    def _loop_reaper(self):
+        while True:
+            time.sleep(self._reaper_interval)
+            self._apagar_si_corresponde()
+
+
+N8N_MANAGER = GestorN8N(
+    N8N_HOST, N8N_PORT, N8N_START_SCRIPT, RAIZ,
+    N8N_IDLE_TIMEOUT_SECONDS, N8N_START_TIMEOUT_SECONDS, N8N_REAPER_INTERVAL_SECONDS,
+)
 
 AUTH_USERNAME = os.environ.get("TIQ_AUTH_USERNAME", "")
 AUTH_PASSWORD = os.environ.get("TIQ_AUTH_PASSWORD", "")
@@ -131,29 +251,41 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return self._proxy("POST")
 
     def _proxy(self, method):
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length) if length else None
-        req = urllib.request.Request(
-            N8N_ORIGIN + self.path,
-            data=body,
-            method=method,
-            # Deliberado: solo se reenvia Content-Type. Authorization
-            # (y cualquier otro header del cliente publico) nunca llega
-            # a n8n -- n8n no necesita saber nada de la autenticacion
-            # del proxy publico.
-            headers={"Content-Type": self.headers.get("Content-Type", "application/json")},
-        )
         try:
-            with urllib.request.urlopen(req) as r:
-                self.send_response(r.status)
-                self.send_header("Content-Type", r.headers.get("Content-Type", "application/json"))
-                self.end_headers()
-                self.wfile.write(r.read())
-        except urllib.error.HTTPError as e:
-            self.send_response(e.code)
-            self.send_header("Content-Type", "application/json")
+            N8N_MANAGER.preparar_para_webhook()
+        except TimeoutError:
+            self.send_response(503)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
-            self.wfile.write(e.read())
+            self.wfile.write(b"Service Unavailable: n8n no arranco a tiempo")
+            N8N_MANAGER.liberar_despues_de_webhook()
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length) if length else None
+            req = urllib.request.Request(
+                N8N_ORIGIN + self.path,
+                data=body,
+                method=method,
+                # Deliberado: solo se reenvia Content-Type. Authorization
+                # (y cualquier otro header del cliente publico) nunca llega
+                # a n8n -- n8n no necesita saber nada de la autenticacion
+                # del proxy publico.
+                headers={"Content-Type": self.headers.get("Content-Type", "application/json")},
+            )
+            try:
+                with urllib.request.urlopen(req) as r:
+                    self.send_response(r.status)
+                    self.send_header("Content-Type", r.headers.get("Content-Type", "application/json"))
+                    self.end_headers()
+                    self.wfile.write(r.read())
+            except urllib.error.HTTPError as e:
+                self.send_response(e.code)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(e.read())
+        finally:
+            N8N_MANAGER.liberar_despues_de_webhook()
 
 
 if __name__ == "__main__":
