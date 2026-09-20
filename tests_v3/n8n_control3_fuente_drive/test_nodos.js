@@ -16,14 +16,14 @@ const dirNodos = path.join(__dirname, 'nodos');
 const snapshot = path.join(__dirname, '..', '..', 'snapshots', 'v3-final', 'aLs1f3GMqswbaENA_backend_dev.json');
 const cargar = function (n) { return fs.readFileSync(path.join(dirNodos, n + '.js'), 'utf8'); };
 
-function ejecutar(codigo, nodos, entradas, json) {
+function ejecutar(codigo, nodos, entradas, json, env) {
   const $ = function (nombre) {
     if (!(nombre in nodos)) throw new Error('nodo no mockeado: ' + nombre);
     const items = nodos[nombre];
     return { first: function () { return items[0]; }, all: function () { return items; } };
   };
   const $input = { all: function () { return entradas || []; }, first: function () { return (entradas || [])[0]; } };
-  return new Function('$', '$input', '$json', '$execution', 'Buffer', codigo)($, $input, json || {}, { id: 'test-1' }, Buffer);
+  return new Function('$', '$input', '$json', '$execution', '$env', 'Buffer', codigo)($, $input, json || {}, { id: 'test-1' }, env || {}, Buffer);
 }
 let pasados = 0, fallidos = 0;
 function test(nombre, fn) {

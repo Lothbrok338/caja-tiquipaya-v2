@@ -1,4 +1,7 @@
 // FASE 12E.7 -- CONTROL 3: Drive oficial = fuente de verdad; local = materializacion temporal de la corrida.
+// FASE 12F -- aislamiento por CAJA: mismo patron (env DRIVE_*_TIQ/AME, fail
+// cerrado para AMERICA) que config_drive_oficial.py / "RESOLVER - Destinos
+// Drive por caja" (06B PUBLICACION OFICIAL / PREFLIGHT OFICIAL).
 const t = $('WEBHOOK control3').first().json;
 const body = t.body || {};
 const anio = body.anio;
@@ -10,23 +13,45 @@ const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', '
 const mesNombre = MESES[mes - 1];
 const periodo = anio + '-' + String(mes).padStart(2, '0');
 
+const caja = (body.caja || 'tiquipaya').toString().trim().toLowerCase();
+if (caja !== 'tiquipaya' && caja !== 'america') {
+  throw new Error('CAJA_DESCONOCIDA: "' + caja + '". Cajas validas: america, tiquipaya.');
+}
+const prefijoCaja = caja === 'america' ? 'AME' : 'TIQ';
+
+// Defaults TIQUIPAYA: EXACTAMENTE los folder IDs historicos ya en uso (05_CONTROLES,
+// 05_CONTROLES/GLOBAL, 05_CONTROLES/CONTROL_3_CXC_CXP). Solo se usan si
+// DRIVE_*_TIQ no esta definida. AMERICA: SIN defaults a proposito -- falla cerrado.
+const DEFAULTS_TIQ = {
+  controles: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB',
+  global: '1KREzDpgptWRwuArA1qYco49rplOEeeNU',
+  control3: '15IYQDdpyBwrZTNS-qU8VZa47sVz1ziV_',
+};
+function resolverDestino(clave) {
+  const envVar = 'DRIVE_' + clave.toUpperCase() + '_' + (caja === 'america' ? 'AME' : 'TIQ');
+  const valor = $env[envVar];
+  if (valor) return valor;
+  if (caja === 'tiquipaya') return DEFAULTS_TIQ[clave];
+  throw new Error('DRIVE_AME_PENDIENTE: falta configurar ' + envVar + ' (carpeta "' + clave + '" de CAJA AMERICA todavia no existe en Drive).');
+}
+
 const baseDirDev = '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir';
-const dirEntrada = baseDirDev + '/control3_entrada/' + periodo;
+const dirEntrada = baseDirDev + '/control3_entrada/' + (caja === 'america' ? 'america/' : '') + periodo;
 const executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());
-const payloadPrep = { anio: anio, mes: mes, base_dir_dev: baseDirDev };
+const payloadPrep = { anio: anio, mes: mes, base_dir_dev: baseDirDev, caja: caja };
 
 return [{
   json: {
-    anio: anio, mes: mes, periodo: periodo, mes_nombre: mesNombre,
-    nombre_global: 'SAP_GLOBAL_TIQ_' + mesNombre + '_' + anio + '.xlsx',
+    anio: anio, mes: mes, periodo: periodo, mes_nombre: mesNombre, caja: caja,
+    nombre_global: 'SAP_GLOBAL_' + prefijoCaja + '_' + mesNombre + '_' + anio + '.xlsx',
     nombre_historico: 'HISTORICO_CXC_CXP.csv',
     nombre_periodos: 'HISTORICO_CXC_CXP_PERIODOS.json',
     nombre_reporte: 'CONTROL_CXC_CXP_' + mesNombre + '_' + anio + '.xlsx',
     nombre_reporte_json: 'CONTROL_CXC_CXP_' + mesNombre + '_' + anio + '.json',
     // Drive: 05_CONTROLES (historicos MAESTROS), 05_CONTROLES/GLOBAL, 05_CONTROLES/CONTROL_3_CXC_CXP (una subcarpeta <YYYY-MM> por periodo).
-    carpeta_controles_id: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB',
-    carpeta_global_id: '1KREzDpgptWRwuArA1qYco49rplOEeeNU',
-    carpeta_control3_id: '15IYQDdpyBwrZTNS-qU8VZa47sVz1ziV_',
+    carpeta_controles_id: resolverDestino('controles'),
+    carpeta_global_id: resolverDestino('global'),
+    carpeta_control3_id: resolverDestino('control3'),
     dir_entrada: dirEntrada,
     input_b64: Buffer.from(JSON.stringify(payloadPrep), 'utf8').toString('base64'),
     ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_control3_input_' + executionId + '.json',

@@ -112,5 +112,72 @@ class TestValidarPrefijoArchivo(unittest.TestCase):
         cfgd.validar_prefijo_archivo("america", "")
 
 
+_MENSUAL_TIQ_HISTORICOS = {
+    "controles": "1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB",
+    "global": "1KREzDpgptWRwuArA1qYco49rplOEeeNU",
+    "control1": "1oOcwIgq_9uU9eRLV7z36zBjdBS-hBlRk",
+    "control3": "15IYQDdpyBwrZTNS-qU8VZa47sVz1ziV_",
+    "sap": "1mid4gUHnCmZbISlsAYMwWta3RudTSE13",
+}
+
+
+class TestResolverDestinosDriveMensual(unittest.TestCase):
+    """Cierre MENSUAL (GLOBAL + CONTROL1 + CONTROL3) -- espejo Python de los
+    nodos n8n "RESOLVER carpeta SAP oficial" / "RESOLVER control1 (periodo y
+    carpetas)" / "RESOLVER control3 (periodo y carpetas)"."""
+
+    def test_1_tiquipaya_resuelve_los_4_folder_ids_historicos_exactos(self):
+        self.assertEqual(cfgd.resolver_destinos_drive_mensual("tiquipaya", entorno={}),
+                          _MENSUAL_TIQ_HISTORICOS)
+
+    def test_1b_default_sin_caja_igual_a_tiquipaya(self):
+        self.assertEqual(cfgd.resolver_destinos_drive_mensual(entorno={}), _MENSUAL_TIQ_HISTORICOS)
+
+    def test_2_sap_mensual_reutiliza_el_mismo_destino_sap_de_la_publicacion_diaria(self):
+        entorno = {"DRIVE_SAP_TIQ": "sap-override-compartido"}
+        mensual = cfgd.resolver_destinos_drive_mensual("tiquipaya", entorno=entorno)
+        diario = cfgd.resolver_destinos_drive("tiquipaya", entorno=entorno)
+        self.assertEqual(mensual["sap"], diario["sap"])
+        self.assertEqual(mensual["sap"], "sap-override-compartido")
+
+    def test_3_america_sin_variables_falla_cerrado_y_nunca_usa_ids_de_tiq(self):
+        with self.assertRaises(ValueError) as ctx:
+            cfgd.resolver_destinos_drive_mensual("america", entorno={})
+        self.assertIn("DRIVE_AME_PENDIENTE", str(ctx.exception))
+
+    def test_3b_america_con_los_4_destinos_pero_sin_sap_tambien_falla_cerrado(self):
+        entorno = {
+            "DRIVE_CONTROLES_AME": "ame-controles-1",
+            "DRIVE_GLOBAL_AME": "ame-global-1",
+            "DRIVE_CONTROL1_AME": "ame-control1-1",
+            "DRIVE_CONTROL3_AME": "ame-control3-1",
+        }
+        with self.assertRaises(ValueError) as ctx:
+            cfgd.resolver_destinos_drive_mensual("america", entorno=entorno)
+        self.assertIn("DRIVE_AME_PENDIENTE", str(ctx.exception))
+        self.assertIn("DRIVE_SAP_AME", str(ctx.exception))
+
+    def test_4_america_con_las_5_variables_resuelve_distinto_de_tiq_y_nunca_hereda_tiq(self):
+        entorno = {
+            "DRIVE_CONTROLES_AME": "ame-controles-1",
+            "DRIVE_GLOBAL_AME": "ame-global-1",
+            "DRIVE_CONTROL1_AME": "ame-control1-1",
+            "DRIVE_CONTROL3_AME": "ame-control3-1",
+            "DRIVE_SAP_AME": "ame-sap-1",
+        }
+        destinos_ame = cfgd.resolver_destinos_drive_mensual("america", entorno=entorno)
+        for clave, valor in destinos_ame.items():
+            self.assertNotIn(valor, _MENSUAL_TIQ_HISTORICOS.values(),
+                              f"AMERICA nunca debe heredar un folder ID de TIQUIPAYA (clave={clave})")
+        self.assertEqual(destinos_ame, {
+            "controles": "ame-controles-1", "global": "ame-global-1",
+            "control1": "ame-control1-1", "control3": "ame-control3-1", "sap": "ame-sap-1",
+        })
+
+    def test_caja_desconocida_falla_cerrado(self):
+        with self.assertRaises(ValueError):
+            cfgd.resolver_destinos_drive_mensual("brasil", entorno={})
+
+
 if __name__ == "__main__":
     unittest.main()

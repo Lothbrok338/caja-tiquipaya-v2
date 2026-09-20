@@ -1,22 +1,29 @@
 """
 config_drive_oficial.py — Resolución centralizada de destinos Google Drive
 para la PUBLICACION OFICIAL (n8n "06B PUBLICACION OFICIAL" y "PREFLIGHT
-OFICIAL"), por CAJA.
+OFICIAL") y para el CIERRE MENSUAL (n8n "BACKEND DEV" · /global, /control1,
+/control3), por CAJA.
 
-Este módulo es la fuente de verdad EXPLÍCITA que el nodo Code "RESOLVER -
-Destinos Drive por caja" de ambos workflows reproduce línea a línea (mismo
-patrón que tests_v3/n8n_publicacion_oficial/logic_reference.js frente a los
-nodos de idempotencia): los nodos Code de n8n corren en un sandbox sin
-acceso al filesystem del proyecto, así que el jsCode embebido es, por
-fuerza, la única copia que realmente se ejecuta contra Drive. Este módulo
-no lee archivos, no llama a Drive y no conoce el motor contable.
+Este módulo es la fuente de verdad EXPLÍCITA que reproducen línea a línea:
+  - el nodo Code "RESOLVER - Destinos Drive por caja" (06B / PREFLIGHT
+    OFICIAL) para los 5 destinos DIARIOS (`resolver_destinos_drive`);
+  - los nodos Code "RESOLVER carpeta SAP oficial" / "RESOLVER control1
+    (periodo y carpetas)" / "RESOLVER control3 (periodo y carpetas)"
+    (BACKEND DEV) para los 4 destinos MENSUALES + SAP reutilizado
+    (`resolver_destinos_drive_mensual`).
+(mismo patrón que tests_v3/n8n_publicacion_oficial/logic_reference.js y
+tests_v3/n8n_publicacion_mensual/logic_reference.js frente a los nodos de
+idempotencia): los nodos Code de n8n corren en un sandbox sin acceso al
+filesystem del proyecto, así que el jsCode embebido es, por fuerza, la
+única copia que realmente se ejecuta contra Drive. Este módulo no lee
+archivos, no llama a Drive y no conoce el motor contable.
 
-TIQUIPAYA conserva los 5 folder IDs reales ya en uso en producción
-(snapshots/v3-final, FASE 11A.1/11A.2), sin cambios: son los defaults que
-se usan cuando la variable de entorno DRIVE_*_TIQ correspondiente no está
-definida.
+TIQUIPAYA conserva los folder IDs reales ya en uso en producción
+(snapshots/v3-final, FASE 11A.1/11A.2/12E), sin cambios: son los defaults
+que se usan cuando la variable de entorno DRIVE_*_TIQ correspondiente no
+está definida.
 
-AMERICA todavía no tiene carpetas reales creadas en Drive: sus 5 variables
+AMERICA todavía no tiene carpetas reales creadas en Drive: sus variables
 DRIVE_*_AME quedan explícitamente SIN default. Resolverlas sin haberlas
 configurado FALLA CERRADO (DRIVE_AME_PENDIENTE) -- nunca se inventan ni se
 reutilizan los folder IDs de TIQUIPAYA.
@@ -47,6 +54,25 @@ def nombre_variable_entorno(caja, destino):
     return f"DRIVE_{destino.upper()}_{sufijo}"
 
 
+def _resolver_destino(caja, destino, entorno, defaults_tiq):
+    """Un único destino -> folder ID. Reutilizado por
+    `resolver_destinos_drive` (5 destinos DIARIOS) y por
+    `resolver_destinos_drive_mensual` (4 destinos MENSUALES + SAP
+    reutilizado), para que ninguno de los dos falle por una variable de
+    entorno que no le corresponde (p.ej. el mensual nunca debe fallar por
+    DRIVE_ENTRADA_AME, que no usa)."""
+    env_var = nombre_variable_entorno(caja, destino)
+    valor = entorno.get(env_var)
+    if valor:
+        return valor
+    if caja.codigo == "tiquipaya":
+        return defaults_tiq[destino]
+    raise ValueError(
+        f"DRIVE_AME_PENDIENTE: falta configurar {env_var} "
+        f"(carpeta '{destino}' de CAJA AMERICA todavia no existe en Drive)."
+    )
+
+
 def resolver_destinos_drive(caja=None, entorno=None):
     """Devuelve {entrada, sap, resultado, procesados, marker} -> folder ID,
     para la caja dada. `entorno` (por defecto os.environ) permite probar
@@ -57,19 +83,48 @@ def resolver_destinos_drive(caja=None, entorno=None):
     caja = cfg.resolver_caja(caja)
     entorno = os.environ if entorno is None else entorno
 
-    destinos = {}
-    for destino in DESTINOS:
-        env_var = nombre_variable_entorno(caja, destino)
-        valor = entorno.get(env_var)
-        if valor:
-            destinos[destino] = valor
-        elif caja.codigo == "tiquipaya":
-            destinos[destino] = _TIQ_DEFAULTS[destino]
-        else:
-            raise ValueError(
-                f"DRIVE_AME_PENDIENTE: falta configurar {env_var} "
-                f"(carpeta '{destino}' de CAJA AMERICA todavia no existe en Drive)."
-            )
+    return {destino: _resolver_destino(caja, destino, entorno, _TIQ_DEFAULTS) for destino in DESTINOS}
+
+
+# Folder IDs históricos de TIQUIPAYA para el CIERRE MENSUAL (idénticos a los
+# ya hardcodeados en los nodos "RESOLVER carpeta SAP oficial" / "RESOLVER
+# control1 (periodo y carpetas)" / "RESOLVER control3 (periodo y carpetas)"
+# de snapshots/v3-final/aLs1f3GMqswbaENA_backend_dev.json antes de este
+# cambio). "sap" NO va aquí: el mensual reutiliza el mismo destino "sap" ya
+# parametrizado por `resolver_destinos_drive` (_TIQ_DEFAULTS["sap"]).
+_MENSUAL_TIQ_DEFAULTS = {
+    "controles": "1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB",
+    "global": "1KREzDpgptWRwuArA1qYco49rplOEeeNU",
+    "control1": "1oOcwIgq_9uU9eRLV7z36zBjdBS-hBlRk",
+    "control3": "15IYQDdpyBwrZTNS-qU8VZa47sVz1ziV_",
+}
+
+DESTINOS_MENSUAL = ("controles", "global", "control1", "control3")
+
+
+def resolver_destinos_drive_mensual(caja=None, entorno=None):
+    """Devuelve {controles, global, control1, control3, sap} -> folder ID
+    para el CIERRE MENSUAL (GLOBAL + CONTROL1 + CONTROL3), para la caja
+    dada. `entorno` (por defecto os.environ) permite probar sin tocar
+    variables reales del proceso.
+
+    `sap` NO tiene su propio default/variable aquí: se resuelve con la
+    MISMA variable de entorno (DRIVE_SAP_TIQ/DRIVE_SAP_AME) y el MISMO
+    default histórico de TIQUIPAYA que usa la publicación oficial DIARIA
+    (`resolver_destinos_drive`) -- es la misma carpeta física, nunca una
+    copia independiente.
+
+    FALLA CERRADO: si la caja es AMERICA y una variable DRIVE_*_AME
+    (incluida DRIVE_SAP_AME) no está configurada, se lanza ValueError --
+    nunca se cae al folder de TIQUIPAYA ni al de otro destino."""
+    caja = cfg.resolver_caja(caja)
+    entorno = os.environ if entorno is None else entorno
+
+    destinos = {
+        destino: _resolver_destino(caja, destino, entorno, _MENSUAL_TIQ_DEFAULTS)
+        for destino in DESTINOS_MENSUAL
+    }
+    destinos["sap"] = _resolver_destino(caja, "sap", entorno, _TIQ_DEFAULTS)
     return destinos
 
 

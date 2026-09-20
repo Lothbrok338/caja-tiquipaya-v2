@@ -8,7 +8,7 @@ const executionId = ($execution && $execution.id) ? $execution.id : String(Date.
 // MODO: PRELIMINAR (mes abierto) por defecto; el cierre definitivo solo viaja
 // si el frontend envia modo_control1='cerrar' Y confirmacion_cierre=true (tras
 // la confirmacion humana). Aqui NUNCA se infiere el cierre.
-const payload = { anio: t.body.anio, mes: t.body.mes, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', ruta_revision_json: t.body.ruta_revision_json || null, dry_run: t.body.dry_run || false, modo_control1: t.body.modo_control1 || 'preliminar', confirmacion_cierre: t.body.confirmacion_cierre === true };
+const payload = { anio: t.body.anio, mes: t.body.mes, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', ruta_revision_json: t.body.ruta_revision_json || null, dry_run: t.body.dry_run || false, modo_control1: t.body.modo_control1 || 'preliminar', confirmacion_cierre: t.body.confirmacion_cierre === true, caja: t.body.caja || 'tiquipaya' };
 
 const rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_input_' + executionId + '.json';
 const rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_output_' + executionId + '.json';

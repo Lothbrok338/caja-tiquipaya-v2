@@ -16,14 +16,14 @@ const dirNodos = path.join(__dirname, 'nodos');
 const snapshot = path.join(__dirname, '..', '..', 'snapshots', 'v3-final', 'aLs1f3GMqswbaENA_backend_dev.json');
 const cargar = function (n) { return fs.readFileSync(path.join(dirNodos, n + '.js'), 'utf8'); };
 
-function ejecutar(codigo, nodos, entradas, json) {
+function ejecutar(codigo, nodos, entradas, json, env) {
   const $ = function (nombre) {
     if (!(nombre in nodos)) throw new Error('nodo no mockeado: ' + nombre);
     const items = nodos[nombre];
     return { first: function () { return items[0]; }, all: function () { return items; } };
   };
   const $input = { all: function () { return entradas || []; }, first: function () { return (entradas || [])[0]; } };
-  return new Function('$', '$input', '$json', '$execution', 'Buffer', codigo)($, $input, json || {}, { id: 'test-1' }, Buffer);
+  return new Function('$', '$input', '$json', '$execution', '$env', 'Buffer', codigo)($, $input, json || {}, { id: 'test-1' }, env || {}, Buffer);
 }
 let pasados = 0, fallidos = 0;
 function test(nombre, fn) {
@@ -68,6 +68,34 @@ test('resolver: anio/mes invalidos fallan', function () {
   [['2026', 9], [2026, 13], [2026, 0], [1999, 9], [undefined, 9], [2026, 9.5]].forEach(function (p) {
     assert.throws(function () { ejecutar(cargar('resolver'), WH({ anio: p[0], mes: p[1] })); }, /PERIODO_INVALIDO/);
   });
+});
+// FASE 12F -- aislamiento por CAJA: mismo patron (env DRIVE_*_TIQ/AME, fail
+// cerrado para AMERICA) que config_drive_oficial.py.
+test('resolver: caja ausente -> default tiquipaya (rutas y nombre historicos intactos, sin /america/)', function () {
+  assert.strictEqual(RC.caja, 'tiquipaya');
+  assert.strictEqual(RC.nombre_global, 'SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx');
+  assert.ok(!RC.dir_entrada.includes('/america/'));
+});
+test('resolver: caja="america" sin variables DRIVE_*_AME -> falla cerrado (DRIVE_AME_PENDIENTE), nunca hereda IDs de TIQ', function () {
+  assert.throws(function () { ejecutar(cargar('resolver'), WH({ anio: 2026, mes: 9, caja: 'america' })); }, /DRIVE_AME_PENDIENTE/);
+});
+test('resolver: caja="america" con las 3 variables -> nombre SAP_GLOBAL_AME_, dir bajo /america/, IDs distintos de TIQ', function () {
+  const env = { DRIVE_CONTROLES_AME: 'ame-controles-1', DRIVE_GLOBAL_AME: 'ame-global-1', DRIVE_CONTROL1_AME: 'ame-control1-1' };
+  const r = ejecutar(cargar('resolver'), WH({ anio: 2026, mes: 9, caja: 'america' }), [], undefined, env)[0].json;
+  assert.strictEqual(r.caja, 'america');
+  assert.strictEqual(r.nombre_global, 'SAP_GLOBAL_AME_SEPTIEMBRE_2026.xlsx');
+  assert.strictEqual(r.carpeta_controles_id, 'ame-controles-1');
+  assert.strictEqual(r.carpeta_global_id, 'ame-global-1');
+  assert.strictEqual(r.carpeta_control1_id, 'ame-control1-1');
+  assert.ok(r.dir_entrada.endsWith('/dev_workdir/control1_entrada/america/2026-09'));
+  [r.carpeta_controles_id, r.carpeta_global_id, r.carpeta_control1_id].forEach(function (id) {
+    assert.notStrictEqual(id, RC.carpeta_controles_id);
+    assert.notStrictEqual(id, RC.carpeta_global_id);
+    assert.notStrictEqual(id, RC.carpeta_control1_id);
+  });
+});
+test('resolver: caja invalida falla cerrado con CAJA_DESCONOCIDA', function () {
+  assert.throws(function () { ejecutar(cargar('resolver'), WH({ anio: 2026, mes: 9, caja: 'brasil' })); }, /CAJA_DESCONOCIDA/);
 });
 test('A: GLOBAL oficial existe (con historico y revision) -> los 3 se descargan a control1_entrada', function () {
   const r = clasificar([G], [H], [R]);
@@ -188,6 +216,14 @@ test('payload: modo preliminar por defecto; cierre solo con modo_control1=cerrar
   assert.deepStrictEqual([payload({ modo_control1: 'cerrar' }).modo_control1, payload({ modo_control1: 'cerrar' }).confirmacion_cierre], ['cerrar', false]);
   assert.deepStrictEqual([payload({ modo_control1: 'cerrar', confirmacion_cierre: true }).modo_control1, payload({ modo_control1: 'cerrar', confirmacion_cierre: true }).confirmacion_cierre], ['cerrar', true]);
   assert.strictEqual(payload({ modo_control1: 'cerrar', confirmacion_cierre: 'true' }).confirmacion_cierre, false);
+});
+test('construir_payload: propaga caja al payload de Python (default tiquipaya; america si el webhook la trae)', function () {
+  const payload = function (body) {
+    const p = ejecutar(cargar('construir_payload'), WH(Object.assign({ anio: 2026, mes: 9, modo: 'official' }, body)))[0].json;
+    return JSON.parse(Buffer.from(p.input_b64, 'base64').toString('utf8'));
+  };
+  assert.strictEqual(payload({}).caja, 'tiquipaya');
+  assert.strictEqual(payload({ caja: 'america' }).caja, 'america');
 });
 test('resultado de error / modo dev -> nada se publica', function () {
   assert.strictEqual(decidir({ resultado: 'ERROR', codigo: 'RuntimeError', mensaje: 'x' }).debe_publicar, false);

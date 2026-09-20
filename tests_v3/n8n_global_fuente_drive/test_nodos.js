@@ -19,14 +19,14 @@ const snapshot = path.join(__dirname, '..', '..', 'snapshots', 'v3-final', 'aLs1
 
 function cargar(nombre) { return fs.readFileSync(path.join(dirNodos, nombre + '.js'), 'utf8'); }
 
-function ejecutar(codigo, nodos, entradas) {
+function ejecutar(codigo, nodos, entradas, env) {
   const $ = function (nombre) {
     if (!(nombre in nodos)) throw new Error('nodo no mockeado: ' + nombre);
     const items = nodos[nombre];
     return { first: function () { return items[0]; }, all: function () { return items; }, item: items[0] };
   };
   const $input = { all: function () { return entradas; }, first: function () { return entradas[0]; } };
-  return new Function('$', '$input', '$execution', 'Buffer', codigo)($, $input, { id: 'test-1' }, Buffer);
+  return new Function('$', '$input', '$execution', '$env', 'Buffer', codigo)($, $input, { id: 'test-1' }, env || {}, Buffer);
 }
 
 let pasados = 0, fallidos = 0;
@@ -35,7 +35,7 @@ function test(nombre, fn) {
   catch (e) { fallidos++; console.log('FAIL - ' + nombre + '\n       ' + (e && e.stack || e)); }
 }
 
-const webhook = function (anio, mes) { return { 'WEBHOOK global': [{ json: { body: { anio: anio, mes: mes } } }] }; };
+const webhook = function (anio, mes, caja) { return { 'WEBHOOK global': [{ json: { body: { anio: anio, mes: mes, caja: caja } } }] }; };
 const SEP = { anio: 2026, mes: 9, periodo: '2026-09', dir_entrada: '/base/global_entrada/2026-09' };
 const drive = function (nombres) { return nombres.map(function (n, i) { return { json: { id: 'id' + i + '_' + n, name: n } }; }); };
 const filtrar = function (nombres) {
@@ -53,8 +53,42 @@ test('resolver: septiembre 2026 -> carpeta oficial + dir aislado global_entrada/
   const prep = JSON.parse(Buffer.from(r.input_b64, 'base64').toString('utf8'));
   assert.deepStrictEqual([prep.anio, prep.mes], [2026, 9]);
 });
-test('resolver: periodo sin carpeta configurada falla explicito', function () {
-  assert.throws(function () { ejecutar(cargar('resolver'), webhook(2026, 10), []); }, /CARPETA_SAP_OFICIAL_NO_CONFIGURADA.*2026-10/);
+// FASE 12F -- aislamiento por CAJA: carpeta_sap_id/carpeta_controles_id ya no
+// dependen de un mapa por periodo (CARPETAS_SAP_OFICIALES); se resuelven por
+// caja (env DRIVE_SAP_TIQ/AME, DRIVE_CONTROLES_TIQ/AME), mismo patron que
+// config_drive_oficial.py. Cualquier periodo valido resuelve, no solo 2026-09.
+test('resolver: TIQUIPAYA en un periodo cualquiera usa los folder IDs historicos (sin mapa por periodo)', function () {
+  const r = ejecutar(cargar('resolver'), webhook(2026, 10), [])[0].json;
+  assert.strictEqual(r.periodo, '2026-10');
+  assert.strictEqual(r.caja, 'tiquipaya');
+  assert.strictEqual(r.carpeta_sap_id, '1mid4gUHnCmZbISlsAYMwWta3RudTSE13');
+  assert.strictEqual(r.carpeta_controles_id, '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB');
+});
+test('resolver: caja ausente en el body -> default tiquipaya (rutas historicas intactas, sin /america/)', function () {
+  const r = ejecutar(cargar('resolver'), webhook(2026, 9), [])[0].json;
+  assert.strictEqual(r.caja, 'tiquipaya');
+  assert.strictEqual(r.dir_entrada, '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir/global_entrada/2026-09');
+  assert.ok(!r.dir_entrada.includes('/america/'));
+  const prep = JSON.parse(Buffer.from(r.input_b64, 'base64').toString('utf8'));
+  assert.strictEqual(prep.caja, 'tiquipaya');
+});
+test('resolver: caja="america" sin variables DRIVE_*_AME configuradas -> falla cerrado (DRIVE_AME_PENDIENTE), nunca hereda IDs de TIQ', function () {
+  assert.throws(function () { ejecutar(cargar('resolver'), webhook(2026, 9, 'america'), []); }, /DRIVE_AME_PENDIENTE.*DRIVE_SAP_AME/);
+});
+test('resolver: caja="america" con DRIVE_SAP_AME/DRIVE_CONTROLES_AME -> resuelve distinto de TIQ y dir_entrada bajo /america/', function () {
+  const env = { DRIVE_SAP_AME: 'ame-sap-1', DRIVE_CONTROLES_AME: 'ame-controles-1' };
+  const r = ejecutar(cargar('resolver'), webhook(2026, 9, 'america'), [], env)[0].json;
+  assert.strictEqual(r.caja, 'america');
+  assert.strictEqual(r.carpeta_sap_id, 'ame-sap-1');
+  assert.strictEqual(r.carpeta_controles_id, 'ame-controles-1');
+  assert.notStrictEqual(r.carpeta_sap_id, '1mid4gUHnCmZbISlsAYMwWta3RudTSE13');
+  assert.notStrictEqual(r.carpeta_controles_id, '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB');
+  assert.strictEqual(r.dir_entrada, '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir/global_entrada/america/2026-09');
+  const prep = JSON.parse(Buffer.from(r.input_b64, 'base64').toString('utf8'));
+  assert.strictEqual(prep.caja, 'america');
+});
+test('resolver: caja invalida ("brasil") falla cerrado con CAJA_DESCONOCIDA', function () {
+  assert.throws(function () { ejecutar(cargar('resolver'), webhook(2026, 9, 'brasil'), []); }, /CAJA_DESCONOCIDA/);
 });
 test('resolver: anio/mes invalidos (string, fuera de rango, ausentes) fallan', function () {
   [[ '2026', 9 ], [2026, 13], [2026, 0], [1999, 9], [undefined, 9], [2026, 9.5]].forEach(function (p) {

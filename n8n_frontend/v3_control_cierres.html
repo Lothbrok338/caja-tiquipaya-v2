@@ -837,7 +837,11 @@
       return;
     }
     mostrarResultadoMensual(etiqueta + " en curso… (modo " + state.publicationMode + ")", "cargando");
-    var body = { anio: anio, mes: mes, modo: state.publicationMode };
+    // El cierre mensual (GLOBAL/CONTROL1/CONTROL3) es independiente del "lote"
+    // diario: no hay lote_id que fije la caja, así que cada acción manda la
+    // suya. state.caja (identidad bloqueada por un lote diario activo) tiene
+    // prioridad; si no hay lote activo, se usa el selector visible #in-caja.
+    var body = { anio: anio, mes: mes, modo: state.publicationMode, caja: state.caja || qs("#in-caja").value };
     Object.keys(extraBody || {}).forEach(function (k) { body[k] = extraBody[k]; });
     apiPost(endpoint, body)
       .then(function (resp) {
