@@ -187,13 +187,13 @@ def construir_puente(periodo, sha, obs_xlsx, no_vigentes_previas, claves, ahora)
 # Contexto común
 # ---------------------------------------------------------------------------
 
-def _contexto(ruta_global, entrada):
+def _contexto(ruta_global, entrada, caja=None):
     if not ruta_global or not os.path.isfile(ruta_global):
         return None, {"estado": "ERROR_TECNICO", "estado_control3": "ERROR", "problemas": ["GLOBAL_NO_ENCONTRADO"],
                       "ruta_global": ruta_global}
     nombre = os.path.basename(ruta_global)
     sha = ctrl3._hash_archivo(ruta_global)
-    periodo = ctrl3._derivar_periodo(nombre)
+    periodo = ctrl3._derivar_periodo(nombre, caja)
     if periodo is None:
         return None, {"estado": "ERROR_TECNICO", "estado_control3": "ERROR", "problemas": ["GLOBAL_NOMBRE_NO_CANONICO"],
                       "archivo_global": nombre, "sha256_global": sha}
@@ -227,10 +227,14 @@ def _reescribir_json(ruta, resumen):
 # PRELIMINAR
 # ---------------------------------------------------------------------------
 
-def ejecutar_control3_preliminar(ruta_global, directorio_entrada, dry_run=False, ruta_observaciones_json=None):
+def ejecutar_control3_preliminar(ruta_global, directorio_entrada, dry_run=False, ruta_observaciones_json=None,
+                                 caja=None):
     """Mes abierto. Escribe SOLO el reporte del periodo (xlsx + json) en
-    `directorio_entrada`; el histórico y el libro maestros no se tocan."""
-    ctx, error = _contexto(ruta_global, directorio_entrada)
+    `directorio_entrada`; el histórico y el libro maestros no se tocan.
+
+    `caja` (config_cajas.CajaConfig o su `codigo`, por defecto TIQUIPAYA)
+    decide el prefijo del nombre canónico exigido del GLOBAL."""
+    ctx, error = _contexto(ruta_global, directorio_entrada, caja)
     if error:
         return {**error, "modo_control3": PRELIMINAR}
     base = {"modo_control3": PRELIMINAR, "archivo_global": ctx["nombre"], "periodo": ctx["periodo"],
@@ -269,7 +273,7 @@ def ejecutar_control3_preliminar(ruta_global, directorio_entrada, dry_run=False,
         r = ctrl3.ejecutar_control(
             ruta_global, os.path.join(scratch, NOMBRE_HISTORICO),
             ruta_salida_xlsx=ctx["ruta_xlsx"], ruta_salida_json=ctx["ruta_json"],
-            ruta_observaciones_json=ruta_obs, dry_run=dry_run)
+            ruta_observaciones_json=ruta_obs, dry_run=dry_run, caja=caja)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
@@ -292,10 +296,14 @@ def ejecutar_control3_preliminar(ruta_global, directorio_entrada, dry_run=False,
 # CIERRE DEFINITIVO
 # ---------------------------------------------------------------------------
 
-def ejecutar_control3_cierre(ruta_global, directorio_entrada, dry_run=False, ruta_observaciones_json=None):
+def ejecutar_control3_cierre(ruta_global, directorio_entrada, dry_run=False, ruta_observaciones_json=None,
+                             caja=None):
     """Cierre definitivo del periodo sobre el histórico y el libro MAESTROS
-    materializados en `directorio_entrada` (que el backend publica después)."""
-    ctx, error = _contexto(ruta_global, directorio_entrada)
+    materializados en `directorio_entrada` (que el backend publica después).
+
+    `caja` (config_cajas.CajaConfig o su `codigo`, por defecto TIQUIPAYA)
+    decide el prefijo del nombre canónico exigido del GLOBAL."""
+    ctx, error = _contexto(ruta_global, directorio_entrada, caja)
     if error:
         return {**error, "modo_control3": CERRAR}
     base = {"modo_control3": CERRAR, "archivo_global": ctx["nombre"], "periodo": ctx["periodo"],
@@ -339,7 +347,8 @@ def ejecutar_control3_cierre(ruta_global, directorio_entrada, dry_run=False, rut
         ruta_obs = tmp_obs
     try:
         # 1) Verificación en seco: nada se escribe.
-        r0 = ctrl3.ejecutar_control(ruta_global, ctx["ruta_hist"], ruta_observaciones_json=ruta_obs, dry_run=True)
+        r0 = ctrl3.ejecutar_control(ruta_global, ctx["ruta_hist"], ruta_observaciones_json=ruta_obs, dry_run=True,
+                                    caja=caja)
         if r0.get("estado") != "OK":
             estado_c3 = "ERROR" if r0.get("estado") == "ERROR_TECNICO" else "CIERRE_BLOQUEADO"
             return {**r0, **base, "estado_control3": estado_c3, "periodo_cerrado": False}
@@ -354,7 +363,7 @@ def ejecutar_control3_cierre(ruta_global, directorio_entrada, dry_run=False, rut
             return r0
         # 2) Cierre real: V2 escribe PENDIENTE -> histórico -> APLICADO en el directorio materializado.
         r = ctrl3.ejecutar_control(ruta_global, ctx["ruta_hist"], ruta_salida_xlsx=ctx["ruta_xlsx"],
-                                   ruta_salida_json=ctx["ruta_json"], ruta_observaciones_json=ruta_obs)
+                                   ruta_salida_json=ctx["ruta_json"], ruta_observaciones_json=ruta_obs, caja=caja)
     finally:
         if tmp_obs and os.path.isfile(tmp_obs):
             os.remove(tmp_obs)

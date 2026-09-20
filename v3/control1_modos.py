@@ -231,14 +231,14 @@ def agregar_hoja_no_vigentes(ruta_xlsx, no_vigentes):
 # Núcleo común: leer GLOBAL, alertas actuales y fusión con la revisión previa
 # ---------------------------------------------------------------------------
 
-def _preparar(ruta_global, ruta_historico, directorio_revision):
+def _preparar(ruta_global, ruta_historico, directorio_revision, caja=None):
     """Devuelve (contexto | None, error | None). No escribe nada."""
     if not ruta_global or not os.path.isfile(ruta_global):
         return None, {"estado": "ERROR_TECNICO", "estado_control1": "ERROR", "problemas": ["GLOBAL_NO_ENCONTRADO"],
                       "ruta_global": ruta_global}
     nombre = os.path.basename(ruta_global)
     sha = ctrl1._hash_archivo(ruta_global)
-    periodo = ctrl1._derivar_periodo(nombre)
+    periodo = ctrl1._derivar_periodo(nombre, caja)
     if periodo is None:
         return None, {"estado": "ERROR_TECNICO", "estado_control1": "ERROR", "problemas": ["GLOBAL_NOMBRE_NO_CANONICO"],
                       "archivo_global": nombre, "sha256_archivo": sha}
@@ -294,10 +294,13 @@ def _escribir_detalle(ruta, resumen, filas):
 # ---------------------------------------------------------------------------
 
 def ejecutar_control1_preliminar(ruta_global, ruta_historico, directorio_revision,
-                                 ruta_detalle_json=None, dry_run=False):
+                                 ruta_detalle_json=None, dry_run=False, caja=None):
     """Revisión de mes abierto. Escribe SOLO la revisión (y el detalle) del
-    periodo, en `directorio_revision`. No toca el histórico ni el GLOBAL."""
-    ctx, error = _preparar(ruta_global, ruta_historico, directorio_revision)
+    periodo, en `directorio_revision`. No toca el histórico ni el GLOBAL.
+
+    `caja` (config_cajas.CajaConfig o su `codigo`, por defecto TIQUIPAYA)
+    decide el prefijo del nombre canónico exigido del GLOBAL."""
+    ctx, error = _preparar(ruta_global, ruta_historico, directorio_revision, caja)
     if error:
         return {**error, "modo_control1": PRELIMINAR}
     ahora = datetime.datetime.now().isoformat(timespec="seconds")
@@ -359,10 +362,13 @@ def ejecutar_control1_preliminar(ruta_global, ruta_historico, directorio_revisio
 # ---------------------------------------------------------------------------
 
 def ejecutar_control1_cierre(ruta_global, ruta_historico, directorio_revision, ruta_detalle_json=None,
-                             dry_run=False, ruta_revision_json=None):
+                             dry_run=False, ruta_revision_json=None, caja=None):
     """Cierre definitivo del periodo. Reancla las decisiones previas al GLOBAL
-    actual y delega el cierre real en `ctrl1.ejecutar_control()` (V2)."""
-    ctx, error = _preparar(ruta_global, ruta_historico, directorio_revision)
+    actual y delega el cierre real en `ctrl1.ejecutar_control()` (V2).
+
+    `caja` (config_cajas.CajaConfig o su `codigo`, por defecto TIQUIPAYA)
+    decide el prefijo del nombre canónico exigido del GLOBAL."""
+    ctx, error = _preparar(ruta_global, ruta_historico, directorio_revision, caja)
     if error:
         return {**error, "modo_control1": CERRAR}
 
@@ -393,7 +399,7 @@ def ejecutar_control1_cierre(ruta_global, ruta_historico, directorio_revision, r
 
     r = ctrl1.ejecutar_control(ruta_global, ruta_historico, directorio_revision=directorio_revision,
                                dry_run=dry_run, ruta_detalle_json=ruta_detalle_json,
-                               ruta_revision_json=ruta_revision_json)
+                               ruta_revision_json=ruta_revision_json, caja=caja)
 
     if not dry_run and no_vigentes and os.path.isfile(ctx["ruta_xlsx"]):
         agregar_hoja_no_vigentes(ctx["ruta_xlsx"], no_vigentes)  # V2 reescribe el xlsx: se repone la trazabilidad
