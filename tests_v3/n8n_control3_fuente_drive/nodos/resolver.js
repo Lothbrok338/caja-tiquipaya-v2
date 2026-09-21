@@ -1,7 +1,10 @@
 // FASE 12E.7 -- CONTROL 3: Drive oficial = fuente de verdad; local = materializacion temporal de la corrida.
-// FASE 12F -- aislamiento por CAJA: mismo patron (env DRIVE_*_TIQ/AME, fail
-// cerrado para AMERICA) que config_drive_oficial.py / "RESOLVER - Destinos
-// Drive por caja" (06B PUBLICACION OFICIAL / PREFLIGHT OFICIAL).
+// FASE 12F -- CONTROL 3 es UNICO/INSTITUCIONAL: revisa conjuntamente
+// TIQUIPAYA + AMERICA del periodo, asi que sus carpetas (controles/global/
+// control3) son las MISMAS para cualquier caja -- no existen
+// DRIVE_CONTROLES_AME / DRIVE_GLOBAL_AME / DRIVE_CONTROL3_AME. `caja` solo
+// decide el prefijo del nombre del GLOBAL a auditar (mismo patron que
+// config_drive_oficial.py).
 const t = $('WEBHOOK control3').first().json;
 const body = t.body || {};
 const anio = body.anio;
@@ -19,20 +22,16 @@ if (caja !== 'tiquipaya' && caja !== 'america') {
 }
 const prefijoCaja = caja === 'america' ? 'AME' : 'TIQ';
 
-// Defaults TIQUIPAYA: EXACTAMENTE los folder IDs historicos ya en uso (05_CONTROLES,
-// 05_CONTROLES/GLOBAL, 05_CONTROLES/CONTROL_3_CXC_CXP). Solo se usan si
-// DRIVE_*_TIQ no esta definida. AMERICA: SIN defaults a proposito -- falla cerrado.
-const DEFAULTS_TIQ = {
+// Folder IDs INSTITUCIONALES (05_CONTROLES, 05_CONTROLES/GLOBAL,
+// 05_CONTROLES/CONTROL_3_CXC_CXP): los MISMOS para TIQUIPAYA y AMERICA --
+// CONTROL 3 es un control unico que audita ambas cajas juntas.
+const CARPETAS_INSTITUCIONALES = {
   controles: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB',
   global: '1KREzDpgptWRwuArA1qYco49rplOEeeNU',
   control3: '15IYQDdpyBwrZTNS-qU8VZa47sVz1ziV_',
 };
 function resolverDestino(clave) {
-  const envVar = 'DRIVE_' + clave.toUpperCase() + '_' + (caja === 'america' ? 'AME' : 'TIQ');
-  const valor = $env[envVar];
-  if (valor) return valor;
-  if (caja === 'tiquipaya') return DEFAULTS_TIQ[clave];
-  throw new Error('DRIVE_AME_PENDIENTE: falta configurar ' + envVar + ' (carpeta "' + clave + '" de CAJA AMERICA todavia no existe en Drive).');
+  return CARPETAS_INSTITUCIONALES[clave];
 }
 
 const baseDirDev = '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir';

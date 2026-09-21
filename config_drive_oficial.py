@@ -23,10 +23,20 @@ TIQUIPAYA conserva los folder IDs reales ya en uso en producción
 que se usan cuando la variable de entorno DRIVE_*_TIQ correspondiente no
 está definida.
 
-AMERICA todavía no tiene carpetas reales creadas en Drive: sus variables
-DRIVE_*_AME quedan explícitamente SIN default. Resolverlas sin haberlas
-configurado FALLA CERRADO (DRIVE_AME_PENDIENTE) -- nunca se inventan ni se
-reutilizan los folder IDs de TIQUIPAYA.
+Los 5 destinos DIARIOS sí son por caja: AMERICA todavía no tiene carpetas
+reales creadas en Drive, así que sus variables DRIVE_*_AME (entrada, sap,
+resultado, procesados, marker) quedan explícitamente SIN default.
+Resolverlas sin haberlas configurado FALLA CERRADO (DRIVE_AME_PENDIENTE) --
+nunca se inventan ni se reutilizan los folder IDs de TIQUIPAYA.
+
+Los 4 destinos MENSUALES (controles, global, control1, control3) son, en
+cambio, INSTITUCIONALES: CONTROL 1 y CONTROL 3 son controles únicos que
+auditan conjuntamente TIQUIPAYA + AMERICA, y ambos GLOBAL mensuales
+comparten la misma carpeta GLOBAL. Por eso resuelven siempre a los mismos
+4 folder IDs históricos, para cualquier caja -- no existen variables
+DRIVE_CONTROLES_AME / DRIVE_GLOBAL_AME / DRIVE_CONTROL1_AME /
+DRIVE_CONTROL3_AME. `sap` es la única pieza del mensual que sí es por caja
+(reutiliza el destino "sap" de los 5 diarios).
 """
 
 import os
@@ -92,7 +102,15 @@ def resolver_destinos_drive(caja=None, entorno=None):
 # de snapshots/v3-final/aLs1f3GMqswbaENA_backend_dev.json antes de este
 # cambio). "sap" NO va aquí: el mensual reutiliza el mismo destino "sap" ya
 # parametrizado por `resolver_destinos_drive` (_TIQ_DEFAULTS["sap"]).
-_MENSUAL_TIQ_DEFAULTS = {
+#
+# INSTITUCIONALES (no por caja): CONTROL 1 y CONTROL 3 son controles ÚNICOS
+# que revisan conjuntamente TIQUIPAYA + AMERICA del mismo periodo, y ambos
+# GLOBAL mensuales (SAP_GLOBAL_TIQ_.../SAP_GLOBAL_AME_...) se publican en la
+# MISMA carpeta GLOBAL. Por eso estos 4 folder IDs son fijos y compartidos
+# por las dos cajas -- NO existen (ni deben crearse) variables
+# DRIVE_CONTROLES_AME / DRIVE_GLOBAL_AME / DRIVE_CONTROL1_AME /
+# DRIVE_CONTROL3_AME: no hay "destino AME" distinto que resolver aquí.
+_MENSUAL_INSTITUCIONAL = {
     "controles": "1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB",
     "global": "1KREzDpgptWRwuArA1qYco49rplOEeeNU",
     "control1": "1oOcwIgq_9uU9eRLV7z36zBjdBS-hBlRk",
@@ -104,26 +122,27 @@ DESTINOS_MENSUAL = ("controles", "global", "control1", "control3")
 
 def resolver_destinos_drive_mensual(caja=None, entorno=None):
     """Devuelve {controles, global, control1, control3, sap} -> folder ID
-    para el CIERRE MENSUAL (GLOBAL + CONTROL1 + CONTROL3), para la caja
-    dada. `entorno` (por defecto os.environ) permite probar sin tocar
-    variables reales del proceso.
+    para el CIERRE MENSUAL (GLOBAL + CONTROL1 + CONTROL3). `entorno` (por
+    defecto os.environ) permite probar sin tocar variables reales del
+    proceso.
 
-    `sap` NO tiene su propio default/variable aquí: se resuelve con la
-    MISMA variable de entorno (DRIVE_SAP_TIQ/DRIVE_SAP_AME) y el MISMO
-    default histórico de TIQUIPAYA que usa la publicación oficial DIARIA
+    `controles`/`global`/`control1`/`control3` son INSTITUCIONALES: la
+    MISMA carpeta para TIQUIPAYA y AMERICA (no dependen de `caja`, no leen
+    ninguna variable DRIVE_*_AME/DRIVE_*_TIQ propia y nunca fallan por
+    falta de configuración de AMERICA). `caja` solo se valida (falla
+    cerrado ante una caja desconocida) y se usa para resolver `sap`.
+
+    `sap` SÍ es por caja: se resuelve con la MISMA variable de entorno
+    (DRIVE_SAP_TIQ/DRIVE_SAP_AME) y el MISMO default histórico de
+    TIQUIPAYA que usa la publicación oficial DIARIA
     (`resolver_destinos_drive`) -- es la misma carpeta física, nunca una
-    copia independiente.
-
-    FALLA CERRADO: si la caja es AMERICA y una variable DRIVE_*_AME
-    (incluida DRIVE_SAP_AME) no está configurada, se lanza ValueError --
-    nunca se cae al folder de TIQUIPAYA ni al de otro destino."""
+    copia independiente. FALLA CERRADO: si la caja es AMERICA y
+    DRIVE_SAP_AME no está configurada, se lanza ValueError -- nunca se cae
+    al folder de TIQUIPAYA."""
     caja = cfg.resolver_caja(caja)
     entorno = os.environ if entorno is None else entorno
 
-    destinos = {
-        destino: _resolver_destino(caja, destino, entorno, _MENSUAL_TIQ_DEFAULTS)
-        for destino in DESTINOS_MENSUAL
-    }
+    destinos = dict(_MENSUAL_INSTITUCIONAL)
     destinos["sap"] = _resolver_destino(caja, "sap", entorno, _TIQ_DEFAULTS)
     return destinos
 

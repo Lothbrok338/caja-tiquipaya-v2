@@ -69,30 +69,22 @@ test('resolver: anio/mes invalidos fallan', function () {
     assert.throws(function () { ejecutar(cargar('resolver'), WH({ anio: p[0], mes: p[1] })); }, /PERIODO_INVALIDO/);
   });
 });
-// FASE 12F -- aislamiento por CAJA: mismo patron (env DRIVE_*_TIQ/AME, fail
-// cerrado para AMERICA) que config_drive_oficial.py.
+// FASE 12F -- nombre del GLOBAL y ruta de entrada son por CAJA; las
+// carpetas institucionales (controles/global/control1) son unicas y
+// compartidas (CONTROL 1 audita TIQUIPAYA + AMERICA juntas).
 test('resolver: caja ausente -> default tiquipaya (rutas y nombre historicos intactos, sin /america/)', function () {
   assert.strictEqual(RC.caja, 'tiquipaya');
   assert.strictEqual(RC.nombre_global, 'SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx');
   assert.ok(!RC.dir_entrada.includes('/america/'));
 });
-test('resolver: caja="america" sin variables DRIVE_*_AME -> falla cerrado (DRIVE_AME_PENDIENTE), nunca hereda IDs de TIQ', function () {
-  assert.throws(function () { ejecutar(cargar('resolver'), WH({ anio: 2026, mes: 9, caja: 'america' })); }, /DRIVE_AME_PENDIENTE/);
-});
-test('resolver: caja="america" con las 3 variables -> nombre SAP_GLOBAL_AME_, dir bajo /america/, IDs distintos de TIQ', function () {
-  const env = { DRIVE_CONTROLES_AME: 'ame-controles-1', DRIVE_GLOBAL_AME: 'ame-global-1', DRIVE_CONTROL1_AME: 'ame-control1-1' };
-  const r = ejecutar(cargar('resolver'), WH({ anio: 2026, mes: 9, caja: 'america' }), [], undefined, env)[0].json;
+test('resolver: caja="america" -> nombre SAP_GLOBAL_AME_, dir bajo /america/, PERO carpetas institucionales identicas a TIQ (CONTROL 1 es unico)', function () {
+  const r = ejecutar(cargar('resolver'), WH({ anio: 2026, mes: 9, caja: 'america' }))[0].json;
   assert.strictEqual(r.caja, 'america');
   assert.strictEqual(r.nombre_global, 'SAP_GLOBAL_AME_SEPTIEMBRE_2026.xlsx');
-  assert.strictEqual(r.carpeta_controles_id, 'ame-controles-1');
-  assert.strictEqual(r.carpeta_global_id, 'ame-global-1');
-  assert.strictEqual(r.carpeta_control1_id, 'ame-control1-1');
   assert.ok(r.dir_entrada.endsWith('/dev_workdir/control1_entrada/america/2026-09'));
-  [r.carpeta_controles_id, r.carpeta_global_id, r.carpeta_control1_id].forEach(function (id) {
-    assert.notStrictEqual(id, RC.carpeta_controles_id);
-    assert.notStrictEqual(id, RC.carpeta_global_id);
-    assert.notStrictEqual(id, RC.carpeta_control1_id);
-  });
+  assert.strictEqual(r.carpeta_controles_id, RC.carpeta_controles_id);
+  assert.strictEqual(r.carpeta_global_id, RC.carpeta_global_id);
+  assert.strictEqual(r.carpeta_control1_id, RC.carpeta_control1_id);
 });
 test('resolver: caja invalida falla cerrado con CAJA_DESCONOCIDA', function () {
   assert.throws(function () { ejecutar(cargar('resolver'), WH({ anio: 2026, mes: 9, caja: 'brasil' })); }, /CAJA_DESCONOCIDA/);

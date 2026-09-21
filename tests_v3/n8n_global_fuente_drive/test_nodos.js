@@ -53,10 +53,12 @@ test('resolver: septiembre 2026 -> carpeta oficial + dir aislado global_entrada/
   const prep = JSON.parse(Buffer.from(r.input_b64, 'base64').toString('utf8'));
   assert.deepStrictEqual([prep.anio, prep.mes], [2026, 9]);
 });
-// FASE 12F -- aislamiento por CAJA: carpeta_sap_id/carpeta_controles_id ya no
-// dependen de un mapa por periodo (CARPETAS_SAP_OFICIALES); se resuelven por
-// caja (env DRIVE_SAP_TIQ/AME, DRIVE_CONTROLES_TIQ/AME), mismo patron que
-// config_drive_oficial.py. Cualquier periodo valido resuelve, no solo 2026-09.
+// FASE 12F -- aislamiento por CAJA: carpeta_sap_id ya no depende de un mapa
+// por periodo (CARPETAS_SAP_OFICIALES); se resuelve por caja (env
+// DRIVE_SAP_TIQ/AME), mismo patron que config_drive_oficial.py.
+// carpeta_controles_id (05_CONTROLES, historico maestro compartido) es
+// INSTITUCIONAL: la misma carpeta para las dos cajas. Cualquier periodo
+// valido resuelve, no solo 2026-09.
 test('resolver: TIQUIPAYA en un periodo cualquiera usa los folder IDs historicos (sin mapa por periodo)', function () {
   const r = ejecutar(cargar('resolver'), webhook(2026, 10), [])[0].json;
   assert.strictEqual(r.periodo, '2026-10');
@@ -72,17 +74,16 @@ test('resolver: caja ausente en el body -> default tiquipaya (rutas historicas i
   const prep = JSON.parse(Buffer.from(r.input_b64, 'base64').toString('utf8'));
   assert.strictEqual(prep.caja, 'tiquipaya');
 });
-test('resolver: caja="america" sin variables DRIVE_*_AME configuradas -> falla cerrado (DRIVE_AME_PENDIENTE), nunca hereda IDs de TIQ', function () {
+test('resolver: caja="america" sin DRIVE_SAP_AME configurada -> falla cerrado (DRIVE_AME_PENDIENTE), nunca hereda el SAP de TIQ', function () {
   assert.throws(function () { ejecutar(cargar('resolver'), webhook(2026, 9, 'america'), []); }, /DRIVE_AME_PENDIENTE.*DRIVE_SAP_AME/);
 });
-test('resolver: caja="america" con DRIVE_SAP_AME/DRIVE_CONTROLES_AME -> resuelve distinto de TIQ y dir_entrada bajo /america/', function () {
-  const env = { DRIVE_SAP_AME: 'ame-sap-1', DRIVE_CONTROLES_AME: 'ame-controles-1' };
+test('resolver: caja="america" con DRIVE_SAP_AME -> sap distinto de TIQ, dir_entrada bajo /america/, PERO carpeta_controles_id institucional identica a TIQ', function () {
+  const env = { DRIVE_SAP_AME: 'ame-sap-1' };
   const r = ejecutar(cargar('resolver'), webhook(2026, 9, 'america'), [], env)[0].json;
   assert.strictEqual(r.caja, 'america');
   assert.strictEqual(r.carpeta_sap_id, 'ame-sap-1');
-  assert.strictEqual(r.carpeta_controles_id, 'ame-controles-1');
+  assert.strictEqual(r.carpeta_controles_id, '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB');
   assert.notStrictEqual(r.carpeta_sap_id, '1mid4gUHnCmZbISlsAYMwWta3RudTSE13');
-  assert.notStrictEqual(r.carpeta_controles_id, '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB');
   assert.strictEqual(r.dir_entrada, '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir/global_entrada/america/2026-09');
   const prep = JSON.parse(Buffer.from(r.input_b64, 'base64').toString('utf8'));
   assert.strictEqual(prep.caja, 'america');
