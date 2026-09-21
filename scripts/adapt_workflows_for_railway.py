@@ -181,28 +181,6 @@ BACKEND_JSCODE_PATCHES = {
             "if (guardActivo || modo !== 'official') {",
         ),
     ],
-    "DECIDIR - Publicar GLOBAL institucional oficial": [
-        (
-            "const r = $json.data;\n"
-            "// Solo se publica si LOS TRES (TIQ, AME e INSTITUCIONAL) llegaron a un GLOBAL\n"
-            "// valido -- nunca institucional parcial: si TIQ o AME hubieran fallado, esta\n"
-            "// rama nunca se ejecuta (dev_api.generar_global_institucional ya propaga la\n"
-            "// excepcion antes de fusionar, ver INTERPRETAR->salida ERROR).\n"
-            "const debePublicar = modo === 'official'\n"
-            "  && r.resultado_tiq && r.resultado_tiq.estado === 'VALIDADO_PENDIENTE_PUBLICACION'\n"
-            "  && r.resultado_ame && r.resultado_ame.estado === 'VALIDADO_PENDIENTE_PUBLICACION';",
-            f"const r = $json.data;\n{_GUARD_JS_DECL}\n"
-            "// SHADOW: con el guard activo, debe_publicar=false aunque el request diga modo='official'\n"
-            "// (mismo criterio que 'DECIDIR - Publicar GLOBAL oficial').\n"
-            "// Solo se publica si LOS TRES (TIQ, AME e INSTITUCIONAL) llegaron a un GLOBAL\n"
-            "// valido -- nunca institucional parcial: si TIQ o AME hubieran fallado, esta\n"
-            "// rama nunca se ejecuta (dev_api.generar_global_institucional ya propaga la\n"
-            "// excepcion antes de fusionar, ver INTERPRETAR->salida ERROR).\n"
-            "const debePublicar = !guardActivo && modo === 'official'\n"
-            "  && r.resultado_tiq && r.resultado_tiq.estado === 'VALIDADO_PENDIENTE_PUBLICACION'\n"
-            "  && r.resultado_ame && r.resultado_ame.estado === 'VALIDADO_PENDIENTE_PUBLICACION';",
-        ),
-    ],
     "DECIDIR - Publicar CONTROL3 oficial": [
         (
             "const vacio = { debe_publicar: false, hay_reporte: false, hay_reporte_json: false, hay_snapshots: false, hay_historico: false, hay_periodos: false };\n"

@@ -604,10 +604,8 @@
       </div>
       <div class="acciones-mensual">
       <button class="primary" id="btn-mensual-global" title="Regenerable mientras el mes esté abierto">GENERAR GLOBAL</button>
-      <button class="primary" id="btn-mensual-control1" title="Revisión preliminar: el periodo sigue abierto">AUDITORÍA DE ASIGNACIONES</button>
-      <button class="cerrar-auditoria" id="btn-mensual-control1-cerrar" title="Cierre definitivo del periodo (pide confirmación)">CERRAR AUDITORÍA DE ASIGNACIONES</button>
-      <button class="primary" id="btn-mensual-control3" title="Revisión preliminar: el periodo sigue abierto">AUDITORÍA CxC / CxP</button>
-      <button class="cerrar-auditoria" id="btn-mensual-control3-cerrar" title="Cierre definitivo del periodo (pide confirmación)">CERRAR AUDITORÍA CxC / CxP</button>
+      <button class="primary" id="btn-mensual-control1" title="Institucional: analiza TIQ+AME juntos, no depende del selector de caja">AUDITORÍA DE ASIGNACIONES</button>
+      <button class="primary" id="btn-mensual-control3" title="Institucional: analiza TIQ+AME juntos, no depende del selector de caja">AUDITORÍA CxC / CxP</button>
       </div>
     </div>
     <div style="font-size:0.85em;opacity:0.75;margin-top:2px;">GENERAR GLOBAL: regenerable mientras el mes esté abierto.</div>
@@ -647,15 +645,16 @@
     // FASE 12B — CIERRE MENSUAL (GLOBAL/CONTROL 1/CONTROL 3). Completamente
     // separados del namespace diario de arriba: ningun boton de "Procesar"/
     // "Publicar" los llama, y estos 3 nunca disparan nada del flujo diario.
-    global:    NAMESPACE + "/global",     // POST — genera SAP_GLOBAL_TIQ_<MES>_<AÑO> del periodo (por caja; flujo diario)
-    // GENERAR GLOBAL (botón del cierre mensual): un solo click produce los
-    // TRES SAP GLOBAL del periodo (TIQ, AME, INSTITUCIONAL). Nunca manda
-    // caja -- ver generarGlobalMensual() mas abajo. Completamente separado
-    // de "global" (por caja), que sigue existiendo tal cual para el flujo
-    // diario/por-caja.
-    globalInstitucional: NAMESPACE + "/global-institucional",
-    control1:  NAMESPACE + "/control1",   // POST — CONTROL 1 (asignaciones) sobre ese GLOBAL
-    control3:  NAMESPACE + "/control3",   // POST — CONTROL 3 (CxC/CxP) sobre el MISMO GLOBAL
+    // GENERAR GLOBAL: por caja (usa el selector #in-caja) -- genera SOLO el
+    // GLOBAL de la caja seleccionada (SAP_GLOBAL_TIQ_... o SAP_GLOBAL_AME_...).
+    // Nunca crea un tercer GLOBAL combinado.
+    global:    NAMESPACE + "/global",     // POST — genera SAP_GLOBAL_<CAJA>_<MES>_<AÑO> del periodo
+    // CONTROL 1 / CONTROL 3 son INSTITUCIONALES: un solo botón cada uno,
+    // que NUNCA depende del selector de caja -- el backend obtiene
+    // automáticamente ambos GLOBAL (TIQ y AME) del periodo. Ver
+    // ejecutarControl1Mensual()/ejecutarControl3Mensual() mas abajo.
+    control1:  NAMESPACE + "/control1",   // POST — CONTROL 1 institucional (asignaciones) sobre TIQ+AME
+    control3:  NAMESPACE + "/control3",   // POST — CONTROL 3 institucional (CxC/CxP) sobre TIQ+AME
   };
   // SEGURIDAD (pendiente, NO implementada aqui): antes de exponer estos
   // endpoints fuera de un entorno de desarrollo controlado, /procesar,
@@ -835,10 +834,11 @@
   }
 
   // formatearOk puede devolver un string (tipo "ok") o {texto, tipo}.
-  // opts.sinCaja=true (GENERAR GLOBAL institucional): el body NUNCA lleva
-  // "caja" -- ese flujo ya no depende del selector de caja, a diferencia de
-  // AUDITORÍA DE ASIGNACIONES / CxC-CxP y del flujo DIARIO, que siguen
-  // mandándola tal cual.
+  // opts.sinCaja=true (CONTROL 1 / CONTROL 3, institucionales): el body
+  // NUNCA lleva "caja" -- esos dos botones no dependen del selector de
+  // caja, el backend obtiene automáticamente ambos GLOBAL (TIQ y AME).
+  // GENERAR GLOBAL sigue siendo por caja (usa el selector), igual que el
+  // flujo DIARIO.
   function ejecutarAccionMensual(endpoint, etiqueta, formatearOk, extraBody, opts) {
     var anio = parseInt(qs("#in-mensual-anio").value, 10);
     var mes = parseInt(qs("#in-mensual-mes").value, 10);
@@ -849,10 +849,9 @@
     mostrarResultadoMensual(etiqueta + " en curso… (modo " + state.publicationMode + ")", "cargando");
     var body = { anio: anio, mes: mes, modo: state.publicationMode };
     if (!(opts && opts.sinCaja)) {
-      // El cierre mensual (CONTROL1/CONTROL3) es independiente del "lote"
-      // diario: no hay lote_id que fije la caja, así que cada acción manda la
-      // suya. state.caja (identidad bloqueada por un lote diario activo) tiene
-      // prioridad; si no hay lote activo, se usa el selector visible #in-caja.
+      // GENERAR GLOBAL depende del selector de caja: state.caja (identidad
+      // bloqueada por un lote diario activo) tiene prioridad; si no hay
+      // lote activo, se usa el selector visible #in-caja.
       body.caja = state.caja || qs("#in-caja").value;
     }
     Object.keys(extraBody || {}).forEach(function (k) { body[k] = extraBody[k]; });
@@ -873,93 +872,59 @@
     return r.publicacion_oficial.publicado ? " Publicado en Drive oficial." : "";
   }
 
-  // GENERAR GLOBAL: un solo botón, sin selector de caja -- produce los TRES
-  // SAP GLOBAL del periodo (TIQ, AME, INSTITUCIONAL) en una sola petición a
-  // /global-institucional. Nunca botones separados TIQ/AME/FUSIONAR.
+  // GENERAR GLOBAL: usa el selector de caja -- genera SOLO el GLOBAL de la
+  // caja seleccionada (TIQ o AME). Un solo botón, reutiliza /global tal
+  // cual; nunca crea un tercer GLOBAL combinado.
   function generarGlobalMensual() {
-    ejecutarAccionMensual(ENDPOINTS.globalInstitucional, "GENERAR GLOBAL", function (r) {
-      var faltantesTiq = ((r.resultado_tiq || {}).fechas_faltantes || []).length;
-      var faltantesAme = ((r.resultado_ame || {}).fechas_faltantes || []).length;
-      return "GLOBAL institucional generado: " + (r.cantidad_partidas_total || 0) + " partidas "
-        + "(TIQ " + (r.cantidad_partidas_tiq || 0) + ", AME " + (r.cantidad_partidas_ame || 0) + "). "
-        + "Fechas sin cierre — TIQ: " + faltantesTiq + ", AME: " + faltantesAme + "."
-        + sufijoPublicacionOficial(r);
+    ejecutarAccionMensual(ENDPOINTS.global, "GENERAR GLOBAL", function (r) {
+      var faltantes = (r.fechas_faltantes || []).length;
+      return "GLOBAL generado (" + (r.cantidad_sap_incluidos || 0) + " SAP incluidos, "
+        + faltantes + " fecha(s) sin cierre). Estado: " + r.estado + "." + sufijoPublicacionOficial(r);
+    });
+  }
+
+  // AUDITORÍA DE ASIGNACIONES (CONTROL 1): institucional -- analiza TIQ+AME
+  // juntos en memoria, sin selector de caja (el backend obtiene ambos
+  // GLOBAL automáticamente). Idempotente: correrlo de nuevo sobre el mismo
+  // par TIQ/AME no reincorpora nada.
+  function ejecutarControl1Mensual() {
+    ejecutarAccionMensual(ENDPOINTS.control1, "AUDITORÍA DE ASIGNACIONES", function (r) {
+      if (r.estado === "YA_PROCESADO_SIN_CAMBIOS") {
+        return { texto: "Este par GLOBAL TIQ/AME ya fue incorporado al histórico institucional. No se modificó nada.", tipo: "ok" };
+      }
+      if (r.estado === "GLOBAL_MODIFICADO_REQUIERE_REVISION") {
+        return { texto: "El GLOBAL TIQ o AME cambió respecto al procesamiento institucional previo. Requiere decisión humana.", tipo: "error" };
+      }
+      if (r.estado === "ERROR_TECNICO") {
+        return { texto: "AUDITORÍA DE ASIGNACIONES: no se pudo completar (" + ((r.problemas || []).join(", ") || r.estado) + ").", tipo: "error" };
+      }
+      if (r.estado === "REVISAR_DUPLICADOS_ENCONTRADOS") {
+        return { texto: "Se encontraron " + ((r.alertas || []).length) + " alerta(s) de asignación duplicada TIQ/AME. Requiere revisión del auditor antes de incorporar al histórico.", tipo: "error" };
+      }
+      return "Auditoría de Asignaciones institucional actualizada: " + (r.filas_incorporadas_historico || 0) + " partida(s) incorporadas al histórico. Sin duplicados.";
     }, {}, { sinCaja: true });
   }
 
-  // AUDITORÍA DE ASIGNACIONES: SIEMPRE modo preliminar (mes abierto; no cierra nada).
-  function ejecutarControl1Mensual() {
-    ejecutarAccionMensual(ENDPOINTS.control1, "AUDITORÍA DE ASIGNACIONES", function (r) {
-      if (r.estado_control1 === "YA_CERRADO") {
-        return { texto: "El periodo ya fue cerrado por Auditoría de Asignaciones. No se modificó nada.", tipo: "ok" };
-      }
-      if (r.estado_control1 === "ERROR") {
-        return { texto: "AUDITORÍA DE ASIGNACIONES: no se pudo completar (" + ((r.problemas || []).join(", ") || r.estado) + ").", tipo: "error" };
-      }
-      var texto = "Auditoría preliminar actualizada. El periodo sigue abierto.";
-      if (r.estado_control1 === "PRELIMINAR_PENDIENTE") texto += " Revisión pendiente de validación del auditor.";
-      return texto + sufijoPublicacionOficial(r);
-    }, { modo_control1: "preliminar" });
-  }
-
-  var TEXTO_CONFIRMAR_CIERRE_CONTROL1 =
-    "Esta acción cerrará el periodo, actualizará el histórico maestro y aplicará las correcciones autorizadas al GLOBAL. " +
-    "Después del cierre, el GLOBAL del periodo quedará protegido contra regeneración.\n\n¿Cerrar definitivamente la Auditoría de Asignaciones?";
-
-  // CIERRE DEFINITIVO: solo tras confirmación humana explícita; cancelar NO llama al backend.
-  function cerrarControl1Mensual() {
-    if (!window.confirm(TEXTO_CONFIRMAR_CIERRE_CONTROL1)) return;
-    ejecutarAccionMensual(ENDPOINTS.control1, "CERRAR AUDITORÍA DE ASIGNACIONES", function (r) {
-      var e = r.estado_control1;
-      if (e === "CERRADO") return { texto: "Auditoría de Asignaciones cerrada definitivamente." + sufijoPublicacionOficial(r), tipo: "ok" };
-      if (e === "YA_CERRADO") return { texto: "La Auditoría de Asignaciones de este periodo ya estaba cerrada. No se modificó nada.", tipo: "ok" };
-      if (e === "CIERRE_BLOQUEADO_GLOBAL_DISTINTO_DEL_CERRADO") {
-        return { texto: "No se puede cerrar: el GLOBAL actual difiere del GLOBAL ya cerrado. Requiere decisión humana; no se modificó nada.", tipo: "error" };
-      }
-      if (e === "CIERRE_SIMULACRO") return { texto: "Simulacro de cierre completado. No se cerró nada.", tipo: "ok" };
-      if (e === "ERROR") return { texto: "CERRAR AUDITORÍA DE ASIGNACIONES: no se pudo completar (" + ((r.problemas || []).join(", ") || r.estado) + ").", tipo: "error" };
-      return { texto: "No se puede cerrar: existen alertas pendientes o correcciones incompletas.", tipo: "error" };
-    }, { modo_control1: "cerrar", confirmacion_cierre: true });
-  }
-
-  // AUDITORÍA CxC / CxP: SIEMPRE modo preliminar (mes abierto; no toca los históricos maestros ni cierra nada).
+  // AUDITORÍA CxC / CxP (CONTROL 3): institucional -- combina TIQ+AME por
+  // CUENTA+ASIGNACION (una CxP en AME se compensa con la CxC de la misma
+  // llave en TIQ). Nunca modifica ningún GLOBAL. Idempotente por el PAR
+  // (sha256 TIQ, sha256 AME).
   function ejecutarControl3Mensual() {
     ejecutarAccionMensual(ENDPOINTS.control3, "AUDITORÍA CxC / CxP", function (r) {
-      if (r.estado_control3 === "YA_CERRADO") {
-        return { texto: "El periodo ya fue cerrado por Auditoría CxC / CxP. No se modificó nada.", tipo: "ok" };
+      if (r.estado === "YA_PROCESADO_SIN_CAMBIOS") {
+        return { texto: "Este PAR GLOBAL TIQ/AME ya fue acumulado. No se modificó nada.", tipo: "ok" };
       }
-      if (r.estado_control3 === "CIERRE_PENDIENTE_DE_RECUPERAR") {
-        return { texto: "Un cierre anterior quedó a medias: use CERRAR AUDITORÍA CxC / CxP para completarlo.", tipo: "error" };
+      if (r.estado === "GLOBAL_MODIFICADO_REQUIERE_REVISION") {
+        return { texto: "El GLOBAL TIQ o AME cambió respecto al histórico institucional previo. Requiere decisión humana.", tipo: "error" };
       }
-      if (r.estado_control3 === "ERROR" || r.estado_control3 === "PRELIMINAR_BLOQUEADO") {
+      if (r.estado === "ERROR_TECNICO") {
         return { texto: "AUDITORÍA CxC / CxP: no se pudo completar (" + ((r.problemas || []).join(", ") || r.estado) + ").", tipo: "error" };
       }
-      var texto = "Auditoría CxC / CxP preliminar actualizada. El periodo sigue abierto.";
-      if (r.advertencias && r.advertencias.length) texto += " Por revisar: " + r.advertencias.join("; ") + ".";
-      return texto + sufijoPublicacionOficial(r);
-    }, { modo_control3: "preliminar" });
-  }
-
-  var TEXTO_CONFIRMAR_CIERRE_CONTROL3 =
-    "Esta acción cerrará el periodo y actualizará los históricos maestros de CxC/CxP. ¿Deseas continuar?";
-
-  // CIERRE DEFINITIVO: solo tras confirmación humana explícita; cancelar NO llama al backend.
-  function cerrarControl3Mensual() {
-    if (!window.confirm(TEXTO_CONFIRMAR_CIERRE_CONTROL3)) return;
-    ejecutarAccionMensual(ENDPOINTS.control3, "CERRAR AUDITORÍA CxC / CxP", function (r) {
-      var e = r.estado_control3;
-      if (e === "CERRADO") return { texto: "Auditoría CxC / CxP cerrada definitivamente." + sufijoPublicacionOficial(r), tipo: "ok" };
-      if (e === "YA_CERRADO") return { texto: "La Auditoría CxC / CxP de este periodo ya estaba cerrada. No se modificó nada.", tipo: "ok" };
-      if (e === "CIERRE_SIMULACRO") return { texto: "Simulacro de cierre completado. No se cerró nada.", tipo: "ok" };
-      if (e === "CIERRE_BLOQUEADO_GLOBAL_DISTINTO_DEL_CERRADO") {
-        return { texto: "No se puede cerrar: el GLOBAL actual difiere del GLOBAL ya cerrado. Requiere decisión humana; no se modificó nada.", tipo: "error" };
-      }
-      if (e === "CIERRE_BLOQUEADO_OBSERVACIONES") {
-        return { texto: "No se puede cerrar: las observaciones del auditor no son válidas. No se modificó nada.", tipo: "error" };
-      }
-      if (e === "ERROR") return { texto: "CERRAR AUDITORÍA CxC / CxP: no se pudo completar (" + ((r.problemas || []).join(", ") || r.estado) + ").", tipo: "error" };
-      return { texto: "No se puede cerrar: el control no pudo completarse. No se modificó nada.", tipo: "error" };
-    }, { modo_control3: "cerrar", confirmacion_cierre: true });
+      var texto = "Auditoría CxC / CxP institucional actualizada: " + (r.abiertas || 0) + " abierta(s), "
+        + (r.cerradas || 0) + " cerrada(s), " + (r.revisar || 0) + " a revisar.";
+      if (r.asignaciones_faltantes) texto += " " + r.asignaciones_faltantes + " partida(s) sin asignación.";
+      return texto;
+    }, {}, { sinCaja: true });
   }
 
   // -----------------------------------------------------------------------
@@ -1687,9 +1652,7 @@
     initMensual();
     qs("#btn-mensual-global").addEventListener("click", generarGlobalMensual);
     qs("#btn-mensual-control1").addEventListener("click", ejecutarControl1Mensual);
-    qs("#btn-mensual-control1-cerrar").addEventListener("click", cerrarControl1Mensual);
     qs("#btn-mensual-control3").addEventListener("click", ejecutarControl3Mensual);
-    qs("#btn-mensual-control3-cerrar").addEventListener("click", cerrarControl3Mensual);
     qs("#demo-banner").style.display = DEMO ? "block" : "none";
     // FASE 11A.2: el modo se pinta primero con el valor por defecto
     // (seguro) y, salvo en modo demo (que NUNCA llama al backend), se

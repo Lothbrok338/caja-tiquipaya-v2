@@ -2,7 +2,7 @@
 
 Valida el generador scripts/adapt_workflows_for_railway.py y los
 artefactos de portabilidad que produce/requiere: 0 process.env restantes
-en Code nodes, las 57 sustituciones $env.TIQ_BASE_DIR/TIQ_PLANTILLA_SAP_MAESTRA esperadas,
+en Code nodes, las 53 sustituciones $env.TIQ_BASE_DIR/TIQ_PLANTILLA_SAP_MAESTRA esperadas,
 invariante de IDs de nodo (nada desaparece; solo aparecen las 3 guardas
 SHADOW deliberadas), idempotencia del generador, y que la plantilla SAP
 maestra versionada como asset es real y válida.
@@ -67,25 +67,24 @@ def test_cero_process_env_en_code_nodes():
     assert (nodos, occ) == (0, 0), "no debe quedar ningún process.env en los Code nodes adaptados"
 
 
-def test_57_sustituciones_de_process_env_quedan_contabilizadas():
-    """El inventario auditado (18 Code nodes, 57 ocurrencias de
-    process.env) se reparte ahora en dos variables: 54 en
-    $env.TIQ_BASE_DIR (la ruta base genérica) y 3 en
-    $env.TIQ_PLANTILLA_SAP_MAESTRA (la ruta específica de la plantilla,
-    ver test_ruta_plantilla_origen_en_backend_apunta_al_asset_versionado)
-    — las 3 que antes también caían dentro de esas 57 porque el literal
-    de la plantilla contenía el mismo prefijo /home/codespace/.n8n-files.
-    El total sigue siendo 57: ninguna ocurrencia se pierde. (Antes del
-    webhook /global-institucional -- nodo 'CONSTRUIR payload global
-    institucional' -- el inventario era 17/53: ese nodo nuevo aporta 3
-    ocurrencias de TIQ_BASE_DIR y 1 de TIQ_PLANTILLA_SAP_MAESTRA.)"""
+def test_53_sustituciones_de_process_env_quedan_contabilizadas():
+    """El inventario auditado (17 Code nodes, 53 ocurrencias de
+    process.env) se reparte en dos variables: 51 en $env.TIQ_BASE_DIR (la
+    ruta base genérica) y 2 en $env.TIQ_PLANTILLA_SAP_MAESTRA (la ruta
+    específica de la plantilla, ver
+    test_ruta_plantilla_origen_en_backend_apunta_al_asset_versionado). El
+    total sigue siendo 53: ninguna ocurrencia se pierde. (El webhook
+    /global-institucional -- nodo 'CONSTRUIR payload global institucional'
+    -- aportaba temporalmente 3 ocurrencias de TIQ_BASE_DIR y 1 de
+    TIQ_PLANTILLA_SAP_MAESTRA; se eliminó junto con el resto del GLOBAL
+    institucional, ver v3/control1_institucional.py/control3_institucional.py.)"""
     archivos = [os.path.join(DST_DIR, BACKEND), os.path.join(DST_DIR, INGESTA)]
     nodos_base, occ_base = _contar("$env.TIQ_BASE_DIR", archivos)
     _, occ_plantilla = _contar("$env.TIQ_PLANTILLA_SAP_MAESTRA", archivos)
-    assert nodos_base == 18
-    assert occ_base == 54
-    assert occ_plantilla == 3
-    assert occ_base + occ_plantilla == 57
+    assert nodos_base == 17
+    assert occ_base == 51
+    assert occ_plantilla == 2
+    assert occ_base + occ_plantilla == 53
 
 
 def test_env_tiq_base_dir_solo_en_code_nodes_no_en_execute_command():
