@@ -30,12 +30,12 @@
 #        SAME           -> no tocar nada.
 #        NEEDS_PUBLISH  -> el contenido YA es el deseado, pero la versión
 #                          activa no es la última guardada: publicar
-#                          (desactivar + reactivar fuerza a n8n a recargar
-#                          el registro de webhooks con el contenido actual
-#                          -- mismo truco que "hace falta reiniciar n8n
-#                          para que el import surta efecto", pero sin
-#                          reiniciar el contenedor ni dejar nada corriendo
-#                          de más).
+#                          (`n8n publish:workflow --id=<id>`, comando CLI
+#                          real de n8n 2.35.7 que reemplaza al deprecado
+#                          `update:workflow --active=<bool>`; el sync
+#                          corre ANTES de arrancar el servidor n8n, así
+#                          que no hace falta desactivar/reactivar para
+#                          refrescar runtime).
 #        DIFFERENT/ABSENT -> `n8n import:workflow --input=<snapshot>`
 #                          (conserva el "id" original, ver comentario de
 #                          import_workflows_railway.sh) + publicar igual
@@ -73,14 +73,12 @@ _leer_campo() {
 }
 
 _publicar() {
-  # Desactivar + reactivar: fuerza a n8n a recargar el registro de
-  # webhooks/triggers con el CONTENIDO ACTUAL guardado (equivalente a
-  # "hace falta reiniciar n8n para que el import surta efecto", pero sin
-  # tocar el proceso del contenedor). Ambos son comandos CLI reales,
-  # documentados (`n8n update:workflow --id=<id> --active=<bool>`).
+  # `n8n publish:workflow` (n8n 2.35.7): publica la última versión
+  # guardada del workflow. `update:workflow --active=<bool>` esta
+  # deprecado; el sync corre ANTES de arrancar el servidor n8n, así que
+  # no hace falta desactivar/reactivar para refrescar runtime.
   local id="$1"
-  n8n update:workflow --id="$id" --active=false >/dev/null
-  n8n update:workflow --id="$id" --active=true >/dev/null
+  n8n publish:workflow --id="$id" >/dev/null
 }
 
 encontrados=0

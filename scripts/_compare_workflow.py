@@ -100,9 +100,32 @@ def decidir(exportado, snapshot):
     return SAME
 
 
+def _desenvolver(doc, ruta):
+    """`n8n export:workflow` (n8n 2.35.7) serializa una LISTA JSON incluso
+    al exportar un solo workflow (`[ {...workflow...} ]`). Un dict directo
+    (snapshot, o export de versiones anteriores de n8n) se acepta tal
+    cual. Cualquier otro formato -- lista vacia, lista con mas de un
+    elemento, o un tipo que no sea ni dict ni list -- falla CERRADO: nunca
+    se reinterpreta silenciosamente como ABSENT ni como dict vacio."""
+    if isinstance(doc, dict):
+        return doc
+    if isinstance(doc, list):
+        if len(doc) != 1:
+            raise ValueError(
+                f"{ruta}: se esperaba una lista con exactamente 1 workflow, "
+                f"se encontraron {len(doc)}"
+            )
+        elemento = doc[0]
+        if not isinstance(elemento, dict):
+            raise ValueError(f"{ruta}: el elemento de la lista no es un objeto de workflow")
+        return elemento
+    raise ValueError(f"{ruta}: formato de JSON inesperado ({type(doc).__name__}), se esperaba objeto o lista")
+
+
 def _cargar_json(ruta):
     with open(ruta, "r", encoding="utf-8") as f:
-        return json.load(f)
+        doc = json.load(f)
+    return _desenvolver(doc, ruta)
 
 
 def main(argv=None):

@@ -112,6 +112,37 @@ def test_main_cli_imprime_decision(tmp_path, capsys):
     assert capsys.readouterr().out.strip() == cw.SAME
 
 
+def test_cargar_json_desenvuelve_lista_de_un_elemento(tmp_path):
+    """`n8n export:workflow` (n8n 2.35.7) serializa SIEMPRE una lista JSON,
+    incluso para un solo workflow exportado -- debe desenvolverse igual
+    que un dict directo."""
+    doc = _wf(versionId="v1", activeVersionId="v1")
+    ruta = tmp_path / "export_lista.json"
+    ruta.write_text(json.dumps([doc]), encoding="utf-8")
+    assert cw._cargar_json(str(ruta)) == doc
+
+
+def test_cargar_json_lista_vacia_falla_cerrado(tmp_path):
+    ruta = tmp_path / "export_vacio.json"
+    ruta.write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError):
+        cw._cargar_json(str(ruta))
+
+
+def test_cargar_json_lista_con_mas_de_un_elemento_falla_cerrado(tmp_path):
+    ruta = tmp_path / "export_multi.json"
+    ruta.write_text(json.dumps([_wf(), _wf(nombre="Y")]), encoding="utf-8")
+    with pytest.raises(ValueError):
+        cw._cargar_json(str(ruta))
+
+
+def test_cargar_json_tipo_inesperado_falla_cerrado(tmp_path):
+    ruta = tmp_path / "export_invalido.json"
+    ruta.write_text(json.dumps("no es un workflow"), encoding="utf-8")
+    with pytest.raises(ValueError):
+        cw._cargar_json(str(ruta))
+
+
 # ---------------------------------------------------------------------------
 # 2) scripts/sync_workflows_railway.sh -- integracion con un n8n FALSO.
 # ---------------------------------------------------------------------------
@@ -119,6 +150,8 @@ def test_main_cli_imprime_decision(tmp_path, capsys):
 _N8N_FALSO = """#!/usr/bin/env bash
 # n8n FALSO de prueba -- nunca toca Postgres real, nunca deja nada
 # corriendo (cada subcomando termina de inmediato, como el n8n real).
+# export:workflow imita el formato REAL de n8n 2.35.7: siempre escribe
+# una LISTA JSON `[ {...workflow...} ]`, incluso para un solo workflow.
 set -euo pipefail
 echo "$@" >> "$FAKE_N8N_LOG"
 
@@ -132,13 +165,19 @@ case "$sub" in
     for arg in "$@"; do
       case "$arg" in --output=*) output="${arg#--output=}" ;; esac
     done
-    cp "$FAKE_N8N_EXPORT_CONTENT" "$output"
+    python3 -c "
+import json, sys
+with open(sys.argv[1], encoding='utf-8') as f:
+    doc = json.load(f)
+with open(sys.argv[2], 'w', encoding='utf-8') as f:
+    json.dump(doc if isinstance(doc, list) else [doc], f)
+" "$FAKE_N8N_EXPORT_CONTENT" "$output"
     ;;
   import:workflow)
     exit "${FAKE_N8N_IMPORT_EXIT:-0}"
     ;;
-  update:workflow)
-    exit "${FAKE_N8N_UPDATE_EXIT:-0}"
+  publish:workflow)
+    exit "${FAKE_N8N_PUBLISH_EXIT:-0}"
     ;;
   *)
     echo "n8n falso: subcomando no soportado: $sub" >&2
@@ -192,7 +231,7 @@ def test_sync_same_publicado_skip(tmp_path):
     assert r.returncode == 0, r.stderr
     assert "[workflow-sync] OK id-1" in r.stdout
     assert not any(l.startswith("import:workflow") for l in llamadas)
-    assert not any(l.startswith("update:workflow") for l in llamadas)
+    assert not any(l.startswith("publish:workflow") for l in llamadas)
 
 
 def test_sync_igual_no_publicado_solo_publica(tmp_path):
@@ -203,9 +242,9 @@ def test_sync_igual_no_publicado_solo_publica(tmp_path):
     assert r.returncode == 0, r.stderr
     assert "UPDATED id-1" in r.stdout and "publicado (el contenido ya coincidia)" in r.stdout
     assert not any(l.startswith("import:workflow") for l in llamadas)
-    updates = [l for l in llamadas if l.startswith("update:workflow")]
-    assert len(updates) == 2
-    assert "--active=false" in updates[0] and "--active=true" in updates[1]
+    publishes = [l for l in llamadas if l.startswith("publish:workflow")]
+    assert len(publishes) == 1
+    assert "--id=id-1" in publishes[0]
 
 
 def test_sync_diferente_importa_y_publica(tmp_path):
@@ -218,8 +257,8 @@ def test_sync_diferente_importa_y_publica(tmp_path):
     assert "UPDATED id-1" in r.stdout and "contenido distinto, importado y publicado" in r.stdout
     imports = [l for l in llamadas if l.startswith("import:workflow")]
     assert len(imports) == 1
-    updates = [l for l in llamadas if l.startswith("update:workflow")]
-    assert len(updates) == 2
+    publishes = [l for l in llamadas if l.startswith("publish:workflow")]
+    assert len(publishes) == 1
 
 
 def test_sync_ausente_importa_y_publica(tmp_path):
@@ -228,7 +267,7 @@ def test_sync_ausente_importa_y_publica(tmp_path):
     assert r.returncode == 0, r.stderr
     assert "UPDATED id-1" in r.stdout and "no existia, importado y publicado" in r.stdout
     assert any(l.startswith("import:workflow") for l in llamadas)
-    assert len([l for l in llamadas if l.startswith("update:workflow")]) == 2
+    assert len([l for l in llamadas if l.startswith("publish:workflow")]) == 1
 
 
 def test_sync_error_de_n8n_aborta_con_exit_distinto_de_cero(tmp_path):
@@ -244,7 +283,7 @@ def test_sync_nunca_deja_un_n8n_start_corriendo():
     lineas_codigo = [l for l in open(SYNC_SCRIPT, encoding="utf-8") if not l.strip().startswith("#")]
     texto_codigo = "".join(lineas_codigo)
     assert "n8n start" not in texto_codigo
-    assert "export:workflow" in texto_codigo and "import:workflow" in texto_codigo and "update:workflow" in texto_codigo
+    assert "export:workflow" in texto_codigo and "import:workflow" in texto_codigo and "publish:workflow" in texto_codigo
 
 
 # ---------------------------------------------------------------------------
