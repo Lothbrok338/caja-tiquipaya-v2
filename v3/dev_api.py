@@ -971,7 +971,13 @@ def corregir_control1_institucional(anio, mes, base_dir_dev, correcciones_tiq=No
     """Aplica correcciones autorizadas: cada corrección toca SOLO el GLOBAL
     de su caja de origen (TIQ o AME); si cualquiera falla, ninguno de los
     dos GLOBAL queda modificado (ver control1_institucional.
-    aplicar_correcciones_institucional)."""
+    aplicar_correcciones_institucional).
+
+    Usa el envoltorio RECUPERABLE (control1_institucional.
+    aplicar_correcciones_institucional_recuperable): un reintento tras una
+    publicación a Drive parcial (ver publicacion_oficial más abajo) reenvía
+    el MISMO par de correcciones, y un GLOBAL que ya quedó en su estado
+    FINAL en el intento anterior no debe volver a corregirse ni fallar."""
     entrada = control1_institucional_entrada_dir(base_dir_dev, anio, mes)
     nombre_tiq = consolidador_mensual.nombre_sap_global(anio, mes, cfg.TIQUIPAYA)
     nombre_ame = consolidador_mensual.nombre_sap_global(anio, mes, cfg.AMERICA)
@@ -979,7 +985,7 @@ def corregir_control1_institucional(anio, mes, base_dir_dev, correcciones_tiq=No
     ruta_ame = os.path.join(entrada, nombre_ame)
     correcciones_tiq = [tuple(c) for c in (correcciones_tiq or [])]
     correcciones_ame = [tuple(c) for c in (correcciones_ame or [])]
-    return control1_institucional.aplicar_correcciones_institucional(
+    return control1_institucional.aplicar_correcciones_institucional_recuperable(
         ruta_tiq, ruta_ame, correcciones_tiq, correcciones_ame,
     )
 

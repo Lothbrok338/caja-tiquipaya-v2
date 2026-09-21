@@ -51,6 +51,8 @@ def _partida(asignacion, cuenta_mayor="110101001", cargo="100.00"):
 
 
 ANIO, MES = 2026, 9
+CAJA_TIQ = cfg.TIQUIPAYA.codigo
+CAJA_AME = cfg.AMERICA.codigo
 
 
 class BaseInstitucional(unittest.TestCase):
@@ -235,6 +237,154 @@ class TestCorreccionAtomica(BaseInstitucional):
         # No deben quedar respaldos huérfanos.
         self.assertFalse(os.path.isfile(f"{self.ruta_tiq}.rollback"))
         self.assertFalse(os.path.isfile(f"{self.ruta_ame}.rollback"))
+
+
+class TestCorreccionRecuperable(BaseInstitucional):
+    """`aplicar_correcciones_institucional_recuperable`: recuperacion de una
+    publicacion oficial de CONTROL 1 interrumpida a mitad de camino cuando
+    la publicacion a Drive del par TIQ/AME (secuencial) queda parcial. La
+    correccion LOCAL sigue siendo la misma `aplicar_correcciones_institucional`
+    (sin cambios, staging+rollback cross-archivo); este envoltorio solo
+    decide, POR CAJA, si hace falta re-corregir o no antes de llamarla."""
+
+    def setUp(self):
+        super().setUp()
+        _crear_global(self.ruta_tiq, [_partida("MALA_TIQ")])
+        _crear_global(self.ruta_ame, [_partida("MALA_AME")])
+        self.correcciones_tiq = [(16, "MALA_TIQ", "BUENA_TIQ")]
+        self.correcciones_ame = [(16, "MALA_AME", "BUENA_AME")]
+
+    def test_1_ambas_correcciones_pendientes_exito_normal(self):
+        r = ci.aplicar_correcciones_institucional_recuperable(
+            self.ruta_tiq, self.ruta_ame, self.correcciones_tiq, self.correcciones_ame,
+        )
+        self.assertEqual(r["correcciones_aplicadas_tiq"], 1)
+        self.assertEqual(r["correcciones_aplicadas_ame"], 1)
+        self.assertFalse(r["ya_aplicado_tiq"])
+        self.assertFalse(r["ya_aplicado_ame"])
+        self.assertEqual(ca.leer_partidas_global(self.ruta_tiq)[0]["asignacion"], "BUENA_TIQ")
+        self.assertEqual(ca.leer_partidas_global(self.ruta_ame)[0]["asignacion"], "BUENA_AME")
+
+    def test_2_tiq_ya_corregido_ame_original_reintento_completa_ame(self):
+        # Simula que Drive publico TIQ (y por lo tanto TIQ ya esta en su
+        # estado FINAL) pero fallo antes de completar AME: solo TIQ se
+        # corrige localmente por adelantado, imitando el par local que ya
+        # habia quedado cerrado en el intento anterior.
+        ci.aplicar_correcciones_institucional(self.ruta_tiq, self.ruta_ame, self.correcciones_tiq, [])
+
+        r = ci.aplicar_correcciones_institucional_recuperable(
+            self.ruta_tiq, self.ruta_ame, self.correcciones_tiq, self.correcciones_ame,
+        )
+        self.assertTrue(r["ya_aplicado_tiq"], "TIQ ya esta en su estado FINAL: no se reintenta")
+        self.assertFalse(r["ya_aplicado_ame"])
+        self.assertEqual(r["correcciones_aplicadas_tiq"], 0, "TIQ no se vuelve a tocar")
+        self.assertEqual(r["correcciones_aplicadas_ame"], 1, "AME (lo pendiente) se completa")
+        self.assertEqual(ca.leer_partidas_global(self.ruta_tiq)[0]["asignacion"], "BUENA_TIQ")
+        self.assertEqual(ca.leer_partidas_global(self.ruta_ame)[0]["asignacion"], "BUENA_AME")
+
+    def test_3_ame_ya_corregido_tiq_original_reintento_completa_tiq(self):
+        ci.aplicar_correcciones_institucional(self.ruta_tiq, self.ruta_ame, [], self.correcciones_ame)
+
+        r = ci.aplicar_correcciones_institucional_recuperable(
+            self.ruta_tiq, self.ruta_ame, self.correcciones_tiq, self.correcciones_ame,
+        )
+        self.assertFalse(r["ya_aplicado_tiq"])
+        self.assertTrue(r["ya_aplicado_ame"], "AME ya esta en su estado FINAL: no se reintenta")
+        self.assertEqual(r["correcciones_aplicadas_tiq"], 1, "TIQ (lo pendiente) se completa")
+        self.assertEqual(r["correcciones_aplicadas_ame"], 0, "AME no se vuelve a tocar")
+        self.assertEqual(ca.leer_partidas_global(self.ruta_tiq)[0]["asignacion"], "BUENA_TIQ")
+        self.assertEqual(ca.leer_partidas_global(self.ruta_ame)[0]["asignacion"], "BUENA_AME")
+
+    def test_4_ambos_ya_corregidos_es_idempotente(self):
+        ci.aplicar_correcciones_institucional(
+            self.ruta_tiq, self.ruta_ame, self.correcciones_tiq, self.correcciones_ame,
+        )
+        bytes_tiq = open(self.ruta_tiq, "rb").read()
+        bytes_ame = open(self.ruta_ame, "rb").read()
+
+        r = ci.aplicar_correcciones_institucional_recuperable(
+            self.ruta_tiq, self.ruta_ame, self.correcciones_tiq, self.correcciones_ame,
+        )
+        self.assertTrue(r["ya_aplicado_tiq"])
+        self.assertTrue(r["ya_aplicado_ame"])
+        self.assertEqual(r["correcciones_aplicadas_tiq"], 0)
+        self.assertEqual(r["correcciones_aplicadas_ame"], 0)
+        # Ningun archivo se reescribe: bytes identicos (no solo el valor logico).
+        self.assertEqual(open(self.ruta_tiq, "rb").read(), bytes_tiq)
+        self.assertEqual(open(self.ruta_ame, "rb").read(), bytes_ame)
+
+    def test_5_estado_inesperado_en_tiq_falla_cerrado_sin_tocar_ninguno(self):
+        # TIQ no esta ni en ORIGINAL ("MALA_TIQ") ni en FINAL ("BUENA_TIQ"):
+        # alguien/algo dejo la celda en un tercer valor. Nunca se acepta en
+        # silencio ni se decide automaticamente: exige revision humana.
+        ci.aplicar_correcciones_institucional(self.ruta_tiq, self.ruta_ame, [(16, "MALA_TIQ", "OTRA_COSA")], [])
+        bytes_tiq = open(self.ruta_tiq, "rb").read()
+        bytes_ame = open(self.ruta_ame, "rb").read()
+
+        with self.assertRaises(ca.CorreccionInvalidaError):
+            ci.aplicar_correcciones_institucional_recuperable(
+                self.ruta_tiq, self.ruta_ame, self.correcciones_tiq, self.correcciones_ame,
+            )
+        # Fail closed: NINGUNO de los dos GLOBAL se toca, ni siquiera AME
+        # (que si estaba en estado ORIGINAL valido).
+        self.assertEqual(open(self.ruta_tiq, "rb").read(), bytes_tiq)
+        self.assertEqual(open(self.ruta_ame, "rb").read(), bytes_ame)
+
+    def test_5b_estado_inesperado_en_ame_falla_cerrado(self):
+        ci.aplicar_correcciones_institucional(self.ruta_tiq, self.ruta_ame, [], [(16, "MALA_AME", "OTRA_COSA")])
+        with self.assertRaises(ca.CorreccionInvalidaError):
+            ci.aplicar_correcciones_institucional_recuperable(
+                self.ruta_tiq, self.ruta_ame, self.correcciones_tiq, self.correcciones_ame,
+            )
+
+    def test_6_historico_maestro_nunca_se_publica_antes_de_completar_ambos_global(self):
+        """Extremo a extremo (capa local + cierre institucional): CONTROL 1
+        institucional exige que TODAS las alertas de AMBOS GLOBAL esten
+        resueltas antes de persistir el historico institucional (que es, en
+        n8n, la UNICA senal — `historico_actualizado` — que habilita subir
+        el historico MAESTRO a Drive: ver "DECIDIR - Publicar CONTROL1
+        oficial" / tests_v3/n8n_control1_institucional_drive). Este test usa
+        DOS alertas independientes -- una que solo TIQ puede resolver (dup
+        cruzado TIQ<->AME) y otra que solo AME puede resolver (dup interno
+        en AME) -- para demostrar que arreglar solo un GLOBAL no alcanza."""
+        # Alertas armadas a proposito (no las de setUp): fila 16 de TIQ y AME
+        # comparten la misma asignacion (dup cruzado, lo resuelve TIQ);
+        # AME ademas tiene un dup interno en sus filas 17/18 (lo resuelve AME).
+        _crear_global(self.ruta_tiq, [_partida("DUP_CRUZADA"), _partida("TIQ_OK")])
+        _crear_global(self.ruta_ame, [_partida("DUP_CRUZADA"), _partida("DUP_INTERNA_AME"), _partida("DUP_INTERNA_AME")])
+        correcciones_tiq = [(16, "DUP_CRUZADA", "TIQ_UNICA")]
+        correcciones_ame = [(17, "DUP_INTERNA_AME", "AME_UNICA")]
+
+        # 1) Solo se resuelve la alerta de TIQ (AME sigue con su dup interno sin corregir).
+        r1 = ci.aplicar_correcciones_institucional_recuperable(
+            self.ruta_tiq, self.ruta_ame, correcciones_tiq, [],
+        )
+        self.assertEqual(r1["correcciones_aplicadas_tiq"], 1)
+        cierre1 = ci.ejecutar_control1_institucional(
+            self.ruta_tiq, self.ruta_ame, self.ruta_historico, directorio_revision=self.tmp,
+        )
+        self.assertEqual(cierre1["estado"], "REVISAR_DUPLICADOS_ENCONTRADOS")
+        self.assertFalse(cierre1.get("historico_actualizado"), "AME todavia tiene una alerta sin resolver: no se cierra")
+        self.assertEqual(ci.cargar_historico_institucional(self.ruta_historico), [],
+                          "el historico institucional (y por lo tanto el maestro) sigue vacio")
+
+        # 2) Reintento que completa AME (TIQ ya esta en su estado FINAL, no se retoca).
+        r2 = ci.aplicar_correcciones_institucional_recuperable(
+            self.ruta_tiq, self.ruta_ame, correcciones_tiq, correcciones_ame,
+        )
+        self.assertTrue(r2["ya_aplicado_tiq"])
+        self.assertFalse(r2["ya_aplicado_ame"])
+        self.assertEqual(r2["correcciones_aplicadas_ame"], 1)
+
+        # 3) Recien ahora, con AMBAS alertas resueltas, el cierre institucional persiste el historico.
+        cierre2 = ci.ejecutar_control1_institucional(
+            self.ruta_tiq, self.ruta_ame, self.ruta_historico, directorio_revision=self.tmp,
+        )
+        self.assertEqual(cierre2["estado"], "OK_SIN_DUPLICADOS")
+        self.assertTrue(cierre2.get("historico_actualizado"), "con ambas alertas resueltas, el cierre si persiste")
+        historico = ci.cargar_historico_institucional(self.ruta_historico)
+        cajas = {fila["caja"] for fila in historico}
+        self.assertEqual(cajas, {CAJA_TIQ, CAJA_AME})
 
 
 class TestPeriodos(BaseInstitucional):

@@ -366,3 +366,92 @@ def aplicar_correcciones_institucional(ruta_global_tiq, ruta_global_ame,
         "correcciones_aplicadas_tiq": len(correcciones_tiq),
         "correcciones_aplicadas_ame": len(correcciones_ame),
     }
+
+
+# ---------------------------------------------------------------------------
+# Publicación recuperable: la corrección LOCAL (arriba) ya es atómica
+# cross-archivo, pero la publicación a Drive del par TIQ/AME es secuencial
+# (dos subidas independientes, ver 07D en snapshots/v3-final). Si la
+# primera sube y la segunda falla, un reintento vuelve a enviar el MISMO
+# par de correcciones (el llamador no sabe que TIQ ya quedó en su estado
+# FINAL) y `aplicar_correcciones_institucional` fallaría cerrado en TIQ
+# porque su ASIGNACION_ORIGINAL ya no coincide (ya es la nueva). Esta capa
+# reconoce, POR CAJA y ANTES de escribir nada, si cada GLOBAL sigue en su
+# estado ORIGINAL esperado (pendiente), ya está en su estado FINAL
+# esperado (nada que hacer) o en un tercer estado inesperado (fail closed:
+# ninguno de los dos GLOBAL se toca, se exige revisión humana). Nunca
+# reinterpreta ni reemplaza `aplicar_correcciones_institucional`: solo
+# decide, por caja, qué correcciones pasarle.
+# ---------------------------------------------------------------------------
+
+_ESTADO_CORRECCION_PENDIENTE = "PENDIENTE_ORIGINAL"
+_ESTADO_CORRECCION_APLICADA = "APLICADA_FINAL"
+_ESTADO_CORRECCION_INESPERADO = "INESPERADO_REQUIERE_REVISION_HUMANA"
+
+
+def _clasificar_estado_correcciones(ruta_global, correcciones):
+    """Sin escribir nada: para CADA corrección (fila_sap, original, nueva)
+    de un mismo GLOBAL, compara el valor actual de la celda con `original`
+    (todavía pendiente) y con `nueva` (ya aplicada). Si TODAS coinciden con
+    uno solo de los dos, ese es el estado del archivo. Si no hay
+    correcciones para este archivo, se considera sin pendientes (APLICADA).
+    Cualquier mezcla (algunas filas pendientes y otras ya aplicadas) o
+    cualquier valor que no sea ni `original` ni `nueva` es INESPERADO:
+    nunca se acepta en silencio."""
+    if not correcciones:
+        return _ESTADO_CORRECCION_APLICADA
+    actuales = {p["fila_sap"]: p["asignacion"] for p in ctrl1.leer_partidas_global(ruta_global)}
+    estados = set()
+    for fila_sap, original, nueva in correcciones:
+        actual = actuales.get(fila_sap)
+        if actual == original:
+            estados.add(_ESTADO_CORRECCION_PENDIENTE)
+        elif actual == nueva:
+            estados.add(_ESTADO_CORRECCION_APLICADA)
+        else:
+            estados.add(_ESTADO_CORRECCION_INESPERADO)
+    if len(estados) != 1:
+        return _ESTADO_CORRECCION_INESPERADO
+    return estados.pop()
+
+
+def aplicar_correcciones_institucional_recuperable(ruta_global_tiq, ruta_global_ame,
+                                                     correcciones_tiq, correcciones_ame):
+    """Envoltorio recuperable/idempotente sobre `aplicar_correcciones_institucional`
+    (que NO se modifica): clasifica el estado de CADA GLOBAL frente a sus
+    propias correcciones antes de escribir nada.
+
+      - Un GLOBAL ya en estado FINAL (todas sus correcciones ya aplicadas)
+        NO se reenvía a `aplicar_correcciones_institucional` — evita el
+        fallo cerrado por ASIGNACION_ORIGINAL_NO_COINCIDE en un reintento.
+      - Un GLOBAL todavía en estado ORIGINAL aplica sus correcciones
+        pendientes normalmente.
+      - Si CUALQUIERA de los dos GLOBAL está en un estado que no es ni
+        ORIGINAL ni FINAL, no se toca NINGUNO de los dos (fail closed) y
+        se exige revisión humana — la atomicidad cross-archivo original se
+        preserva íntegra.
+
+    Devuelve el mismo resultado que `aplicar_correcciones_institucional`
+    (correcciones_aplicadas_tiq/ame) más `ya_aplicado_tiq`/`ya_aplicado_ame`
+    para que el llamador (y la publicación a Drive aguas abajo) sepa qué
+    caja(s) ya estaban en su estado FINAL antes de esta llamada."""
+    correcciones_tiq = correcciones_tiq or []
+    correcciones_ame = correcciones_ame or []
+
+    estado_tiq = _clasificar_estado_correcciones(ruta_global_tiq, correcciones_tiq)
+    estado_ame = _clasificar_estado_correcciones(ruta_global_ame, correcciones_ame)
+
+    if _ESTADO_CORRECCION_INESPERADO in (estado_tiq, estado_ame):
+        raise ctrl1.CorreccionInvalidaError(
+            "ESTADO_CORRECCION_INESPERADO_REQUIERE_REVISION_HUMANA:"
+            f"estado_tiq={estado_tiq}:estado_ame={estado_ame}: un GLOBAL no está ni en su "
+            "estado ORIGINAL esperado ni en su estado FINAL esperado; no se modificó ningún GLOBAL."
+        )
+
+    aplicar_tiq = correcciones_tiq if estado_tiq == _ESTADO_CORRECCION_PENDIENTE else []
+    aplicar_ame = correcciones_ame if estado_ame == _ESTADO_CORRECCION_PENDIENTE else []
+
+    resultado = aplicar_correcciones_institucional(ruta_global_tiq, ruta_global_ame, aplicar_tiq, aplicar_ame)
+    resultado["ya_aplicado_tiq"] = estado_tiq == _ESTADO_CORRECCION_APLICADA
+    resultado["ya_aplicado_ame"] = estado_ame == _ESTADO_CORRECCION_APLICADA
+    return resultado

@@ -6,8 +6,25 @@
 //   candidatas_tiq/ame, alertas, dry_run, historico_actualizado,
 //   ruta_detalle_json (solo si CONTROL1 lo escribio en esta corrida), modo.
 // Las correcciones autorizadas (si las hubo) se aplican ANTES de este paso
-// (ver construir_payload.js) y tocan CADA GLOBAL de su caja de origen por
-// separado: nunca existe un tercer GLOBAL combinado que publicar.
+// (ver construir_payload.js), via v3.control1_institucional.
+// aplicar_correcciones_institucional_recuperable: cada GLOBAL toca solo su
+// caja de origen y un reintento nunca vuelve a corregir un GLOBAL que ya
+// quedo en su estado FINAL. Nunca existe un tercer GLOBAL combinado.
+//
+// RECUPERACION DE PUBLICACION PARCIAL (07D es secuencial: TIQ, luego AME):
+// si TIQ se subio a Drive pero AME fallo, un reintento reenvia el MISMO
+// body. El par local ya esta cerrado desde el intento anterior, asi que
+// esta corrida puede devolver YA_PROCESADO_SIN_CAMBIOS (sin
+// historico_actualizado=true EN ESTA corrida) en vez de un cierre fresco.
+// `cierreCompletado` reconoce AMBOS casos como "el par TIQ/AME esta en su
+// estado FINAL, es seguro (re)publicar": 07D sube en modo "actualizar"
+// (sobrescritura), asi que reintentar un archivo que ya quedo correcto en
+// Drive es un no-op inofensivo -- nunca hace falta comparar contenido.
+// Cualquier otro estado (p.ej. GLOBAL_MODIFICADO_REQUIERE_REVISION: el par
+// actual difiere del que ya quedo cerrado) NUNCA cuenta como completado:
+// fail closed, no se publica nada, se exige revision humana. Ver
+// tests_v3/n8n_control1_institucional_drive/logic_reference.js (copia de
+// referencia probada con Node puro) para el detalle de los casos.
 const modo = (($('WEBHOOK control1').first().json.body) || {}).modo || 'dev';
 const vacio = { debe_publicar: false, hay_detalle: false, hay_historico: false, publicar_global_tiq: false, publicar_global_ame: false };
 if (modo !== 'official') {
@@ -24,19 +41,18 @@ const rc = $('RESOLVER control1 (periodo y carpetas)').first().json;
 // (mismo nombre canonico del periodo pedido).
 const hayDetalle = typeof r.ruta_detalle_json === 'string' && r.ruta_detalle_json.split('/').pop() === rc.nombre_detalle;
 
-// CIERRE DEFINITIVO explicito (confirmacion_cierre=true) Y exitoso (persistio el historico
-// institucional en ESTA corrida, sin duplicados pendientes). PRELIMINAR (mes abierto) nunca
-// llega aqui con historico_actualizado=true: dev_api fuerza dry_run=True sin confirmacion_cierre.
-const esCierre = r.modo === 'cierre' && r.historico_actualizado === true;
-const hayHistorico = esCierre;
+// Cierre fresco EN ESTA corrida, o par TIQ/AME ya cerrado de una corrida anterior (reintento
+// tras publicacion a Drive parcial): en ambos casos el par local esta en su estado FINAL.
+const cierreCompletado = r.modo === 'cierre' && (r.historico_actualizado === true || r.estado === 'YA_PROCESADO_SIN_CAMBIOS');
+const hayHistorico = cierreCompletado;
 
-// GLOBAL corregido: solo si hubo correcciones autorizadas para ESA caja Y el cierre fue exitoso.
-// Cada caja se publica de forma independiente (si solo cambio AME, TIQ nunca se publica). Nunca
-// se fusionan en un tercer GLOBAL: son dos archivos, dos decisiones.
+// GLOBAL corregido: solo si hubo correcciones autorizadas para ESA caja Y el cierre esta
+// completo. Cada caja se publica de forma independiente (si solo cambio AME, TIQ nunca se
+// publica). Nunca se fusionan en un tercer GLOBAL: son dos archivos, dos decisiones.
 const correccionesTiq = Array.isArray(body.correcciones_tiq) ? body.correcciones_tiq : [];
 const correccionesAme = Array.isArray(body.correcciones_ame) ? body.correcciones_ame : [];
-const publicarGlobalTiq = esCierre && correccionesTiq.length > 0;
-const publicarGlobalAme = esCierre && correccionesAme.length > 0;
+const publicarGlobalTiq = cierreCompletado && correccionesTiq.length > 0;
+const publicarGlobalAme = cierreCompletado && correccionesAme.length > 0;
 
 return [{
   json: {
