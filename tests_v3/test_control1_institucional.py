@@ -17,6 +17,7 @@ import sys
 import tempfile
 import unittest
 from decimal import Decimal
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -67,17 +68,54 @@ class BaseInstitucional(unittest.TestCase):
             self.ruta_tiq, self.ruta_ame, self.ruta_historico, directorio_revision=self.tmp, **kwargs,
         )
 
+    def _cerrar(self, tiq_partidas=None, ame_partidas=None, **kwargs):
+        if tiq_partidas is not None:
+            _crear_global(self.ruta_tiq, tiq_partidas)
+        if ame_partidas is not None:
+            _crear_global(self.ruta_ame, ame_partidas)
+        return ci.ejecutar_control1_institucional(
+            self.ruta_tiq, self.ruta_ame, self.ruta_historico, directorio_revision=self.tmp,
+            modo=ci.CERRAR, confirmacion_cierre=True, **kwargs,
+        )
+
 
 class TestSinDuplicados(BaseInstitucional):
-    def test_ok_sin_duplicados_incorpora_ambas_cajas_al_historico(self):
+    def test_preliminar_ok_sin_duplicados_nunca_toca_historico(self):
         r = self._ejecutar([_partida("X1")], [_partida("X2")])
         self.assertEqual(r["estado"], "OK_SIN_DUPLICADOS")
+        self.assertEqual(r["modo_control1"], ci.PRELIMINAR)
         self.assertEqual(r["candidatas_tiq"], 1)
         self.assertEqual(r["candidatas_ame"], 1)
+        self.assertFalse(r["historico_actualizado"])
+        historico = ci.cargar_historico_institucional(self.ruta_historico)
+        self.assertEqual(historico, [])
+
+    def test_cierre_sin_duplicados_incorpora_ambas_cajas_al_historico(self):
+        r = self._cerrar([_partida("X1")], [_partida("X2")])
+        self.assertEqual(r["estado"], "CERRADO")
+        self.assertTrue(r["periodo_cerrado"])
         historico = ci.cargar_historico_institucional(self.ruta_historico)
         self.assertEqual(len(historico), 2)
         cajas = {fila["caja"] for fila in historico}
         self.assertEqual(cajas, {"tiquipaya", "america"})
+
+    def test_cierre_sin_confirmacion_falla(self):
+        _crear_global(self.ruta_tiq, [_partida("X1")])
+        _crear_global(self.ruta_ame, [_partida("X2")])
+        with self.assertRaises(ValueError):
+            ci.ejecutar_control1_institucional(
+                self.ruta_tiq, self.ruta_ame, self.ruta_historico, directorio_revision=self.tmp,
+                modo=ci.CERRAR,
+            )
+        historico = ci.cargar_historico_institucional(self.ruta_historico)
+        self.assertEqual(historico, [])
+
+    def test_cierre_bloqueado_por_duplicados_no_toca_historico(self):
+        r = self._cerrar([_partida("DUP"), _partida("DUP")], [])
+        self.assertEqual(r["estado"], "CIERRE_BLOQUEADO_PENDIENTES")
+        self.assertFalse(r["historico_actualizado"])
+        historico = ci.cargar_historico_institucional(self.ruta_historico)
+        self.assertEqual(historico, [])
 
 
 class TestExclusiones(BaseInstitucional):
@@ -125,34 +163,40 @@ class TestDuplicadosCruzados(BaseInstitucional):
         self.assertIn("fila_origen", alerta)
 
     def test_duplicado_contra_historico_institucional_unico(self):
-        r1 = self._ejecutar([_partida("HIST")], [])
-        self.assertEqual(r1["estado"], "OK_SIN_DUPLICADOS")
-        # Nuevo periodo (mismo archivo cambia de contenido -> nuevo SHA):
-        # cambiamos AME esta vez para simular otro periodo de la misma auditoría.
+        r1 = self._cerrar([_partida("HIST")], [])
+        self.assertEqual(r1["estado"], "CERRADO")
+        # Periodo siguiente (mes distinto) con la misma asignación -> debe
+        # verse como duplicado contra el histórico institucional único.
+        ruta_tiq_2 = os.path.join(self.tmp, consolidador_mensual.nombre_sap_global(ANIO, MES + 1, cfg.TIQUIPAYA))
+        ruta_ame_2 = os.path.join(self.tmp, consolidador_mensual.nombre_sap_global(ANIO, MES + 1, cfg.AMERICA))
+        _crear_global(ruta_tiq_2, [_partida("HIST")])
+        _crear_global(ruta_ame_2, [])
         r2 = ci.ejecutar_control1_institucional(
-            self.ruta_tiq, self.ruta_ame, self.ruta_historico, directorio_revision=self.tmp,
+            ruta_tiq_2, ruta_ame_2, self.ruta_historico, directorio_revision=self.tmp,
         )
-        # Mismo par exacto de archivos que r1 -> idempotente.
-        self.assertEqual(r2["estado"], "YA_PROCESADO_SIN_CAMBIOS")
+        self.assertEqual(r2["estado"], "REVISAR_DUPLICADOS_ENCONTRADOS")
+        self.assertEqual(r2["alertas"][0]["origen_relacionado"], "HISTORICO")
 
 
 class TestIdempotencia(BaseInstitucional):
-    def test_mismo_par_sha_es_idempotente(self):
-        r1 = self._ejecutar([_partida("X1")], [_partida("X2")])
+    def test_mismo_par_sha_cerrado_dos_veces_es_idempotente(self):
+        r1 = self._cerrar([_partida("X1")], [_partida("X2")])
         self.assertTrue(r1["historico_actualizado"])
         r2 = ci.ejecutar_control1_institucional(
             self.ruta_tiq, self.ruta_ame, self.ruta_historico, directorio_revision=self.tmp,
+            modo=ci.CERRAR, confirmacion_cierre=True,
         )
         self.assertEqual(r2["estado"], "YA_PROCESADO_SIN_CAMBIOS")
         historico = ci.cargar_historico_institucional(self.ruta_historico)
         self.assertEqual(len(historico), 2)  # no se duplicó nada
 
-    def test_global_modificado_requiere_revision(self):
-        self._ejecutar([_partida("X1")], [_partida("X2")])
+    def test_global_modificado_tras_cierre_requiere_revision(self):
+        self._cerrar([_partida("X1")], [_partida("X2")])
         # Se modifica el GLOBAL TIQ (mismo nombre, contenido distinto) sin pasar por corrección.
         _crear_global(self.ruta_tiq, [_partida("X1"), _partida("X3")])
         r2 = ci.ejecutar_control1_institucional(
             self.ruta_tiq, self.ruta_ame, self.ruta_historico, directorio_revision=self.tmp,
+            modo=ci.CERRAR, confirmacion_cierre=True,
         )
         self.assertEqual(r2["estado"], "GLOBAL_MODIFICADO_REQUIERE_REVISION")
 
@@ -197,6 +241,34 @@ class TestCorreccionAtomica(BaseInstitucional):
         partidas_ame = ca.leer_partidas_global(self.ruta_ame)
         self.assertEqual(partidas_tiq[0]["asignacion"], "MALA_TIQ", "TIQ no debe quedar modificado")
         self.assertEqual(partidas_ame[0]["asignacion"], "MALA_AME", "AME no debe quedar modificado")
+
+    def test_fallo_durante_segundo_replace_restaura_ambos(self):
+        """Simula que TIQ ya se sustituyó en disco (os.replace exitoso) y el
+        SEGUNDO archivo (AME) falla al aplicar su corrección: ambos deben
+        quedar idénticos al estado inicial (rollback de TIQ vía backup)."""
+        original = ca.aplicar_correcciones_global
+        llamadas = []
+
+        def falla_en_la_segunda(ruta_global, correcciones):
+            llamadas.append(ruta_global)
+            if len(llamadas) == 2:
+                raise OSError("Fallo simulado en el segundo reemplazo (AME)")
+            return original(ruta_global, correcciones)
+
+        with mock.patch.object(ci.ctrl1, "aplicar_correcciones_global", side_effect=falla_en_la_segunda):
+            with self.assertRaises(OSError):
+                ci.aplicar_correcciones_institucional(
+                    self.ruta_tiq, self.ruta_ame,
+                    correcciones_tiq=[(16, "MALA_TIQ", "BUENA_TIQ")],
+                    correcciones_ame=[(16, "MALA_AME", "BUENA_AME")],
+                )
+        partidas_tiq = ca.leer_partidas_global(self.ruta_tiq)
+        partidas_ame = ca.leer_partidas_global(self.ruta_ame)
+        self.assertEqual(partidas_tiq[0]["asignacion"], "MALA_TIQ", "TIQ debe restaurarse tras el fallo en AME")
+        self.assertEqual(partidas_ame[0]["asignacion"], "MALA_AME", "AME nunca llegó a modificarse")
+        # Sin backups colgados tras el rollback.
+        self.assertFalse(os.path.isfile(f"{self.ruta_tiq}.institucional.bak"))
+        self.assertFalse(os.path.isfile(f"{self.ruta_ame}.institucional.bak"))
 
 
 class TestPeriodos(BaseInstitucional):

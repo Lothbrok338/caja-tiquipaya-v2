@@ -19,6 +19,7 @@ import csv
 import datetime
 import json
 import os
+import shutil
 
 import config_cajas as cfg
 import control_asignaciones as ctrl1
@@ -34,6 +35,29 @@ _ESTADO_OK_SIN_DUPLICADOS = "OK_SIN_DUPLICADOS"
 _ESTADO_REVISAR_DUPLICADOS = "REVISAR_DUPLICADOS_ENCONTRADOS"
 _ESTADO_YA_PROCESADO = "YA_PROCESADO_SIN_CAMBIOS"
 _ESTADO_GLOBAL_MODIFICADO = "GLOBAL_MODIFICADO_REQUIERE_REVISION"
+
+# ---------------------------------------------------------------------------
+# Modo — igual espíritu que v3/control1_modos.py (PRELIMINAR/CERRAR), pero
+# aplicado al par institucional TIQ+AME en vez de a un único GLOBAL por caja.
+# ---------------------------------------------------------------------------
+
+PRELIMINAR = "preliminar"
+CERRAR = "cerrar"
+
+
+def validar_modo_institucional(modo, confirmacion_cierre=False):
+    """PRELIMINAR por defecto (mes abierto: nunca escribe el histórico
+    institucional ni sella el periodo). CERRAR exige modo='cerrar' Y
+    confirmacion_cierre=True explícito (tras confirmación humana) — nunca se
+    infiere el cierre solo porque no hay hallazgos."""
+    modo = PRELIMINAR if modo in (None, "") else modo
+    if modo not in (PRELIMINAR, CERRAR):
+        raise ValueError(f"MODO_CONTROL1_INSTITUCIONAL_INVALIDO: {modo!r} (use 'preliminar' o 'cerrar')")
+    if modo == CERRAR and confirmacion_cierre is not True:
+        raise ValueError(
+            "ERROR_CONFIRMACION_CIERRE_REQUERIDA: el cierre institucional requiere confirmacion_cierre=true explícito"
+        )
+    return modo
 
 
 def nombre_estado_institucional(periodo):
@@ -184,22 +208,36 @@ def _validar_periodos(nombre_tiq, nombre_ame):
 
 
 def ejecutar_control1_institucional(ruta_global_tiq, ruta_global_ame, ruta_historico_institucional,
-                                     directorio_revision=None, ruta_detalle_json=None, dry_run=False):
+                                     directorio_revision=None, ruta_detalle_json=None, dry_run=False,
+                                     modo=PRELIMINAR, confirmacion_cierre=False):
     """CONTROL 1 institucional: lee ambos GLOBAL, valida mismo periodo,
     combina candidatas EN MEMORIA (orden fijo TIQ→AME) y detecta
     duplicados TIQ↔TIQ, AME↔AME y TIQ↔AME contra un único histórico
-    institucional. Nunca crea ni modifica un GLOBAL combinado. Idempotente
-    por el PAR (sha256(TIQ), sha256(AME))."""
+    institucional. Nunca crea ni modifica un GLOBAL combinado.
+
+    PRELIMINAR (por defecto, mes abierto): SOLO calcula y, si se pasa
+    `ruta_detalle_json`, escribe la revisión institucional (alertas) — NUNCA
+    escribe el histórico institucional ni sella el periodo. Repetible las
+    veces que haga falta mientras el GLOBAL siga cambiando.
+
+    CERRAR (`modo='cerrar'` + `confirmacion_cierre=True`): recalcula sobre el
+    GLOBAL actual (revalida que no queden alertas pendientes: si las hay,
+    bloquea el cierre sin tocar nada) y SOLO entonces incorpora el histórico
+    institucional y sella el PAR de SHA-256 del periodo. Un cierre repetido
+    con el mismo PAR es idempotente (YA_PROCESADO_SIN_CAMBIOS); si el PAR
+    cambió tras el cierre, se bloquea (GLOBAL_MODIFICADO_REQUIERE_REVISION)."""
+    modo = validar_modo_institucional(modo, confirmacion_cierre)
+
     if not ruta_global_tiq or not os.path.isfile(ruta_global_tiq):
-        return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_TIQ_NO_ENCONTRADO"]}
+        return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_TIQ_NO_ENCONTRADO"], "modo_control1": modo}
     if not ruta_global_ame or not os.path.isfile(ruta_global_ame):
-        return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_AME_NO_ENCONTRADO"]}
+        return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_AME_NO_ENCONTRADO"], "modo_control1": modo}
 
     nombre_tiq = os.path.basename(ruta_global_tiq)
     nombre_ame = os.path.basename(ruta_global_ame)
     periodo, error = _validar_periodos(nombre_tiq, nombre_ame)
     if error:
-        return error
+        return {**error, "modo_control1": modo}
 
     sha_tiq = ctrl1._hash_archivo(ruta_global_tiq)
     sha_ame = ctrl1._hash_archivo(ruta_global_ame)
@@ -208,36 +246,42 @@ def ejecutar_control1_institucional(ruta_global_tiq, ruta_global_ame, ruta_histo
     directorio_revision = directorio_revision or os.path.dirname(os.path.abspath(ruta_historico_institucional)) or "."
     ruta_estado = os.path.join(directorio_revision, nombre_estado_institucional(periodo))
     estado_previo = _cargar_estado(ruta_estado)
+    cerrado_previo = estado_previo.get("periodo") == periodo and estado_previo.get("cerrado") is True
 
-    if estado_previo.get("periodo") == periodo:
+    if cerrado_previo:
         if estado_previo.get("sha_par") == sha_par:
             return {
                 "estado": _ESTADO_YA_PROCESADO,
+                "modo_control1": modo,
                 "periodo": periodo,
                 "sha_par": sha_par,
-                "mensaje": "Este par GLOBAL TIQ/AME ya fue incorporado al histórico institucional.",
+                "periodo_cerrado": True,
                 "dry_run": dry_run,
+                "historico_actualizado": False,
+                "mensaje": "Este periodo institucional ya está cerrado con este mismo PAR GLOBAL TIQ/AME; no se hizo nada.",
             }
         return {
             "estado": _ESTADO_GLOBAL_MODIFICADO,
+            "modo_control1": modo,
             "periodo": periodo,
             "sha_par": sha_par,
-            "sha_par_historico": estado_previo.get("sha_par"),
-            "mensaje": (
-                "Ya existe un procesamiento institucional de este periodo con un "
-                "PAR de SHA-256 distinto. Requiere decisión humana antes de "
-                "reincorporar."
-            ),
+            "sha_par_cerrado": estado_previo.get("sha_par"),
+            "periodo_cerrado": True,
             "dry_run": dry_run,
+            "historico_actualizado": False,
+            "mensaje": (
+                "El periodo institucional ya está cerrado con un PAR de SHA-256 (TIQ,AME) "
+                "distinto al actual. Requiere decisión humana; no se modificó nada."
+            ),
         }
 
     try:
         candidatas_tiq, excluidas_tiq, sin_asig_tiq = _leer_candidatas_tagged(ruta_global_tiq, CAJA_TIQ)
         candidatas_ame, excluidas_ame, sin_asig_ame = _leer_candidatas_tagged(ruta_global_ame, CAJA_AME)
     except ctrl1.HojaNoEncontradaError:
-        return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_HOJA_1_NO_ENCONTRADA"]}
+        return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_HOJA_1_NO_ENCONTRADA"], "modo_control1": modo}
     except Exception as exc:  # noqa: BLE001 — GLOBAL ilegible, se reporta y se detiene
-        return {"estado": "ERROR_TECNICO", "problemas": [f"GLOBAL_ILEGIBLE:{exc}"]}
+        return {"estado": "ERROR_TECNICO", "problemas": [f"GLOBAL_ILEGIBLE:{exc}"], "modo_control1": modo}
 
     combinadas = candidatas_tiq + candidatas_ame  # orden fijo TIQ->AME
 
@@ -247,8 +291,10 @@ def ejecutar_control1_institucional(ruta_global_tiq, ruta_global_ame, ruta_histo
     ahora = datetime.datetime.now().isoformat(timespec="seconds")
     resumen = {
         "estado": _ESTADO_OK_SIN_DUPLICADOS if not hallazgos else _ESTADO_REVISAR_DUPLICADOS,
+        "modo_control1": modo,
         "periodo": periodo,
         "sha_par": sha_par,
+        "periodo_cerrado": False,
         "archivo_global_tiq": nombre_tiq,
         "archivo_global_ame": nombre_ame,
         "candidatas_tiq": len(candidatas_tiq),
@@ -267,22 +313,40 @@ def ejecutar_control1_institucional(ruta_global_tiq, ruta_global_ame, ruta_histo
             json.dump(resumen, f, ensure_ascii=False, indent=2, default=str)
         resumen["ruta_detalle_json"] = ruta_detalle_json
 
-    if not hallazgos and not dry_run:
-        sha_por_archivo = {nombre_tiq: sha_tiq, nombre_ame: sha_ame}
-        nuevas_filas = []
-        for p in combinadas:
-            fila = ctrl1._fila_historico(
-                p, ctrl1._SIN_ALERTA, None, p["archivo_origen"],
-                sha_por_archivo[p["archivo_origen"]], sha_por_archivo[p["archivo_origen"]], ahora,
-            )
-            fila["caja"] = p["caja"]
-            fila["archivo_origen"] = p["archivo_origen"]
-            fila["fila_origen"] = p["fila_origen"]
-            nuevas_filas.append(fila)
-        guardar_historico_institucional(ruta_historico_institucional, historico + nuevas_filas)
-        _guardar_estado(ruta_estado, {"periodo": periodo, "sha_par": sha_par, "fecha": ahora})
-        resumen["historico_actualizado"] = True
-        resumen["filas_incorporadas_historico"] = len(nuevas_filas)
+    if modo == PRELIMINAR:
+        return resumen
+
+    # CERRAR: revalida que no queden alertas pendientes antes de sellar nada.
+    if hallazgos:
+        resumen["estado"] = "CIERRE_BLOQUEADO_PENDIENTES"
+        resumen["mensaje"] = (
+            "No se cerró: hay alertas de duplicados sin resolver. Corrija el GLOBAL de "
+            "origen de cada alerta (ver corregir_control1_institucional) y vuelva a "
+            "intentar el cierre. El histórico institucional no se tocó."
+        )
+        return resumen
+
+    if dry_run:
+        resumen["estado"] = "CIERRE_SIMULACRO"
+        return resumen
+
+    sha_por_archivo = {nombre_tiq: sha_tiq, nombre_ame: sha_ame}
+    nuevas_filas = []
+    for p in combinadas:
+        fila = ctrl1._fila_historico(
+            p, ctrl1._SIN_ALERTA, None, p["archivo_origen"],
+            sha_por_archivo[p["archivo_origen"]], sha_por_archivo[p["archivo_origen"]], ahora,
+        )
+        fila["caja"] = p["caja"]
+        fila["archivo_origen"] = p["archivo_origen"]
+        fila["fila_origen"] = p["fila_origen"]
+        nuevas_filas.append(fila)
+    guardar_historico_institucional(ruta_historico_institucional, historico + nuevas_filas)
+    _guardar_estado(ruta_estado, {"periodo": periodo, "sha_par": sha_par, "cerrado": True, "fecha": ahora})
+    resumen["estado"] = "CERRADO"
+    resumen["periodo_cerrado"] = True
+    resumen["historico_actualizado"] = True
+    resumen["filas_incorporadas_historico"] = len(nuevas_filas)
 
     return resumen
 
@@ -308,20 +372,49 @@ def _validar_correcciones_previas(ruta_global, correcciones):
 def aplicar_correcciones_institucional(ruta_global_tiq, ruta_global_ame,
                                         correcciones_tiq, correcciones_ame):
     """Aplica correcciones autorizadas a CADA GLOBAL de origen (nunca a un
-    archivo combinado, que no existe). Valida TODAS las correcciones de
-    AMBOS archivos antes de escribir ninguna: si cualquiera falla, ninguno
-    de los dos GLOBAL queda modificado."""
+    archivo combinado, que no existe). Todo o nada ENTRE AMBOS archivos:
+
+    1) Valida TODAS las correcciones de AMBOS archivos antes de escribir
+       ninguna (si cualquiera falla, ningún archivo se toca — sin backups
+       de por medio, porque nada se escribió todavía).
+    2) Respalda una copia de cada archivo que vaya a modificarse ANTES de
+       tocarlo (staging por archivo: `ctrl1.aplicar_correcciones_global` ya
+       escribe a un `.tmp` y solo lo sustituye con `os.replace` — atómico
+       para ESE archivo).
+    3) Si el reemplazo del SEGUNDO archivo falla DESPUÉS de que el primero ya
+       se sustituyó, se restaura el primero desde su backup: ambos
+       terminan idénticos al estado inicial, nunca solo uno modificado."""
+    correcciones_tiq = correcciones_tiq or []
+    correcciones_ame = correcciones_ame or []
     if correcciones_tiq:
         _validar_correcciones_previas(ruta_global_tiq, correcciones_tiq)
     if correcciones_ame:
         _validar_correcciones_previas(ruta_global_ame, correcciones_ame)
 
-    if correcciones_tiq:
-        ctrl1.aplicar_correcciones_global(ruta_global_tiq, correcciones_tiq)
-    if correcciones_ame:
-        ctrl1.aplicar_correcciones_global(ruta_global_ame, correcciones_ame)
+    backup_tiq = f"{ruta_global_tiq}.institucional.bak" if correcciones_tiq else None
+    backup_ame = f"{ruta_global_ame}.institucional.bak" if correcciones_ame else None
+    if backup_tiq:
+        shutil.copy2(ruta_global_tiq, backup_tiq)
+    if backup_ame:
+        shutil.copy2(ruta_global_ame, backup_ame)
+
+    tiq_aplicado = False
+    try:
+        if correcciones_tiq:
+            ctrl1.aplicar_correcciones_global(ruta_global_tiq, correcciones_tiq)
+            tiq_aplicado = True
+        if correcciones_ame:
+            ctrl1.aplicar_correcciones_global(ruta_global_ame, correcciones_ame)
+    except Exception:
+        if tiq_aplicado and backup_tiq:
+            shutil.copy2(backup_tiq, ruta_global_tiq)
+        raise
+    finally:
+        for backup in (backup_tiq, backup_ame):
+            if backup and os.path.isfile(backup):
+                os.remove(backup)
 
     return {
-        "correcciones_aplicadas_tiq": len(correcciones_tiq or []),
-        "correcciones_aplicadas_ame": len(correcciones_ame or []),
+        "correcciones_aplicadas_tiq": len(correcciones_tiq),
+        "correcciones_aplicadas_ame": len(correcciones_ame),
     }

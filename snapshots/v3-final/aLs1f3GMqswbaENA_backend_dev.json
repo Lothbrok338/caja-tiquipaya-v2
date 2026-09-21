@@ -1140,29 +1140,7 @@
       "main": [
         [
           {
-            "node": "BUSCAR GLOBAL oficial (Drive)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "BUSCAR GLOBAL oficial (Drive)": {
-      "main": [
-        [
-          {
-            "node": "BUSCAR historico asignaciones (Drive)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "BUSCAR revision del periodo (Drive)": {
-      "main": [
-        [
-          {
-            "node": "CLASIFICAR - Artefactos de CONTROL 1 en Drive",
+            "node": "BUSCAR GLOBAL TIQ oficial (Drive)",
             "type": "main",
             "index": 0
           }
@@ -1213,17 +1191,6 @@
         ]
       ]
     },
-    "BUSCAR historico asignaciones (Drive)": {
-      "main": [
-        [
-          {
-            "node": "BUSCAR carpeta del periodo (Drive)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "BUSCAR carpeta del periodo (Drive)": {
       "main": [
         [
@@ -1250,7 +1217,7 @@
       "main": [
         [
           {
-            "node": "BUSCAR revision del periodo (Drive)",
+            "node": "BUSCAR estado del periodo (Drive)",
             "type": "main",
             "index": 0
           }
@@ -1374,18 +1341,7 @@
       "main": [
         [
           {
-            "node": "BUSCAR GLOBAL oficial CONTROL3 (Drive)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "BUSCAR GLOBAL oficial CONTROL3 (Drive)": {
-      "main": [
-        [
-          {
-            "node": "BUSCAR historico CxC/CxP maestro (Drive)",
+            "node": "BUSCAR GLOBAL TIQ oficial CONTROL3 (Drive)",
             "type": "main",
             "index": 0
           }
@@ -1686,6 +1642,72 @@
         [
           {
             "node": "RESPONDER publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR GLOBAL TIQ oficial (Drive)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR GLOBAL AME oficial (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR historico institucional (Drive)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR carpeta del periodo (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR estado del periodo (Drive)": {
+      "main": [
+        [
+          {
+            "node": "CLASIFICAR - Artefactos de CONTROL 1 en Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR GLOBAL AME oficial (Drive)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR historico institucional (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR GLOBAL TIQ oficial CONTROL3 (Drive)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR GLOBAL AME oficial CONTROL3 (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR GLOBAL AME oficial CONTROL3 (Drive)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR historico CxC/CxP maestro (Drive)",
             "type": "main",
             "index": 0
           }
@@ -2989,7 +3011,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const t = $('WEBHOOK control1').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (ejecutar_control1) -- Python es la unica\n// autoridad. Opera sobre el GLOBAL OFICIAL que este backend acaba de\n// descargar de Drive a control1_entrada/<periodo>/ (nunca sobre un GLOBAL\n// local). Cero logica contable aqui.\n// MODO: PRELIMINAR (mes abierto) por defecto; el cierre definitivo solo viaja\n// si el frontend envia modo_control1='cerrar' Y confirmacion_cierre=true (tras\n// la confirmacion humana). Aqui NUNCA se infiere el cierre.\nconst payload = { anio: t.body.anio, mes: t.body.mes, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', ruta_revision_json: t.body.ruta_revision_json || null, dry_run: t.body.dry_run || false, modo_control1: t.body.modo_control1 || 'preliminar', confirmacion_cierre: t.body.confirmacion_cierre === true, caja: t.body.caja || 'tiquipaya' };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+        "jsCode": "const t = $('WEBHOOK control1').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (ejecutar_control1_institucional) -- Python es la\n// unica autoridad. Opera SIEMPRE sobre AMBOS GLOBAL oficiales (TIQ+AME) que\n// este backend acaba de descargar de Drive a\n// control1_institucional_entrada/<periodo>/ (nunca sobre un GLOBAL local).\n// CONTROL 1 es institucional: nunca recibe ni infiere `caja`. Cero logica\n// contable aqui.\n// MODO: PRELIMINAR (mes abierto) por defecto; el cierre definitivo solo viaja\n// si el frontend envia modo_control1='cerrar' Y confirmacion_cierre=true (tras\n// la confirmacion humana). Aqui NUNCA se infiere el cierre.\nconst payload = { anio: t.body.anio, mes: t.body.mes, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', dry_run: t.body.dry_run || false, modo_control1: t.body.modo_control1 || 'preliminar', confirmacion_cierre: t.body.confirmacion_cierre === true };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control1_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];\n"
       }
     },
     {
@@ -3017,7 +3039,7 @@
       ],
       "parameters": {
         "executeOnce": true,
-        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion ejecutar_control1 --input \"{{ $('CONSTRUIR payload control1').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR payload control1').item.json.ruta_output_tmp }}\" ; true"
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion ejecutar_control1_institucional --input \"{{ $('CONSTRUIR payload control1').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR payload control1').item.json.ruta_output_tmp }}\" ; true"
       }
     },
     {
@@ -3089,7 +3111,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const t = $('WEBHOOK control3').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (ejecutar_control3) -- Python es la unica autoridad. Opera sobre el GLOBAL OFICIAL y los\n// historicos MAESTROS que este backend acaba de descargar de Drive a control3_entrada/<periodo>/ (nunca sobre archivos\n// locales). Cero logica contable aqui.\n// MODO: PRELIMINAR (mes abierto) por defecto; el cierre definitivo solo viaja si el frontend envia\n// modo_control3='cerrar' Y confirmacion_cierre=true (tras la confirmacion humana). Aqui NUNCA se infiere el cierre.\nconst payload = { anio: t.body.anio, mes: t.body.mes, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', ruta_observaciones_json: t.body.ruta_observaciones_json || null, dry_run: t.body.dry_run || false, modo_control3: t.body.modo_control3 || 'preliminar', confirmacion_cierre: t.body.confirmacion_cierre === true, caja: t.body.caja || 'tiquipaya' };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control3_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control3_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+        "jsCode": "const t = $('WEBHOOK control3').first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (ejecutar_control3_institucional) -- Python es la\n// unica autoridad. Opera SIEMPRE sobre AMBOS GLOBAL oficiales (TIQ+AME) y los\n// historicos MAESTROS que este backend acaba de descargar de Drive a\n// control3_institucional_entrada/<periodo>/ (nunca sobre archivos locales).\n// CONTROL 3 es institucional: nunca recibe ni infiere `caja`. Cero logica\n// contable aqui.\n// MODO: PRELIMINAR (mes abierto) por defecto; el cierre definitivo solo viaja si el frontend envia\n// modo_control3='cerrar' Y confirmacion_cierre=true (tras la confirmacion humana). Aqui NUNCA se infiere el cierre.\nconst payload = { anio: t.body.anio, mes: t.body.mes, base_dir_dev: '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir', ruta_observaciones_json: t.body.ruta_observaciones_json || null, dry_run: t.body.dry_run || false, modo_control3: t.body.modo_control3 || 'preliminar', confirmacion_cierre: t.body.confirmacion_cierre === true };\n\nconst rutaInputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control3_input_' + executionId + '.json';\nconst rutaOutputTmp = '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_control3_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];\n"
       }
     },
     {
@@ -3117,7 +3139,7 @@
       ],
       "parameters": {
         "executeOnce": true,
-        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion ejecutar_control3 --input \"{{ $('CONSTRUIR payload control3').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR payload control3').item.json.ruta_output_tmp }}\" ; true"
+        "command": "=cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion ejecutar_control3_institucional --input \"{{ $('CONSTRUIR payload control3').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR payload control3').item.json.ruta_output_tmp }}\" ; true"
       }
     },
     {
@@ -3360,7 +3382,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const modo = (($('WEBHOOK control1').first().json.body) || {}).modo || 'dev';\nconst r = $json.data || {};\nif (modo !== 'official') {\n  return [{ json: { debe_publicar: false, hay_revision: false, hay_detalle: false, hay_historico: false, publicar_global: false, ruta_revision: null } }];\n}\nconst rc = $('RESOLVER control1 (periodo y carpetas)').first().json;\n\n// Revision, detalle e historico: solo cuando la logica de CONTROL 1 los escribio en ESTA corrida.\nconst hayRevision = r.revision_actualizada === true && typeof r.ruta_revision === 'string' && r.ruta_revision.split('/').pop() === rc.nombre_revision;\nconst hayDetalle = typeof r.detalle_json === 'string' && r.detalle_json.split('/').pop() === rc.nombre_detalle;\n// PRELIMINAR (mes abierto): solo artefactos del periodo (revision + detalle). El historico maestro y el\n// GLOBAL solo se publican tras un CIERRE DEFINITIVO explicito.\nconst esCierre = r.modo_control1 === 'cerrar';\nconst hayHistorico = esCierre && r.historico_actualizado === true;\n\n// GLOBAL corregido: solo si CONTROL 1 realmente lo modifico como resultado autorizado\n// (validacion del auditor cerrada), es el MISMO GLOBAL oficial descargado en esta corrida\n// (mismo nombre/periodo, SHA original distinto del final) y no es simulacro.\nconst publicarGlobal = esCierre\n  && r.global_modificado === true\n  && r.estado_validacion === 'CERRADO_CON_VALIDACION_AUDITOR'\n  && Number(r.correcciones_aplicadas) > 0\n  && r.dry_run !== true\n  && r.archivo_global === rc.nombre_global\n  && r.periodo === (rc.mes_nombre + '_' + rc.anio)\n  && typeof r.sha256_global_original === 'string' && typeof r.sha256_global_final === 'string'\n  && r.sha256_global_original !== r.sha256_global_final;\n\nreturn [{ json: { debe_publicar: hayRevision || hayDetalle || hayHistorico || publicarGlobal, hay_revision: hayRevision, hay_detalle: hayDetalle, hay_historico: hayHistorico, publicar_global: publicarGlobal, ruta_revision: hayRevision ? r.ruta_revision : null } }];"
+        "jsCode": "const modo = (($('WEBHOOK control1').first().json.body) || {}).modo || 'dev';\nconst r = $json.data || {};\nif (modo !== 'official') {\n  return [{ json: { debe_publicar: false, hay_detalle: false, hay_historico: false, hay_estado: false, publicar_global: false } }];\n}\nconst rc = $('RESOLVER control1 (periodo y carpetas)').first().json;\n\n// Detalle (revision institucional del periodo): se publica siempre que esta\n// corrida haya escrito su propio ruta_detalle_json para el periodo pedido.\nconst hayDetalle = typeof r.ruta_detalle_json === 'string' && r.ruta_detalle_json.split('/').pop() === rc.nombre_detalle;\n// PRELIMINAR (mes abierto): solo el detalle del periodo. El historico\n// institucional y el estado sellado solo se publican tras un CIERRE\n// DEFINITIVO explicito (modo_control1='cerrar').\nconst esCierre = r.modo_control1 === 'cerrar';\nconst hayHistorico = esCierre && r.historico_actualizado === true;\nconst hayEstado = hayHistorico; // el estado se sella en el MISMO cierre que el historico.\n// La correccion del GLOBAL de origen (corregir_control1_institucional) viaja\n// en una accion separada y atomica entre TIQ/AME; este endpoint nunca la\n// ejecuta, asi que nunca publica un GLOBAL corregido.\nconst publicarGlobal = false;\n\nreturn [{ json: { debe_publicar: hayDetalle || hayHistorico || hayEstado, hay_detalle: hayDetalle, hay_historico: hayHistorico, hay_estado: hayEstado, publicar_global: publicarGlobal } }];\n"
       }
     },
     {
@@ -3405,7 +3427,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Estructura en Drive: historico CANONICO en la raiz de 05_CONTROLES; artefactos del periodo en\n// CONTROL_1_ASIGNACIONES/<YYYY-MM>/ (carpeta buscada-o-creada por 07E justo antes de este nodo).\n// Orden deliberado: GLOBAL corregido -> revision -> detalle -> snapshot del historico (evidencia del periodo)\n// -> historico MAESTRO de la raiz SIEMPRE al final: si algo falla antes, la fuente canonica nunca queda\n// adelantada respecto de lo que se publico.\nconst d = $('DECIDIR - Publicar CONTROL1 oficial').first().json;\nconst rc = $('RESOLVER control1 (periodo y carpetas)').first().json;\nconst carpetaPeriodo = $('EJECUTAR 07E carpeta del periodo CONTROL1').first().json.carpeta_id;\nif (!carpetaPeriodo) { throw new Error('CARPETA_PERIODO_CONTROL1_NO_RESUELTA: 07E no devolvio carpeta_id para ' + rc.periodo); }\nconst items = [];\nif (d.publicar_global) {\n  items.push({ carpeta_id: rc.carpeta_global_id, nombre_archivo: rc.nombre_global, ruta_local_origen: rc.dir_entrada + '/' + rc.nombre_global, modo_si_existe: 'actualizar' });\n}\nif (d.hay_revision) {\n  items.push({ carpeta_id: carpetaPeriodo, nombre_archivo: rc.nombre_revision, ruta_local_origen: rc.dir_entrada + '/' + rc.nombre_revision, modo_si_existe: 'actualizar' });\n}\nif (d.hay_detalle) {\n  items.push({ carpeta_id: carpetaPeriodo, nombre_archivo: rc.nombre_detalle, ruta_local_origen: rc.dir_entrada + '/' + rc.nombre_detalle, modo_si_existe: 'actualizar' });\n}\nif (d.hay_historico) {\n  items.push({ carpeta_id: carpetaPeriodo, nombre_archivo: rc.nombre_historico, ruta_local_origen: rc.dir_entrada + '/' + rc.nombre_historico, modo_si_existe: 'actualizar' });\n  items.push({ carpeta_id: rc.carpeta_controles_id, nombre_archivo: rc.nombre_historico, ruta_local_origen: rc.dir_entrada + '/' + rc.nombre_historico, modo_si_existe: 'actualizar' });\n}\nreturn items.map(function (it) { return { json: it }; });\n"
+        "jsCode": "// Estructura en Drive: historico institucional CANONICO en la raiz de\n// 05_CONTROLES; artefactos del periodo (detalle + estado sellado) en\n// CONTROL_1_ASIGNACIONES/<YYYY-MM>/ (carpeta buscada-o-creada por 07E justo\n// antes de este nodo). Orden deliberado: detalle -> estado del periodo ->\n// snapshot del historico (evidencia del periodo) -> historico MAESTRO de la\n// raiz SIEMPRE al final: si algo falla antes, la fuente canonica nunca queda\n// adelantada respecto de lo que se publico. CONTROL 1 institucional nunca\n// publica un GLOBAL aqui (ver DECIDIR - Publicar CONTROL1 oficial).\nconst d = $('DECIDIR - Publicar CONTROL1 oficial').first().json;\nconst rc = $('RESOLVER control1 (periodo y carpetas)').first().json;\nconst carpetaPeriodo = $('EJECUTAR 07E carpeta del periodo CONTROL1').first().json.carpeta_id;\nif (!carpetaPeriodo) { throw new Error('CARPETA_PERIODO_CONTROL1_NO_RESUELTA: 07E no devolvio carpeta_id para ' + rc.periodo); }\nconst items = [];\nif (d.hay_detalle) {\n  items.push({ carpeta_id: carpetaPeriodo, nombre_archivo: rc.nombre_detalle, ruta_local_origen: rc.dir_entrada + '/' + rc.nombre_detalle, modo_si_existe: 'actualizar' });\n}\nif (d.hay_estado) {\n  items.push({ carpeta_id: carpetaPeriodo, nombre_archivo: rc.nombre_estado, ruta_local_origen: rc.dir_entrada + '/' + rc.nombre_estado, modo_si_existe: 'actualizar' });\n}\nif (d.hay_historico) {\n  items.push({ carpeta_id: carpetaPeriodo, nombre_archivo: rc.nombre_historico, ruta_local_origen: rc.dir_entrada + '/' + rc.nombre_historico, modo_si_existe: 'actualizar' });\n  items.push({ carpeta_id: rc.carpeta_controles_id, nombre_archivo: rc.nombre_historico, ruta_local_origen: rc.dir_entrada + '/' + rc.nombre_historico, modo_si_existe: 'actualizar' });\n}\nreturn items.map(function (it) { return { json: it }; });\n"
       }
     },
     {
@@ -3522,7 +3544,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const modo = (($('WEBHOOK control3').first().json.body) || {}).modo || 'dev';\nconst r = $json.data || {};\nconst vacio = { debe_publicar: false, hay_reporte: false, hay_reporte_json: false, hay_snapshots: false, hay_historico: false, hay_periodos: false };\nif (modo !== 'official' || r.resultado === 'ERROR' || r.estado === 'ERROR_TECNICO' || r.dry_run === true) {\n  return [{ json: vacio }];\n}\nconst rc = $('RESOLVER control3 (periodo y carpetas)').first().json;\n\n// Reporte (xlsx + json) del periodo: solo si CONTROL 3 lo escribio en ESTA corrida, con el nombre canonico del periodo.\nconst nombreDe = function (ruta) { return typeof ruta === 'string' ? ruta.split('/').pop() : null; };\nconst hayReporte = nombreDe(r.archivo_control_xlsx) === rc.nombre_reporte;\nconst hayReporteJson = nombreDe(r.archivo_control_json) === rc.nombre_reporte_json;\n\n// PRELIMINAR (mes abierto): solo artefactos del periodo. Los historicos MAESTROS y los snapshots solo se publican\n// tras un CIERRE DEFINITIVO explicito que realmente cerro el periodo en esta corrida.\nconst cerro = r.modo_control3 === 'cerrar' && r.estado_control3 === 'CERRADO';\nconst hayHistorico = cerro && r.historico_actualizado === true;\nconst hayPeriodos = cerro && r.periodos_actualizado === true;\nconst haySnapshots = cerro;\n\nreturn [{ json: { debe_publicar: hayReporte || hayReporteJson || haySnapshots || hayHistorico || hayPeriodos, hay_reporte: hayReporte, hay_reporte_json: hayReporteJson, hay_snapshots: haySnapshots, hay_historico: hayHistorico, hay_periodos: hayPeriodos } }];"
+        "jsCode": "const modo = (($('WEBHOOK control3').first().json.body) || {}).modo || 'dev';\nconst r = $json.data || {};\nconst vacio = { debe_publicar: false, hay_reporte: false, hay_reporte_json: false, hay_snapshots: false, hay_historico: false, hay_periodos: false };\nif (modo !== 'official' || r.resultado === 'ERROR' || r.estado === 'ERROR_TECNICO' || r.dry_run === true) {\n  return [{ json: vacio }];\n}\nconst rc = $('RESOLVER control3 (periodo y carpetas)').first().json;\n\n// Reporte (xlsx + json) del periodo: solo si CONTROL 3 lo escribio en ESTA corrida, con el nombre canonico del periodo.\nconst nombreDe = function (ruta) { return typeof ruta === 'string' ? ruta.split('/').pop() : null; };\nconst hayReporte = nombreDe(r.archivo_control_xlsx) === rc.nombre_reporte;\nconst hayReporteJson = nombreDe(r.archivo_control_json) === rc.nombre_reporte_json;\n\n// PRELIMINAR (mes abierto): solo artefactos del periodo. Los historicos MAESTROS y los snapshots solo se publican\n// tras un CIERRE DEFINITIVO explicito que realmente sello el periodo en esta corrida.\n// `periodo_cerrado` tambien es true cuando el cierre esta BLOQUEADO por un GLOBAL\n// distinto al ya cerrado (requiere revision humana, nada nuevo que publicar): se\n// excluye explicitamente para no reenviar snapshots/periodos locales obsoletos.\nconst cerro = r.modo_control3 === 'cerrar' && r.periodo_cerrado === true && r.estado !== 'GLOBAL_MODIFICADO_REQUIERE_REVISION';\nconst hayHistorico = cerro && r.historico_actualizado === true;\n// El libro de periodos se sella en TODO cierre exitoso (incluida una publicacion recuperada que\n// no vuelve a acumular el historico): siempre se republica junto al historico cuando lo hay.\nconst hayPeriodos = cerro;\nconst haySnapshots = cerro;\n\nreturn [{ json: { debe_publicar: hayReporte || hayReporteJson || haySnapshots || hayHistorico || hayPeriodos, hay_reporte: hayReporte, hay_reporte_json: hayReporteJson, hay_snapshots: haySnapshots, hay_historico: hayHistorico, hay_periodos: hayPeriodos } }];\n"
       }
     },
     {
@@ -3567,7 +3589,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Estructura en Drive: historicos MAESTROS en la raiz de 05_CONTROLES; artefactos del periodo en\n// CONTROL_3_CXC_CXP/<YYYY-MM>/ (carpeta buscada-o-creada por 07E justo antes de este nodo).\n// Orden deliberado: reporte -> json -> snapshots del periodo (evidencia) -> historico MAESTRO -> libro de periodos\n// MAESTRO SIEMPRE al final: si algo falla antes, la fuente canonica nunca queda adelantada respecto de lo publicado\n// (y si falla justo entre el historico y el libro, el siguiente cierre lo recupera sin reacumular).\nconst d = $('DECIDIR - Publicar CONTROL3 oficial').first().json;\nconst rc = $('RESOLVER control3 (periodo y carpetas)').first().json;\nconst carpetaPeriodo = $('EJECUTAR 07E carpeta del periodo CONTROL3').first().json.carpeta_id;\nif (!carpetaPeriodo) { throw new Error('CARPETA_PERIODO_CONTROL3_NO_RESUELTA: 07E no devolvio carpeta_id para ' + rc.periodo); }\nconst items = [];\nconst p = function (carpeta, nombre) { return { carpeta_id: carpeta, nombre_archivo: nombre, ruta_local_origen: rc.dir_entrada + '/' + nombre, modo_si_existe: 'actualizar' }; };\nif (d.hay_reporte) items.push(p(carpetaPeriodo, rc.nombre_reporte));\nif (d.hay_reporte_json) items.push(p(carpetaPeriodo, rc.nombre_reporte_json));\nif (d.hay_snapshots) {\n  items.push(p(carpetaPeriodo, rc.nombre_historico));\n  items.push(p(carpetaPeriodo, rc.nombre_periodos));\n}\nif (d.hay_historico) items.push(p(rc.carpeta_controles_id, rc.nombre_historico));\nif (d.hay_periodos) items.push(p(rc.carpeta_controles_id, rc.nombre_periodos));\nreturn items.map(function (it) { return { json: it }; });"
+        "jsCode": "// Estructura en Drive: historicos MAESTROS en la raiz de 05_CONTROLES; artefactos del periodo en\n// CONTROL_3_CXC_CXP/<YYYY-MM>/ (carpeta buscada-o-creada por 07E justo antes de este nodo).\n// Orden deliberado: reporte -> json -> snapshots del periodo (evidencia) -> historico MAESTRO -> libro de periodos\n// MAESTRO SIEMPRE al final: si algo falla antes, la fuente canonica nunca queda adelantada respecto de lo publicado\n// (y si falla justo entre el historico y el libro, el siguiente cierre lo recupera sin reacumular).\nconst d = $('DECIDIR - Publicar CONTROL3 oficial').first().json;\nconst rc = $('RESOLVER control3 (periodo y carpetas)').first().json;\nconst carpetaPeriodo = $('EJECUTAR 07E carpeta del periodo CONTROL3').first().json.carpeta_id;\nif (!carpetaPeriodo) { throw new Error('CARPETA_PERIODO_CONTROL3_NO_RESUELTA: 07E no devolvio carpeta_id para ' + rc.periodo); }\nconst items = [];\nconst p = function (carpeta, nombre) { return { carpeta_id: carpeta, nombre_archivo: nombre, ruta_local_origen: rc.dir_entrada + '/' + nombre, modo_si_existe: 'actualizar' }; };\nif (d.hay_reporte) items.push(p(carpetaPeriodo, rc.nombre_reporte));\nif (d.hay_reporte_json) items.push(p(carpetaPeriodo, rc.nombre_reporte_json));\nif (d.hay_snapshots) {\n  items.push(p(carpetaPeriodo, rc.nombre_historico));\n  items.push(p(carpetaPeriodo, rc.nombre_periodos));\n}\nif (d.hay_historico) items.push(p(rc.carpeta_controles_id, rc.nombre_historico));\nif (d.hay_periodos) items.push(p(rc.carpeta_controles_id, rc.nombre_periodos));\nreturn items.map(function (it) { return { json: it }; });\n"
       }
     },
     {
@@ -3804,7 +3826,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// FASE 12E.4 -- CONTROL 1: Drive oficial = fuente de verdad; local = materializacion temporal de la corrida.\n// FASE 12F -- CONTROL 1 es UNICO/INSTITUCIONAL: revisa conjuntamente\n// TIQUIPAYA + AMERICA del periodo, asi que sus carpetas (controles/global/\n// control1) son las MISMAS para cualquier caja -- no existen\n// DRIVE_CONTROLES_AME / DRIVE_GLOBAL_AME / DRIVE_CONTROL1_AME. `caja` solo\n// decide el prefijo del nombre del GLOBAL a auditar (mismo patron que\n// config_drive_oficial.py).\nconst t = $('WEBHOOK control1').first().json;\nconst body = t.body || {};\nconst anio = body.anio;\nconst mes = body.mes;\nif (!Number.isInteger(anio) || anio < 2000 || anio > 2100 || !Number.isInteger(mes) || mes < 1 || mes > 12) {\n  throw new Error('PERIODO_INVALIDO: anio/mes deben ser enteros validos (recibido anio=' + anio + ', mes=' + mes + ').');\n}\nconst MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];\nconst mesNombre = MESES[mes - 1];\nconst periodo = anio + '-' + String(mes).padStart(2, '0');\n\nconst caja = (body.caja || 'tiquipaya').toString().trim().toLowerCase();\nif (caja !== 'tiquipaya' && caja !== 'america') {\n  throw new Error('CAJA_DESCONOCIDA: \"' + caja + '\". Cajas validas: america, tiquipaya.');\n}\nconst prefijoCaja = caja === 'america' ? 'AME' : 'TIQ';\n\n// Folder IDs INSTITUCIONALES (05_CONTROLES, 05_CONTROLES/GLOBAL,\n// 05_CONTROLES/CONTROL_1_ASIGNACIONES): los MISMOS para TIQUIPAYA y\n// AMERICA -- CONTROL 1 es un control unico que audita ambas cajas juntas.\nconst CARPETAS_INSTITUCIONALES = {\n  controles: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB',\n  global: '1KREzDpgptWRwuArA1qYco49rplOEeeNU',\n  control1: '1oOcwIgq_9uU9eRLV7z36zBjdBS-hBlRk',\n};\nfunction resolverDestino(clave) {\n  return CARPETAS_INSTITUCIONALES[clave];\n}\n\nconst baseDirDev = '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir';\nconst dirEntrada = baseDirDev + '/control1_entrada/' + (caja === 'america' ? 'america/' : '') + periodo;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst payloadPrep = { anio: anio, mes: mes, base_dir_dev: baseDirDev, caja: caja };\n\nreturn [{\n  json: {\n    anio: anio, mes: mes, periodo: periodo, mes_nombre: mesNombre, caja: caja,\n    nombre_global: 'SAP_GLOBAL_' + prefijoCaja + '_' + mesNombre + '_' + anio + '.xlsx',\n    nombre_historico: 'HISTORICO_ASIGNACIONES.csv',\n    nombre_revision: 'REVISION_ASIGNACIONES_' + mesNombre + '_' + anio + '.xlsx',\n    nombre_detalle: 'CONTROL_ASIGNACIONES_' + mesNombre + '_' + anio + '.json',\n    // Drive: 05_CONTROLES (historico CANONICO), 05_CONTROLES/GLOBAL, 05_CONTROLES/CONTROL_1_ASIGNACIONES (contiene una subcarpeta <YYYY-MM> por periodo).\n    carpeta_controles_id: resolverDestino('controles'),\n    carpeta_global_id: resolverDestino('global'),\n    carpeta_control1_id: resolverDestino('control1'),\n    dir_entrada: dirEntrada,\n    input_b64: Buffer.from(JSON.stringify(payloadPrep), 'utf8').toString('base64'),\n    ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_control1_input_' + executionId + '.json',\n    ruta_output_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_control1_output_' + executionId + '.json',\n  },\n}];\n"
+        "jsCode": "// FASE 12E.4 -- CONTROL 1: Drive oficial = fuente de verdad; local = materializacion temporal de la corrida.\n// FASE 12F/12G -- CONTROL 1 es UNICO/INSTITUCIONAL: revisa conjuntamente\n// TIQUIPAYA + AMERICA del periodo, asi que NUNCA recibe ni infiere `caja` --\n// ni para elegir carpetas (que ya eran las mismas para ambas) ni para el\n// nombre del GLOBAL (ahora resuelve LOS DOS: TIQ y AME).\nconst t = $('WEBHOOK control1').first().json;\nconst body = t.body || {};\nconst anio = body.anio;\nconst mes = body.mes;\nif (!Number.isInteger(anio) || anio < 2000 || anio > 2100 || !Number.isInteger(mes) || mes < 1 || mes > 12) {\n  throw new Error('PERIODO_INVALIDO: anio/mes deben ser enteros validos (recibido anio=' + anio + ', mes=' + mes + ').');\n}\nconst MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];\nconst mesNombre = MESES[mes - 1];\nconst periodo = anio + '-' + String(mes).padStart(2, '0');\nconst periodoNombre = mesNombre + '_' + anio;\n\n// Folder IDs INSTITUCIONALES (05_CONTROLES, 05_CONTROLES/GLOBAL,\n// 05_CONTROLES/CONTROL_1_ASIGNACIONES): los MISMOS para TIQUIPAYA y\n// AMERICA -- CONTROL 1 es un control unico que audita ambas cajas juntas.\nconst CARPETAS_INSTITUCIONALES = {\n  controles: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB',\n  global: '1KREzDpgptWRwuArA1qYco49rplOEeeNU',\n  control1: '1oOcwIgq_9uU9eRLV7z36zBjdBS-hBlRk',\n};\nfunction resolverDestino(clave) {\n  return CARPETAS_INSTITUCIONALES[clave];\n}\n\nconst baseDirDev = '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir';\nconst dirEntrada = baseDirDev + '/control1_institucional_entrada/' + periodo;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst payloadPrep = { anio: anio, mes: mes, base_dir_dev: baseDirDev };\n\nreturn [{\n  json: {\n    anio: anio, mes: mes, periodo: periodo, mes_nombre: mesNombre,\n    nombre_global_tiq: 'SAP_GLOBAL_TIQ_' + mesNombre + '_' + anio + '.xlsx',\n    nombre_global_ame: 'SAP_GLOBAL_AME_' + mesNombre + '_' + anio + '.xlsx',\n    nombre_historico: 'HISTORICO_ASIGNACIONES_INSTITUCIONAL.csv',\n    nombre_estado: 'ESTADO_CONTROL1_INSTITUCIONAL_' + periodoNombre + '.json',\n    nombre_detalle: 'CONTROL_ASIGNACIONES_INSTITUCIONAL_' + periodoNombre + '.json',\n    // Drive: 05_CONTROLES (historico CANONICO), 05_CONTROLES/GLOBAL, 05_CONTROLES/CONTROL_1_ASIGNACIONES (contiene una subcarpeta <YYYY-MM> por periodo).\n    carpeta_controles_id: resolverDestino('controles'),\n    carpeta_global_id: resolverDestino('global'),\n    carpeta_control1_id: resolverDestino('control1'),\n    dir_entrada: dirEntrada,\n    input_b64: Buffer.from(JSON.stringify(payloadPrep), 'utf8').toString('base64'),\n    ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_control1_input_' + executionId + '.json',\n    ruta_output_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_control1_output_' + executionId + '.json',\n  },\n}];\n"
       }
     },
     {
@@ -3817,13 +3839,13 @@
         3700
       ],
       "parameters": {
-        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\" && cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion preparar_control1_entrada --input \"{{ $json.ruta_input_tmp }}\" --output \"{{ $json.ruta_output_tmp }}\" && grep -q '\"resultado\": \"OK\"' \"{{ $json.ruta_output_tmp }}\" && cat \"{{ $json.ruta_output_tmp }}\""
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\" && cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion preparar_control1_institucional_entrada --input \"{{ $json.ruta_input_tmp }}\" --output \"{{ $json.ruta_output_tmp }}\" && grep -q '\"resultado\": \"OK\"' \"{{ $json.ruta_output_tmp }}\" && cat \"{{ $json.ruta_output_tmp }}\""
       },
       "executeOnce": true
     },
     {
       "id": "d46b2db5-36b8-41fa-b78f-e659a1c41a7b",
-      "name": "BUSCAR GLOBAL oficial (Drive)",
+      "name": "BUSCAR GLOBAL TIQ oficial (Drive)",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
       "position": [
@@ -3834,7 +3856,7 @@
         "resource": "fileFolder",
         "operation": "search",
         "searchMethod": "name",
-        "queryString": "={{ $('RESOLVER control1 (periodo y carpetas)').first().json.nombre_global }}",
+        "queryString": "={{ $('RESOLVER control1 (periodo y carpetas)').first().json.nombre_global_tiq }}",
         "returnAll": true,
         "filter": {
           "folderId": {
@@ -3858,7 +3880,7 @@
     },
     {
       "id": "4f436706-0ed8-42ab-9530-7c15899b46ae",
-      "name": "BUSCAR historico asignaciones (Drive)",
+      "name": "BUSCAR historico institucional (Drive)",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
       "position": [
@@ -3893,7 +3915,7 @@
     },
     {
       "id": "72c809cb-8bb5-4bd6-a183-2d74f4b8ee6b",
-      "name": "BUSCAR revision del periodo (Drive)",
+      "name": "BUSCAR estado del periodo (Drive)",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
       "position": [
@@ -3904,7 +3926,7 @@
         "resource": "fileFolder",
         "operation": "search",
         "searchMethod": "name",
-        "queryString": "={{ $('RESOLVER control1 (periodo y carpetas)').first().json.nombre_revision }}",
+        "queryString": "={{ $('RESOLVER control1 (periodo y carpetas)').first().json.nombre_estado }}",
         "returnAll": true,
         "filter": {
           "folderId": {
@@ -3938,7 +3960,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Exige EXACTAMENTE un GLOBAL oficial; el historico CANONICO (raiz de 05_CONTROLES) y la revision del periodo\n// (carpeta <YYYY-MM>) son opcionales (0 o 1), nunca mas de uno. El snapshot mensual del historico nunca se busca aqui.\nconst rc = $('RESOLVER control1 (periodo y carpetas)').first().json;\nfunction exactos(nodo, nombre) {\n  let items;\n  try { items = $(nodo).all(); } catch (e) { items = []; } // p.ej. no existe la carpeta del periodo: la busqueda de revision no corrio\n  return items.map(function (i) { return i.json; }).filter(function (j) { return j && j.id && j.name === nombre; });\n}\nconst g = exactos('BUSCAR GLOBAL oficial (Drive)', rc.nombre_global);\nconst h = exactos('BUSCAR historico asignaciones (Drive)', rc.nombre_historico);\nconst r = exactos('BUSCAR revision del periodo (Drive)', rc.nombre_revision);\n\nif (g.length === 0) {\n  throw new Error('GLOBAL_OFICIAL_NO_ENCONTRADO: no existe \"' + rc.nombre_global + '\" en 05_CONTROLES/GLOBAL de Drive. CONTROL 1 no usa un GLOBAL local como sustituto: genera el GLOBAL antes.');\n}\nif (g.length > 1) {\n  throw new Error('ERROR_AMBIGUO_GLOBAL: hay ' + g.length + ' archivos \"' + rc.nombre_global + '\" en 05_CONTROLES/GLOBAL. No se elige ninguno.');\n}\nif (h.length > 1) {\n  throw new Error('ERROR_AMBIGUO_HISTORICO: hay ' + h.length + ' archivos \"' + rc.nombre_historico + '\" en 05_CONTROLES. No se elige ninguno.');\n}\nif (r.length > 1) {\n  throw new Error('ERROR_AMBIGUO_REVISION: hay ' + r.length + ' archivos \"' + rc.nombre_revision + '\" en CONTROL_1_ASIGNACIONES/' + rc.periodo + '. No se elige ninguno.');\n}\n\nconst items = [{ tipo: 'global', id: String(g[0].id), name: rc.nombre_global }];\nif (h.length === 1) items.push({ tipo: 'historico', id: String(h[0].id), name: rc.nombre_historico });\nif (r.length === 1) items.push({ tipo: 'revision', id: String(r[0].id), name: rc.nombre_revision });\nreturn items.map(function (it) {\n  return { json: Object.assign({ ruta_destino: rc.dir_entrada + '/' + it.name, historico_en_drive: h.length === 1, revision_en_drive: r.length === 1 }, it) };\n});\n"
+        "jsCode": "// Exige EXACTAMENTE los dos GLOBAL oficiales (TIQ y AME): CONTROL 1\n// institucional audita ambas cajas juntas y nunca sustituye ninguno por un\n// GLOBAL local. El historico institucional (raiz de 05_CONTROLES) y el\n// estado sellado del periodo (carpeta <YYYY-MM>) son opcionales (0 o 1) --\n// ausentes = primera ejecucion legitima.\nconst rc = $('RESOLVER control1 (periodo y carpetas)').first().json;\nfunction exactos(nodo, nombre) {\n  let items;\n  try { items = $(nodo).all(); } catch (e) { items = []; } // p.ej. no existe la carpeta del periodo: la busqueda de estado no corrio\n  return items.map(function (i) { return i.json; }).filter(function (j) { return j && j.id && j.name === nombre; });\n}\nconst gTiq = exactos('BUSCAR GLOBAL TIQ oficial (Drive)', rc.nombre_global_tiq);\nconst gAme = exactos('BUSCAR GLOBAL AME oficial (Drive)', rc.nombre_global_ame);\nconst h = exactos('BUSCAR historico institucional (Drive)', rc.nombre_historico);\nconst e = exactos('BUSCAR estado del periodo (Drive)', rc.nombre_estado);\n\nif (gTiq.length === 0) {\n  throw new Error('GLOBAL_OFICIAL_NO_ENCONTRADO: no existe \"' + rc.nombre_global_tiq + '\" en 05_CONTROLES/GLOBAL de Drive. CONTROL 1 institucional nunca usa un GLOBAL local como sustituto: genera el GLOBAL TIQUIPAYA antes.');\n}\nif (gTiq.length > 1) {\n  throw new Error('ERROR_AMBIGUO_GLOBAL: hay ' + gTiq.length + ' archivos \"' + rc.nombre_global_tiq + '\" en 05_CONTROLES/GLOBAL. No se elige ninguno.');\n}\nif (gAme.length === 0) {\n  throw new Error('GLOBAL_OFICIAL_NO_ENCONTRADO: no existe \"' + rc.nombre_global_ame + '\" en 05_CONTROLES/GLOBAL de Drive. CONTROL 1 institucional nunca usa un GLOBAL local como sustituto: genera el GLOBAL AMERICA antes.');\n}\nif (gAme.length > 1) {\n  throw new Error('ERROR_AMBIGUO_GLOBAL: hay ' + gAme.length + ' archivos \"' + rc.nombre_global_ame + '\" en 05_CONTROLES/GLOBAL. No se elige ninguno.');\n}\nif (h.length > 1) {\n  throw new Error('ERROR_AMBIGUO_HISTORICO: hay ' + h.length + ' archivos \"' + rc.nombre_historico + '\" en 05_CONTROLES. No se elige ninguno.');\n}\nif (e.length > 1) {\n  throw new Error('ERROR_AMBIGUO_ESTADO: hay ' + e.length + ' archivos \"' + rc.nombre_estado + '\" en CONTROL_1_ASIGNACIONES/' + rc.periodo + '. No se elige ninguno.');\n}\n\nconst items = [\n  { tipo: 'global_tiq', id: String(gTiq[0].id), name: rc.nombre_global_tiq },\n  { tipo: 'global_ame', id: String(gAme[0].id), name: rc.nombre_global_ame },\n];\nif (h.length === 1) items.push({ tipo: 'historico', id: String(h[0].id), name: rc.nombre_historico });\nif (e.length === 1) items.push({ tipo: 'estado', id: String(e[0].id), name: rc.nombre_estado });\nreturn items.map(function (it) {\n  return { json: Object.assign({ ruta_destino: rc.dir_entrada + '/' + it.name, historico_en_drive: h.length === 1, estado_en_drive: e.length === 1 }, it) };\n});\n"
       }
     },
     {
@@ -4252,7 +4274,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// FASE 12E.7 -- CONTROL 3: Drive oficial = fuente de verdad; local = materializacion temporal de la corrida.\n// FASE 12F -- CONTROL 3 es UNICO/INSTITUCIONAL: revisa conjuntamente\n// TIQUIPAYA + AMERICA del periodo, asi que sus carpetas (controles/global/\n// control3) son las MISMAS para cualquier caja -- no existen\n// DRIVE_CONTROLES_AME / DRIVE_GLOBAL_AME / DRIVE_CONTROL3_AME. `caja` solo\n// decide el prefijo del nombre del GLOBAL a auditar (mismo patron que\n// config_drive_oficial.py).\nconst t = $('WEBHOOK control3').first().json;\nconst body = t.body || {};\nconst anio = body.anio;\nconst mes = body.mes;\nif (!Number.isInteger(anio) || anio < 2000 || anio > 2100 || !Number.isInteger(mes) || mes < 1 || mes > 12) {\n  throw new Error('PERIODO_INVALIDO: anio/mes deben ser enteros validos (recibido anio=' + anio + ', mes=' + mes + ').');\n}\nconst MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];\nconst mesNombre = MESES[mes - 1];\nconst periodo = anio + '-' + String(mes).padStart(2, '0');\n\nconst caja = (body.caja || 'tiquipaya').toString().trim().toLowerCase();\nif (caja !== 'tiquipaya' && caja !== 'america') {\n  throw new Error('CAJA_DESCONOCIDA: \"' + caja + '\". Cajas validas: america, tiquipaya.');\n}\nconst prefijoCaja = caja === 'america' ? 'AME' : 'TIQ';\n\n// Folder IDs INSTITUCIONALES (05_CONTROLES, 05_CONTROLES/GLOBAL,\n// 05_CONTROLES/CONTROL_3_CXC_CXP): los MISMOS para TIQUIPAYA y AMERICA --\n// CONTROL 3 es un control unico que audita ambas cajas juntas.\nconst CARPETAS_INSTITUCIONALES = {\n  controles: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB',\n  global: '1KREzDpgptWRwuArA1qYco49rplOEeeNU',\n  control3: '15IYQDdpyBwrZTNS-qU8VZa47sVz1ziV_',\n};\nfunction resolverDestino(clave) {\n  return CARPETAS_INSTITUCIONALES[clave];\n}\n\nconst baseDirDev = '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir';\nconst dirEntrada = baseDirDev + '/control3_entrada/' + (caja === 'america' ? 'america/' : '') + periodo;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst payloadPrep = { anio: anio, mes: mes, base_dir_dev: baseDirDev, caja: caja };\n\nreturn [{\n  json: {\n    anio: anio, mes: mes, periodo: periodo, mes_nombre: mesNombre, caja: caja,\n    nombre_global: 'SAP_GLOBAL_' + prefijoCaja + '_' + mesNombre + '_' + anio + '.xlsx',\n    nombre_historico: 'HISTORICO_CXC_CXP.csv',\n    nombre_periodos: 'HISTORICO_CXC_CXP_PERIODOS.json',\n    nombre_reporte: 'CONTROL_CXC_CXP_' + mesNombre + '_' + anio + '.xlsx',\n    nombre_reporte_json: 'CONTROL_CXC_CXP_' + mesNombre + '_' + anio + '.json',\n    // Drive: 05_CONTROLES (historicos MAESTROS), 05_CONTROLES/GLOBAL, 05_CONTROLES/CONTROL_3_CXC_CXP (una subcarpeta <YYYY-MM> por periodo).\n    carpeta_controles_id: resolverDestino('controles'),\n    carpeta_global_id: resolverDestino('global'),\n    carpeta_control3_id: resolverDestino('control3'),\n    dir_entrada: dirEntrada,\n    input_b64: Buffer.from(JSON.stringify(payloadPrep), 'utf8').toString('base64'),\n    ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_control3_input_' + executionId + '.json',\n    ruta_output_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_control3_output_' + executionId + '.json',\n  },\n}];\n"
+        "jsCode": "// FASE 12E.7 -- CONTROL 3: Drive oficial = fuente de verdad; local = materializacion temporal de la corrida.\n// FASE 12F/12G -- CONTROL 3 es UNICO/INSTITUCIONAL: revisa conjuntamente\n// TIQUIPAYA + AMERICA del periodo, asi que NUNCA recibe ni infiere `caja` --\n// ni para elegir carpetas (que ya eran las mismas para ambas) ni para el\n// nombre del GLOBAL (ahora resuelve LOS DOS: TIQ y AME).\nconst t = $('WEBHOOK control3').first().json;\nconst body = t.body || {};\nconst anio = body.anio;\nconst mes = body.mes;\nif (!Number.isInteger(anio) || anio < 2000 || anio > 2100 || !Number.isInteger(mes) || mes < 1 || mes > 12) {\n  throw new Error('PERIODO_INVALIDO: anio/mes deben ser enteros validos (recibido anio=' + anio + ', mes=' + mes + ').');\n}\nconst MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];\nconst mesNombre = MESES[mes - 1];\nconst periodo = anio + '-' + String(mes).padStart(2, '0');\n\n// Folder IDs INSTITUCIONALES (05_CONTROLES, 05_CONTROLES/GLOBAL,\n// 05_CONTROLES/CONTROL_3_CXC_CXP): los MISMOS para TIQUIPAYA y AMERICA --\n// CONTROL 3 es un control unico que audita ambas cajas juntas.\nconst CARPETAS_INSTITUCIONALES = {\n  controles: '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB',\n  global: '1KREzDpgptWRwuArA1qYco49rplOEeeNU',\n  control3: '15IYQDdpyBwrZTNS-qU8VZa47sVz1ziV_',\n};\nfunction resolverDestino(clave) {\n  return CARPETAS_INSTITUCIONALES[clave];\n}\n\nconst baseDirDev = '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir';\nconst dirEntrada = baseDirDev + '/control3_institucional_entrada/' + periodo;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst payloadPrep = { anio: anio, mes: mes, base_dir_dev: baseDirDev };\n\nreturn [{\n  json: {\n    anio: anio, mes: mes, periodo: periodo, mes_nombre: mesNombre,\n    nombre_global_tiq: 'SAP_GLOBAL_TIQ_' + mesNombre + '_' + anio + '.xlsx',\n    nombre_global_ame: 'SAP_GLOBAL_AME_' + mesNombre + '_' + anio + '.xlsx',\n    nombre_historico: 'HISTORICO_CXC_CXP.csv',\n    nombre_periodos: 'HISTORICO_CXC_CXP_PERIODOS.json',\n    nombre_reporte: 'CONTROL_CXC_CXP_INSTITUCIONAL_' + mesNombre + '_' + anio + '.xlsx',\n    nombre_reporte_json: 'CONTROL_CXC_CXP_INSTITUCIONAL_' + mesNombre + '_' + anio + '.json',\n    // Drive: 05_CONTROLES (historicos MAESTROS), 05_CONTROLES/GLOBAL, 05_CONTROLES/CONTROL_3_CXC_CXP (una subcarpeta <YYYY-MM> por periodo).\n    carpeta_controles_id: resolverDestino('controles'),\n    carpeta_global_id: resolverDestino('global'),\n    carpeta_control3_id: resolverDestino('control3'),\n    dir_entrada: dirEntrada,\n    input_b64: Buffer.from(JSON.stringify(payloadPrep), 'utf8').toString('base64'),\n    ruta_input_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_control3_input_' + executionId + '.json',\n    ruta_output_tmp: '/home/codespace/.n8n-files/tiq_v3_tmp/tiq_v3_dev_api_prep_control3_output_' + executionId + '.json',\n  },\n}];\n"
       }
     },
     {
@@ -4265,13 +4287,13 @@
         4050
       ],
       "parameters": {
-        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\" && cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion preparar_control3_entrada --input \"{{ $json.ruta_input_tmp }}\" --output \"{{ $json.ruta_output_tmp }}\" && grep -q '\"resultado\": \"OK\"' \"{{ $json.ruta_output_tmp }}\" && cat \"{{ $json.ruta_output_tmp }}\""
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\" && cd /workspaces/caja-tiquipaya-v2 && /workspaces/.venv-caja/bin/python3 -m v3.dev_api --accion preparar_control3_institucional_entrada --input \"{{ $json.ruta_input_tmp }}\" --output \"{{ $json.ruta_output_tmp }}\" && grep -q '\"resultado\": \"OK\"' \"{{ $json.ruta_output_tmp }}\" && cat \"{{ $json.ruta_output_tmp }}\""
       },
       "executeOnce": true
     },
     {
       "id": "e1f1b323-4436-47bd-a80d-0566ee3b0703",
-      "name": "BUSCAR GLOBAL oficial CONTROL3 (Drive)",
+      "name": "BUSCAR GLOBAL TIQ oficial CONTROL3 (Drive)",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
       "position": [
@@ -4282,7 +4304,7 @@
         "resource": "fileFolder",
         "operation": "search",
         "searchMethod": "name",
-        "queryString": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.nombre_global }}",
+        "queryString": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.nombre_global_tiq }}",
         "returnAll": true,
         "filter": {
           "folderId": {
@@ -4421,7 +4443,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Carpeta del periodo: CONTROL_3_CXC_CXP/<YYYY-MM>. 0 = periodo nuevo (sin reporte previo); 1 = se usa; >1 = ambiguo.\nconst rc = $('RESOLVER control3 (periodo y carpetas)').first().json;\nconst carpetas = $('BUSCAR carpeta del periodo CONTROL3 (Drive)').all()\n  .map(function (i) { return i.json; })\n  .filter(function (j) { return j && j.id && j.name === rc.periodo; });\nif (carpetas.length > 1) {\n  throw new Error('ERROR_AMBIGUO_CARPETA_PERIODO: hay ' + carpetas.length + ' carpetas \"' + rc.periodo + '\" en CONTROL_3_CXC_CXP. No se elige ninguna.');\n}\nreturn [{ json: { hay_carpeta: carpetas.length === 1, carpeta_id: carpetas.length === 1 ? String(carpetas[0].id) : null } }];"
+        "jsCode": "// Carpeta del periodo: CONTROL_3_CXC_CXP/<YYYY-MM>. 0 = periodo nuevo (sin reporte previo); 1 = se usa; >1 = ambiguo.\nconst rc = $('RESOLVER control3 (periodo y carpetas)').first().json;\nconst carpetas = $('BUSCAR carpeta del periodo CONTROL3 (Drive)').all()\n  .map(function (i) { return i.json; })\n  .filter(function (j) { return j && j.id && j.name === rc.periodo; });\nif (carpetas.length > 1) {\n  throw new Error('ERROR_AMBIGUO_CARPETA_PERIODO: hay ' + carpetas.length + ' carpetas \"' + rc.periodo + '\" en CONTROL_3_CXC_CXP. No se elige ninguna.');\n}\nreturn [{ json: { hay_carpeta: carpetas.length === 1, carpeta_id: carpetas.length === 1 ? String(carpetas[0].id) : null } }];\n"
       }
     },
     {
@@ -4501,7 +4523,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Exige EXACTAMENTE un GLOBAL oficial; los historicos MAESTROS (raiz de 05_CONTROLES) y el reporte previo del periodo\n// (carpeta <YYYY-MM>) son opcionales (0 o 1), nunca mas de uno. Los snapshots por periodo nunca se buscan aqui.\nconst rc = $('RESOLVER control3 (periodo y carpetas)').first().json;\nfunction exactos(nodo, nombre) {\n  let items;\n  try { items = $(nodo).all(); } catch (e) { items = []; } // p.ej. no existe la carpeta del periodo: la busqueda del reporte no corrio\n  return items.map(function (i) { return i.json; }).filter(function (j) { return j && j.id && j.name === nombre; });\n}\nconst g = exactos('BUSCAR GLOBAL oficial CONTROL3 (Drive)', rc.nombre_global);\nconst h = exactos('BUSCAR historico CxC/CxP maestro (Drive)', rc.nombre_historico);\nconst p = exactos('BUSCAR periodos CxC/CxP maestro (Drive)', rc.nombre_periodos);\nconst r = exactos('BUSCAR reporte del periodo CONTROL3 (Drive)', rc.nombre_reporte);\n\nif (g.length === 0) {\n  throw new Error('GLOBAL_OFICIAL_NO_ENCONTRADO: no existe \"' + rc.nombre_global + '\" en 05_CONTROLES/GLOBAL de Drive. CONTROL 3 no usa un GLOBAL local como sustituto: genera el GLOBAL antes.');\n}\nif (g.length > 1) {\n  throw new Error('ERROR_AMBIGUO_GLOBAL: hay ' + g.length + ' archivos \"' + rc.nombre_global + '\" en 05_CONTROLES/GLOBAL. No se elige ninguno.');\n}\nif (h.length > 1) {\n  throw new Error('ERROR_AMBIGUO_HISTORICO: hay ' + h.length + ' archivos \"' + rc.nombre_historico + '\" en 05_CONTROLES. No se elige ninguno.');\n}\nif (p.length > 1) {\n  throw new Error('ERROR_AMBIGUO_PERIODOS: hay ' + p.length + ' archivos \"' + rc.nombre_periodos + '\" en 05_CONTROLES. No se elige ninguno.');\n}\nif (r.length > 1) {\n  throw new Error('ERROR_AMBIGUO_REPORTE: hay ' + r.length + ' archivos \"' + rc.nombre_reporte + '\" en CONTROL_3_CXC_CXP/' + rc.periodo + '. No se elige ninguno.');\n}\n// Un histórico sin su libro de periodos (o al revés) es un estado incoherente: no se adivina cuál manda.\nif (h.length !== p.length) {\n  throw new Error('MAESTROS_CXC_CXP_INCOMPLETOS: en 05_CONTROLES hay ' + h.length + ' \"' + rc.nombre_historico + '\" y ' + p.length + ' \"' + rc.nombre_periodos + '\". Deben existir ambos o ninguno.');\n}\n\nconst items = [{ tipo: 'global', id: String(g[0].id), name: rc.nombre_global }];\nif (h.length === 1) items.push({ tipo: 'historico', id: String(h[0].id), name: rc.nombre_historico });\nif (p.length === 1) items.push({ tipo: 'periodos', id: String(p[0].id), name: rc.nombre_periodos });\nif (r.length === 1) items.push({ tipo: 'reporte', id: String(r[0].id), name: rc.nombre_reporte });\nreturn items.map(function (it) {\n  return { json: Object.assign({ ruta_destino: rc.dir_entrada + '/' + it.name, maestros_en_drive: h.length === 1, reporte_en_drive: r.length === 1 }, it) };\n});"
+        "jsCode": "// Exige EXACTAMENTE los dos GLOBAL oficiales (TIQ y AME): CONTROL 3\n// institucional audita ambas cajas juntas y nunca sustituye ninguno por un\n// GLOBAL local. Los historicos MAESTROS (raiz de 05_CONTROLES) y el reporte\n// previo del periodo (carpeta <YYYY-MM>) son opcionales (0 o 1), nunca mas de\n// uno. Los snapshots por periodo nunca se buscan aqui.\nconst rc = $('RESOLVER control3 (periodo y carpetas)').first().json;\nfunction exactos(nodo, nombre) {\n  let items;\n  try { items = $(nodo).all(); } catch (e) { items = []; } // p.ej. no existe la carpeta del periodo: la busqueda del reporte no corrio\n  return items.map(function (i) { return i.json; }).filter(function (j) { return j && j.id && j.name === nombre; });\n}\nconst gTiq = exactos('BUSCAR GLOBAL TIQ oficial CONTROL3 (Drive)', rc.nombre_global_tiq);\nconst gAme = exactos('BUSCAR GLOBAL AME oficial CONTROL3 (Drive)', rc.nombre_global_ame);\nconst h = exactos('BUSCAR historico CxC/CxP maestro (Drive)', rc.nombre_historico);\nconst p = exactos('BUSCAR periodos CxC/CxP maestro (Drive)', rc.nombre_periodos);\nconst r = exactos('BUSCAR reporte del periodo CONTROL3 (Drive)', rc.nombre_reporte);\n\nif (gTiq.length === 0) {\n  throw new Error('GLOBAL_OFICIAL_NO_ENCONTRADO: no existe \"' + rc.nombre_global_tiq + '\" en 05_CONTROLES/GLOBAL de Drive. CONTROL 3 institucional nunca usa un GLOBAL local como sustituto: genera el GLOBAL TIQUIPAYA antes.');\n}\nif (gTiq.length > 1) {\n  throw new Error('ERROR_AMBIGUO_GLOBAL: hay ' + gTiq.length + ' archivos \"' + rc.nombre_global_tiq + '\" en 05_CONTROLES/GLOBAL. No se elige ninguno.');\n}\nif (gAme.length === 0) {\n  throw new Error('GLOBAL_OFICIAL_NO_ENCONTRADO: no existe \"' + rc.nombre_global_ame + '\" en 05_CONTROLES/GLOBAL de Drive. CONTROL 3 institucional nunca usa un GLOBAL local como sustituto: genera el GLOBAL AMERICA antes.');\n}\nif (gAme.length > 1) {\n  throw new Error('ERROR_AMBIGUO_GLOBAL: hay ' + gAme.length + ' archivos \"' + rc.nombre_global_ame + '\" en 05_CONTROLES/GLOBAL. No se elige ninguno.');\n}\nif (h.length > 1) {\n  throw new Error('ERROR_AMBIGUO_HISTORICO: hay ' + h.length + ' archivos \"' + rc.nombre_historico + '\" en 05_CONTROLES. No se elige ninguno.');\n}\nif (p.length > 1) {\n  throw new Error('ERROR_AMBIGUO_PERIODOS: hay ' + p.length + ' archivos \"' + rc.nombre_periodos + '\" en 05_CONTROLES. No se elige ninguno.');\n}\nif (r.length > 1) {\n  throw new Error('ERROR_AMBIGUO_REPORTE: hay ' + r.length + ' archivos \"' + rc.nombre_reporte + '\" en CONTROL_3_CXC_CXP/' + rc.periodo + '. No se elige ninguno.');\n}\n// Un histórico sin su libro de periodos (o al revés) es un estado incoherente: no se adivina cuál manda.\nif (h.length !== p.length) {\n  throw new Error('MAESTROS_CXC_CXP_INCOMPLETOS: en 05_CONTROLES hay ' + h.length + ' \"' + rc.nombre_historico + '\" y ' + p.length + ' \"' + rc.nombre_periodos + '\". Deben existir ambos o ninguno.');\n}\n\nconst items = [\n  { tipo: 'global_tiq', id: String(gTiq[0].id), name: rc.nombre_global_tiq },\n  { tipo: 'global_ame', id: String(gAme[0].id), name: rc.nombre_global_ame },\n];\nif (h.length === 1) items.push({ tipo: 'historico', id: String(h[0].id), name: rc.nombre_historico });\nif (p.length === 1) items.push({ tipo: 'periodos', id: String(p[0].id), name: rc.nombre_periodos });\nif (r.length === 1) items.push({ tipo: 'reporte', id: String(r[0].id), name: rc.nombre_reporte });\nreturn items.map(function (it) {\n  return { json: Object.assign({ ruta_destino: rc.dir_entrada + '/' + it.name, maestros_en_drive: h.length === 1, reporte_en_drive: r.length === 1 }, it) };\n});\n"
       }
     },
     {
@@ -4558,7 +4580,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Devuelve el item original del webhook: CONSTRUIR payload control3 sigue leyendo t.body.anio/mes.\nreturn [{ json: $('WEBHOOK control3').first().json }];"
+        "jsCode": "// Devuelve el item original del webhook: CONSTRUIR payload control3 sigue leyendo t.body.anio/mes.\nreturn [{ json: $('WEBHOOK control3').first().json }];\n"
       }
     },
     {
@@ -4823,6 +4845,76 @@
         "mode": "runOnceForAllItems",
         "language": "javaScript",
         "jsCode": "// Respuesta final de /publicar: la salida de Python (estados de publicacion consolidados con la evidencia de 06B/Drive).\nconst r = $input.first().json || {};\nlet out = null;\ntry { out = JSON.parse(r.stdout || ''); } catch (e) { out = null; }\nif (!out) {\n  return [{ json: { resultado: 'ERROR', codigo: 'CONSOLIDACION_PUBLICACION_FALLIDA', mensaje: 'No se pudo confirmar el estado de la publicacion oficial: ' + String(r.stderr || 'sin salida').slice(0, 300) } }];\n}\nreturn [{ json: out }];"
+      }
+    },
+    {
+      "id": "d46b2db5-36b8-41fa-b78f-e659a1c41a7c",
+      "name": "BUSCAR GLOBAL AME oficial (Drive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        896,
+        3820
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "={{ $('RESOLVER control1 (periodo y carpetas)').first().json.nombre_global_ame }}",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER control1 (periodo y carpetas)').first().json.carpeta_global_id }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "e1f1b323-4436-47bd-a80d-0566ee3b0704",
+      "name": "BUSCAR GLOBAL AME oficial CONTROL3 (Drive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        896,
+        4170
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.nombre_global_ame }}",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER control3 (periodo y carpetas)').first().json.carpeta_global_id }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
       }
     }
   ],

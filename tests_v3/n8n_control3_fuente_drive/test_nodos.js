@@ -1,9 +1,9 @@
 /**
- * tests_v3/n8n_control3_fuente_drive/test_nodos.js -- FASE 12E.7.
+ * tests_v3/n8n_control3_fuente_drive/test_nodos.js -- FASE 12E.7/12G.
  *
  * Ejecuta, con Node puro (sin n8n ni Drive), el codigo REAL de los nodos Code que materializan las entradas de
- * CONTROL 3 desde Drive y deciden que se publica, y verifica que ese mismo texto es el desplegado en el snapshot
- * de BACKEND DEV.
+ * CONTROL 3 INSTITUCIONAL (TIQ+AME) desde Drive y deciden que se publica, y verifica que ese mismo texto es el
+ * desplegado en el snapshot de BACKEND DEV.
  *
  * Uso: node tests_v3/n8n_control3_fuente_drive/test_nodos.js
  */
@@ -33,61 +33,73 @@ function test(nombre, fn) {
 
 const WH = function (body) { return { 'WEBHOOK control3': [{ json: { body: body } }] }; };
 const RC = ejecutar(cargar('resolver'), WH({ anio: 2026, mes: 9, modo: 'official' }))[0].json;
-const NODOS_C = function (g, h, p, r) {
+const NODOS_C = function (gTiq, gAme, h, p, r) {
   const mk = function (pref, arr) { return arr.map(function (n, i) { return { json: n === null ? {} : { id: pref + i, name: n } }; }); };
   return {
     'RESOLVER control3 (periodo y carpetas)': [{ json: RC }],
-    'BUSCAR GLOBAL oficial CONTROL3 (Drive)': mk('g', g),
+    'BUSCAR GLOBAL TIQ oficial CONTROL3 (Drive)': mk('gt', gTiq),
+    'BUSCAR GLOBAL AME oficial CONTROL3 (Drive)': mk('ga', gAme),
     'BUSCAR historico CxC/CxP maestro (Drive)': mk('h', h),
     'BUSCAR periodos CxC/CxP maestro (Drive)': mk('p', p),
     'BUSCAR reporte del periodo CONTROL3 (Drive)': mk('r', r),
   };
 };
-const G = 'SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx', H = 'HISTORICO_CXC_CXP.csv', P = 'HISTORICO_CXC_CXP_PERIODOS.json', R = 'CONTROL_CXC_CXP_SEPTIEMBRE_2026.xlsx';
-const clasificar = function (g, h, p, r) { return ejecutar(cargar('clasificar'), NODOS_C(g, h, p, r), []).map(function (i) { return i.json; }); };
+const GT = 'SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx', GA = 'SAP_GLOBAL_AME_SEPTIEMBRE_2026.xlsx';
+const H = 'HISTORICO_CXC_CXP.csv', P = 'HISTORICO_CXC_CXP_PERIODOS.json', R = 'CONTROL_CXC_CXP_INSTITUCIONAL_SEPTIEMBRE_2026.xlsx';
+const clasificar = function (gTiq, gAme, h, p, r) { return ejecutar(cargar('clasificar'), NODOS_C(gTiq, gAme, h, p, r), []).map(function (i) { return i.json; }); };
 
-test('resolver: septiembre 2026 -> nombres, dir aislado control3_entrada/2026-09 y carpetas de Drive', function () {
+test('resolver: septiembre 2026 -> nombres, dir institucional control3_institucional_entrada/2026-09 y carpetas de Drive', function () {
   assert.strictEqual(RC.periodo, '2026-09');
-  assert.strictEqual(RC.nombre_global, G);
+  assert.strictEqual(RC.nombre_global_tiq, GT);
+  assert.strictEqual(RC.nombre_global_ame, GA);
   assert.strictEqual(RC.nombre_historico, H);
   assert.strictEqual(RC.nombre_periodos, P);
   assert.strictEqual(RC.nombre_reporte, R);
-  assert.strictEqual(RC.nombre_reporte_json, 'CONTROL_CXC_CXP_SEPTIEMBRE_2026.json');
-  assert.ok(RC.dir_entrada.endsWith('/dev_workdir/control3_entrada/2026-09'));
+  assert.strictEqual(RC.nombre_reporte_json, 'CONTROL_CXC_CXP_INSTITUCIONAL_SEPTIEMBRE_2026.json');
+  assert.ok(RC.dir_entrada.endsWith('/dev_workdir/control3_institucional_entrada/2026-09'));
   assert.ok(!/\/global\/|publicacion/.test(RC.dir_entrada));
   assert.strictEqual(RC.carpeta_global_id, '1KREzDpgptWRwuArA1qYco49rplOEeeNU');
   assert.strictEqual(RC.carpeta_controles_id, '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB');
   assert.strictEqual(RC.carpeta_control3_id, '15IYQDdpyBwrZTNS-qU8VZa47sVz1ziV_');
+});
+test('resolver: nunca depende de `caja` -- presente o ausente, mismos nombres/carpetas/dir_entrada', function () {
+  const conCaja = ejecutar(cargar('resolver'), WH({ anio: 2026, mes: 9, caja: 'america' }))[0].json;
+  assert.strictEqual(conCaja.nombre_global_tiq, GT);
+  assert.strictEqual(conCaja.nombre_global_ame, GA);
+  assert.strictEqual(conCaja.dir_entrada, RC.dir_entrada);
+  assert.ok(!('caja' in conCaja));
 });
 test('resolver: anio/mes invalidos -> PERIODO_INVALIDO', function () {
   [{ anio: 2026, mes: 13 }, { anio: '2026', mes: 9 }, { anio: 1999, mes: 9 }, {}].forEach(function (b) {
     assert.throws(function () { ejecutar(cargar('resolver'), WH(b)); }, /PERIODO_INVALIDO/);
   });
 });
-test('clasificar: GLOBAL + maestros + reporte de Drive -> 4 descargas en control3_entrada', function () {
-  const r = clasificar([G], [H], [P], [R]);
-  assert.deepStrictEqual(r.map(function (i) { return i.tipo; }), ['global', 'historico', 'periodos', 'reporte']);
+test('clasificar: los dos GLOBAL + maestros + reporte de Drive -> 5 descargas en control3_institucional_entrada', function () {
+  const r = clasificar([GT], [GA], [H], [P], [R]);
+  assert.deepStrictEqual(r.map(function (i) { return i.tipo; }), ['global_tiq', 'global_ame', 'historico', 'periodos', 'reporte']);
   r.forEach(function (i) { assert.strictEqual(i.ruta_destino, RC.dir_entrada + '/' + i.name); });
 });
-test('clasificar: primera ejecucion (sin maestros ni reporte) -> solo GLOBAL', function () {
-  const r = clasificar([G], [null], [null], [null]);
-  assert.deepStrictEqual(r.map(function (i) { return i.tipo; }), ['global']);
+test('clasificar: primera ejecucion (sin maestros ni reporte) -> solo los dos GLOBAL', function () {
+  const r = clasificar([GT], [GA], [null], [null], [null]);
+  assert.deepStrictEqual(r.map(function (i) { return i.tipo; }), ['global_tiq', 'global_ame']);
   assert.strictEqual(r[0].maestros_en_drive, false);
 });
-test('clasificar: GLOBAL ausente -> GLOBAL_OFICIAL_NO_ENCONTRADO; duplicados -> ERROR_AMBIGUO_*', function () {
-  assert.throws(function () { clasificar([null], [H], [P], [null]); }, /GLOBAL_OFICIAL_NO_ENCONTRADO/);
-  assert.throws(function () { clasificar([G, G], [H], [P], [null]); }, /ERROR_AMBIGUO_GLOBAL/);
-  assert.throws(function () { clasificar([G], [H, H], [P], [null]); }, /ERROR_AMBIGUO_HISTORICO/);
-  assert.throws(function () { clasificar([G], [H], [P, P], [null]); }, /ERROR_AMBIGUO_PERIODOS/);
-  assert.throws(function () { clasificar([G], [H], [P], [R, R]); }, /ERROR_AMBIGUO_REPORTE/);
+test('clasificar: GLOBAL TIQ o AME ausente -> GLOBAL_OFICIAL_NO_ENCONTRADO; duplicados -> ERROR_AMBIGUO_*', function () {
+  assert.throws(function () { clasificar([null], [GA], [H], [P], [null]); }, /GLOBAL_OFICIAL_NO_ENCONTRADO/);
+  assert.throws(function () { clasificar([GT], [null], [H], [P], [null]); }, /GLOBAL_OFICIAL_NO_ENCONTRADO/);
+  assert.throws(function () { clasificar([GT, GT], [GA], [H], [P], [null]); }, /ERROR_AMBIGUO_GLOBAL/);
+  assert.throws(function () { clasificar([GT], [GA, GA], [H], [P], [null]); }, /ERROR_AMBIGUO_GLOBAL/);
+  assert.throws(function () { clasificar([GT], [GA], [H, H], [P], [null]); }, /ERROR_AMBIGUO_HISTORICO/);
+  assert.throws(function () { clasificar([GT], [GA], [H], [P, P], [null]); }, /ERROR_AMBIGUO_PERIODOS/);
+  assert.throws(function () { clasificar([GT], [GA], [H], [P], [R, R]); }, /ERROR_AMBIGUO_REPORTE/);
 });
 test('clasificar: historico sin libro de periodos (o al reves) -> MAESTROS_CXC_CXP_INCOMPLETOS', function () {
-  assert.throws(function () { clasificar([G], [H], [null], [null]); }, /MAESTROS_CXC_CXP_INCOMPLETOS/);
-  assert.throws(function () { clasificar([G], [null], [P], [null]); }, /MAESTROS_CXC_CXP_INCOMPLETOS/);
+  assert.throws(function () { clasificar([GT], [GA], [H], [null], [null]); }, /MAESTROS_CXC_CXP_INCOMPLETOS/);
+  assert.throws(function () { clasificar([GT], [GA], [null], [P], [null]); }, /MAESTROS_CXC_CXP_INCOMPLETOS/);
 });
 test('clasificar: ignora archivos con otro nombre (snapshots/otros periodos nunca son fuente)', function () {
-  const r = clasificar([G, 'SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx'], [H, 'HISTORICO_CXC_CXP_2026-08.csv'], [P], [R, 'CONTROL_CXC_CXP_AGOSTO_2026.xlsx']);
-  assert.deepStrictEqual(r.map(function (i) { return i.name; }), [G, H, P, R]);
+  const r = clasificar([GT, 'SAP_GLOBAL_TIQ_AGOSTO_2026.xlsx'], [GA], [H, 'HISTORICO_CXC_CXP_2026-08.csv'], [P], [R, 'CONTROL_CXC_CXP_INSTITUCIONAL_AGOSTO_2026.xlsx']);
+  assert.deepStrictEqual(r.map(function (i) { return i.name; }), [GT, GA, H, P, R]);
 });
 test('verificar_carpeta: 0 -> periodo nuevo; 1 -> id; >1 -> ERROR_AMBIGUO_CARPETA_PERIODO', function () {
   const v = function (items) { return ejecutar(cargar('verificar_carpeta'), { 'RESOLVER control3 (periodo y carpetas)': [{ json: RC }], 'BUSCAR carpeta del periodo CONTROL3 (Drive)': items }, [])[0].json; };
@@ -104,47 +116,56 @@ const payload = function (body) {
   const p = ejecutar(cargar('construir_payload'), WH(Object.assign({ anio: 2026, mes: 9, modo: 'official' }, body)))[0].json;
   return JSON.parse(Buffer.from(p.input_b64, 'base64').toString('utf8'));
 };
-test('payload: preliminar por defecto; cierre solo con modo_control3=cerrar; confirmacion solo si es true', function () {
+test('payload: preliminar por defecto; cierre solo con modo_control3=cerrar; confirmacion solo si es true; nunca `caja`', function () {
   assert.deepStrictEqual([payload({}).modo_control3, payload({}).confirmacion_cierre], ['preliminar', false]);
   assert.deepStrictEqual([payload({ modo_control3: 'cerrar' }).modo_control3, payload({ modo_control3: 'cerrar' }).confirmacion_cierre], ['cerrar', false]);
   const c = payload({ modo_control3: 'cerrar', confirmacion_cierre: true });
   assert.deepStrictEqual([c.modo_control3, c.confirmacion_cierre], ['cerrar', true]);
   assert.strictEqual(payload({ modo_control3: 'cerrar', confirmacion_cierre: 'true' }).confirmacion_cierre, false);
+  assert.ok(!('caja' in payload({ caja: 'america' })));
   assert.ok(!/\.item\b/.test(cargar('construir_payload')) && !/\.item\b/.test(cargar('decidir_publicar')));
 });
 
-const RESULT_BASE = { modo_control3: 'preliminar', estado: 'OK', estado_control3: 'PRELIMINAR_OK', dry_run: false, historico_actualizado: false, periodos_actualizado: false,
+const RESULT_BASE = { modo_control3: 'preliminar', estado: 'OK', periodo_cerrado: false, dry_run: false, historico_actualizado: false,
   archivo_control_xlsx: RC.dir_entrada + '/' + R, archivo_control_json: RC.dir_entrada + '/' + RC.nombre_reporte_json };
 const decidir = function (r, modo) {
   return ejecutar(cargar('decidir_publicar'), Object.assign({ 'RESOLVER control3 (periodo y carpetas)': [{ json: RC }] }, WH({ anio: 2026, mes: 9, modo: modo || 'official' })), [], { data: r })[0].json;
 };
-const CERRADO = Object.assign({}, RESULT_BASE, { modo_control3: 'cerrar', estado_control3: 'CERRADO', historico_actualizado: true, periodos_actualizado: true });
+const CERRADO = Object.assign({}, RESULT_BASE, { modo_control3: 'cerrar', estado: 'OK', periodo_cerrado: true, historico_actualizado: true });
 test('PRELIMINAR: publica solo reporte (xlsx+json); nunca historico, libro ni snapshots', function () {
   const d = decidir(RESULT_BASE);
   assert.deepStrictEqual([d.debe_publicar, d.hay_reporte, d.hay_reporte_json, d.hay_snapshots, d.hay_historico, d.hay_periodos], [true, true, true, false, false, false]);
   // aunque un resultado (falso) de preliminar dijera que actualizo los maestros, NO se publican
-  const falso = decidir(Object.assign({}, RESULT_BASE, { historico_actualizado: true, periodos_actualizado: true, estado_control3: 'CERRADO' }));
+  const falso = decidir(Object.assign({}, RESULT_BASE, { historico_actualizado: true, periodo_cerrado: true }));
   assert.deepStrictEqual([falso.hay_historico, falso.hay_periodos, falso.hay_snapshots], [false, false, false]);
 });
 test('CIERRE exitoso: publica reporte, snapshots del periodo, historico y libro maestros', function () {
   const d = decidir(CERRADO);
   assert.deepStrictEqual([d.debe_publicar, d.hay_reporte, d.hay_reporte_json, d.hay_snapshots, d.hay_historico, d.hay_periodos], [true, true, true, true, true, true]);
 });
-test('CIERRE: YA_CERRADO / bloqueado / error / simulacro -> nada se publica', function () {
-  const nada = function (mut) { const d = decidir(Object.assign({}, CERRADO, mut)); assert.deepStrictEqual([d.debe_publicar, d.hay_historico, d.hay_periodos, d.hay_snapshots], [false, false, false, false], JSON.stringify(mut)); };
-  nada({ estado_control3: 'YA_CERRADO', historico_actualizado: false, periodos_actualizado: false, archivo_control_xlsx: null, archivo_control_json: null });
-  nada({ estado_control3: 'CIERRE_BLOQUEADO', historico_actualizado: false, periodos_actualizado: false, archivo_control_xlsx: null, archivo_control_json: null });
-  nada({ estado_control3: 'CIERRE_BLOQUEADO_OBSERVACIONES', historico_actualizado: false, periodos_actualizado: false, archivo_control_xlsx: null, archivo_control_json: null });
-  nada({ estado: 'ERROR_TECNICO', archivo_control_xlsx: null, archivo_control_json: null });
-  nada({ dry_run: true });
+test('CIERRE: YA_PROCESADO / bloqueado por GLOBAL distinto / error / simulacro -> nada nuevo que publicar', function () {
+  const nada = function (mut, sinReporte) {
+    const base = sinReporte ? Object.assign({}, CERRADO, { archivo_control_xlsx: null, archivo_control_json: null }) : CERRADO;
+    const d = decidir(Object.assign({}, base, mut));
+    assert.deepStrictEqual([d.hay_reporte, d.hay_reporte_json], [false, false], JSON.stringify(mut));
+  };
+  nada({ estado: 'GLOBAL_MODIFICADO_REQUIERE_REVISION', historico_actualizado: false }, true);
+  const bloqueadoObs = decidir(Object.assign({}, CERRADO, { estado: 'CIERRE_BLOQUEADO_OBSERVACIONES', periodo_cerrado: false, historico_actualizado: false }, { archivo_control_xlsx: null, archivo_control_json: null }));
+  assert.deepStrictEqual([bloqueadoObs.hay_historico, bloqueadoObs.hay_periodos, bloqueadoObs.hay_snapshots], [false, false, false]);
+  assert.strictEqual(decidir({ estado: 'ERROR_TECNICO', problemas: ['x'] }).debe_publicar, false);
+  assert.strictEqual(decidir(Object.assign({}, CERRADO, { dry_run: true })).debe_publicar, false);
   assert.strictEqual(decidir({ resultado: 'ERROR', codigo: 'RuntimeError', mensaje: 'x' }).debe_publicar, false);
 });
-test('CIERRE recuperado (solo se sello el libro): publica snapshots y libro, no el historico', function () {
-  const d = decidir(Object.assign({}, CERRADO, { historico_actualizado: false, archivo_control_xlsx: null, archivo_control_json: null }));
+test('GLOBAL_MODIFICADO_REQUIERE_REVISION nunca publica snapshots/libro (aunque periodo_cerrado venga true: ya estaba cerrado, no se cerro ahora)', function () {
+  const d = decidir(Object.assign({}, CERRADO, { estado: 'GLOBAL_MODIFICADO_REQUIERE_REVISION', historico_actualizado: false, archivo_control_xlsx: null, archivo_control_json: null }));
+  assert.deepStrictEqual([d.debe_publicar, d.hay_snapshots, d.hay_periodos, d.hay_historico], [false, false, false, false]);
+});
+test('CIERRE recuperado (YA_PROCESADO_SIN_CAMBIOS tras sellar el libro): publica snapshots y libro, no el historico', function () {
+  const d = decidir(Object.assign({}, CERRADO, { estado: 'YA_PROCESADO_SIN_CAMBIOS', historico_actualizado: false, archivo_control_xlsx: null, archivo_control_json: null }));
   assert.deepStrictEqual([d.hay_reporte, d.hay_snapshots, d.hay_historico, d.hay_periodos], [false, true, false, true]);
 });
 test('reporte con nombre de otro periodo -> no se publica; modo dev -> nada', function () {
-  assert.strictEqual(decidir(Object.assign({}, RESULT_BASE, { archivo_control_xlsx: RC.dir_entrada + '/CONTROL_CXC_CXP_AGOSTO_2026.xlsx' })).hay_reporte, false);
+  assert.strictEqual(decidir(Object.assign({}, RESULT_BASE, { archivo_control_xlsx: RC.dir_entrada + '/CONTROL_CXC_CXP_INSTITUCIONAL_AGOSTO_2026.xlsx' })).hay_reporte, false);
   assert.strictEqual(decidir(CERRADO, 'dev').debe_publicar, false);
 });
 

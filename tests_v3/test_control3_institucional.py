@@ -62,11 +62,23 @@ class BaseInstitucional(unittest.TestCase):
         _crear_global(self.ruta_ame, ame_partidas)
         return c3i.ejecutar_control3_institucional(self.ruta_tiq, self.ruta_ame, self.ruta_historico)
 
+    def _cerrar(self, tiq_partidas=None, ame_partidas=None, **kwargs):
+        if tiq_partidas is not None:
+            _crear_global(self.ruta_tiq, tiq_partidas)
+        if ame_partidas is not None:
+            _crear_global(self.ruta_ame, ame_partidas)
+        return c3i.ejecutar_control3_institucional(
+            self.ruta_tiq, self.ruta_ame, self.ruta_historico,
+            modo=c3i.CERRAR, confirmacion_cierre=True, **kwargs,
+        )
+
 
 class TestSoloUnaCaja(BaseInstitucional):
     def test_solo_tiq(self):
         r = self._ejecutar([_partida(CTA_CXC, "A1", debe="100.00")], [])
         self.assertEqual(r["estado"], "OK")
+        self.assertEqual(r["modo_control3"], c3i.PRELIMINAR)
+        self.assertFalse(r["historico_actualizado"])
         self.assertEqual(r["llaves_evaluadas"], 1)
         self.assertEqual(r["abiertas"], 1)
 
@@ -75,6 +87,19 @@ class TestSoloUnaCaja(BaseInstitucional):
         self.assertEqual(r["estado"], "OK")
         self.assertEqual(r["llaves_evaluadas"], 1)
         self.assertEqual(r["abiertas"], 1)
+
+    def test_preliminar_nunca_toca_historico_ni_libro_periodos(self):
+        self._ejecutar([_partida(CTA_CXC, "A1", debe="100.00")], [])
+        self.assertFalse(os.path.isfile(self.ruta_historico))
+        self.assertFalse(os.path.isfile(c3._ruta_libro_periodos(self.ruta_historico)))
+
+    def test_cierre_sin_confirmacion_falla(self):
+        _crear_global(self.ruta_tiq, [_partida(CTA_CXC, "A1", debe="100.00")])
+        _crear_global(self.ruta_ame, [])
+        with self.assertRaises(ValueError):
+            c3i.ejecutar_control3_institucional(
+                self.ruta_tiq, self.ruta_ame, self.ruta_historico, modo=c3i.CERRAR)
+        self.assertFalse(os.path.isfile(self.ruta_historico))
 
 
 class TestCompensacionInstitucional(BaseInstitucional):
@@ -89,7 +114,7 @@ class TestCompensacionInstitucional(BaseInstitucional):
     def test_obligacion_ame_compensada_por_tiq(self):
         # AME HABER 100 de una CxP; TIQ DEBE 100 de la misma CUENTA+ASIGNACION
         # -> saldo institucional final = 0 (CERRADO).
-        r = self._ejecutar(
+        r = self._cerrar(
             [_partida(CTA_CXP, "COMPENSA", debe="100.00")],
             [_partida(CTA_CXP, "COMPENSA", haber="100.00")],
         )
@@ -113,7 +138,7 @@ class TestCompensacionInstitucional(BaseInstitucional):
 
 class TestHistoricoUnico(BaseInstitucional):
     def test_historico_y_periodos_son_archivos_unicos(self):
-        self._ejecutar([_partida(CTA_CXC, "A1", debe="10.00")], [_partida(CTA_CXP, "B1", haber="20.00")])
+        self._cerrar([_partida(CTA_CXC, "A1", debe="10.00")], [_partida(CTA_CXP, "B1", haber="20.00")])
         self.assertTrue(os.path.isfile(self.ruta_historico))
         ruta_periodos = c3._ruta_libro_periodos(self.ruta_historico)
         self.assertTrue(os.path.isfile(ruta_periodos))
@@ -122,23 +147,23 @@ class TestHistoricoUnico(BaseInstitucional):
 
 
 class TestIdempotenciaParSha(BaseInstitucional):
-    def test_mismo_par_sha_es_idempotente(self):
-        r1 = self._ejecutar([_partida(CTA_CXC, "A1", debe="10.00")], [_partida(CTA_CXP, "B1", haber="20.00")])
+    def test_mismo_par_sha_cerrado_dos_veces_es_idempotente(self):
+        r1 = self._cerrar([_partida(CTA_CXC, "A1", debe="10.00")], [_partida(CTA_CXP, "B1", haber="20.00")])
         self.assertTrue(r1["historico_actualizado"])
-        r2 = c3i.ejecutar_control3_institucional(self.ruta_tiq, self.ruta_ame, self.ruta_historico)
+        r2 = self._cerrar()
         self.assertEqual(r2["estado"], "YA_PROCESADO_SIN_CAMBIOS")
         self.assertFalse(r2["historico_actualizado"])
 
     def test_cambia_ame_requiere_revision(self):
-        self._ejecutar([_partida(CTA_CXC, "A1", debe="10.00")], [_partida(CTA_CXP, "B1", haber="20.00")])
+        self._cerrar([_partida(CTA_CXC, "A1", debe="10.00")], [_partida(CTA_CXP, "B1", haber="20.00")])
         _crear_global(self.ruta_ame, [_partida(CTA_CXP, "B1", haber="99.00")])
-        r2 = c3i.ejecutar_control3_institucional(self.ruta_tiq, self.ruta_ame, self.ruta_historico)
+        r2 = self._cerrar()
         self.assertEqual(r2["estado"], "GLOBAL_MODIFICADO_REQUIERE_REVISION")
 
     def test_cambia_tiq_requiere_revision(self):
-        self._ejecutar([_partida(CTA_CXC, "A1", debe="10.00")], [_partida(CTA_CXP, "B1", haber="20.00")])
+        self._cerrar([_partida(CTA_CXC, "A1", debe="10.00")], [_partida(CTA_CXP, "B1", haber="20.00")])
         _crear_global(self.ruta_tiq, [_partida(CTA_CXC, "A1", debe="99.00")])
-        r2 = c3i.ejecutar_control3_institucional(self.ruta_tiq, self.ruta_ame, self.ruta_historico)
+        r2 = self._cerrar()
         self.assertEqual(r2["estado"], "GLOBAL_MODIFICADO_REQUIERE_REVISION")
 
     def test_sha_compuesto_orden_fijo_tiq_ame(self):
@@ -159,6 +184,50 @@ class TestGlobalNuncaModificado(BaseInstitucional):
         c3i.ejecutar_control3_institucional(self.ruta_tiq, self.ruta_ame, self.ruta_historico)
         self.assertEqual(c3._hash_archivo(self.ruta_tiq), sha_tiq_antes)
         self.assertEqual(c3._hash_archivo(self.ruta_ame), sha_ame_antes)
+
+
+class TestObservacionesCierreManual(BaseInstitucional):
+    def test_observacion_cierre_manual_se_aplica_en_el_cierre(self):
+        import json
+        _crear_global(self.ruta_tiq, [_partida(CTA_CXC, "A1", debe="10.00")])
+        _crear_global(self.ruta_ame, [])
+        preview = c3i.ejecutar_control3_institucional(self.ruta_tiq, self.ruta_ame, self.ruta_historico)
+        sha_par, periodo = preview["sha_par"], preview["periodo"]
+
+        ruta_obs = os.path.join(self.tmp, "observaciones.json")
+        with open(ruta_obs, "w", encoding="utf-8") as f:
+            json.dump({
+                "periodo": periodo,
+                "sha256_global": sha_par,
+                "observaciones": [
+                    {"cuenta": CTA_CXC, "asignacion": "A1", "observacion_auditor": "CERRADO MANUALMENTE por auditoria"},
+                ],
+            }, f)
+
+        r = c3i.ejecutar_control3_institucional(
+            self.ruta_tiq, self.ruta_ame, self.ruta_historico,
+            modo=c3i.CERRAR, confirmacion_cierre=True, ruta_observaciones_json=ruta_obs,
+        )
+        self.assertEqual(r["estado"], "OK")
+        self.assertEqual(r["observaciones_aplicadas"], 1)
+        historico = c3.cargar_historico(self.ruta_historico)
+        fila = historico[(CTA_CXC, "A1")]
+        self.assertEqual(fila["cierre_manual"], c3._CIERRE_MANUAL_SI)
+
+    def test_observaciones_invalidas_bloquean_el_cierre(self):
+        import json
+        _crear_global(self.ruta_tiq, [_partida(CTA_CXC, "A1", debe="10.00")])
+        _crear_global(self.ruta_ame, [])
+        ruta_obs = os.path.join(self.tmp, "observaciones_malas.json")
+        with open(ruta_obs, "w", encoding="utf-8") as f:
+            json.dump({"periodo": "OTRO", "sha256_global": "NO_COINCIDE", "observaciones": []}, f)
+
+        r = c3i.ejecutar_control3_institucional(
+            self.ruta_tiq, self.ruta_ame, self.ruta_historico,
+            modo=c3i.CERRAR, confirmacion_cierre=True, ruta_observaciones_json=ruta_obs,
+        )
+        self.assertEqual(r["estado"], "CIERRE_BLOQUEADO_OBSERVACIONES")
+        self.assertFalse(os.path.isfile(self.ruta_historico))
 
 
 class TestPeriodos(BaseInstitucional):

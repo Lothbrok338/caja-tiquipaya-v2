@@ -1,10 +1,8 @@
 // FASE 12E.7 -- CONTROL 3: Drive oficial = fuente de verdad; local = materializacion temporal de la corrida.
-// FASE 12F -- CONTROL 3 es UNICO/INSTITUCIONAL: revisa conjuntamente
-// TIQUIPAYA + AMERICA del periodo, asi que sus carpetas (controles/global/
-// control3) son las MISMAS para cualquier caja -- no existen
-// DRIVE_CONTROLES_AME / DRIVE_GLOBAL_AME / DRIVE_CONTROL3_AME. `caja` solo
-// decide el prefijo del nombre del GLOBAL a auditar (mismo patron que
-// config_drive_oficial.py).
+// FASE 12F/12G -- CONTROL 3 es UNICO/INSTITUCIONAL: revisa conjuntamente
+// TIQUIPAYA + AMERICA del periodo, asi que NUNCA recibe ni infiere `caja` --
+// ni para elegir carpetas (que ya eran las mismas para ambas) ni para el
+// nombre del GLOBAL (ahora resuelve LOS DOS: TIQ y AME).
 const t = $('WEBHOOK control3').first().json;
 const body = t.body || {};
 const anio = body.anio;
@@ -15,12 +13,6 @@ if (!Number.isInteger(anio) || anio < 2000 || anio > 2100 || !Number.isInteger(m
 const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
 const mesNombre = MESES[mes - 1];
 const periodo = anio + '-' + String(mes).padStart(2, '0');
-
-const caja = (body.caja || 'tiquipaya').toString().trim().toLowerCase();
-if (caja !== 'tiquipaya' && caja !== 'america') {
-  throw new Error('CAJA_DESCONOCIDA: "' + caja + '". Cajas validas: america, tiquipaya.');
-}
-const prefijoCaja = caja === 'america' ? 'AME' : 'TIQ';
 
 // Folder IDs INSTITUCIONALES (05_CONTROLES, 05_CONTROLES/GLOBAL,
 // 05_CONTROLES/CONTROL_3_CXC_CXP): los MISMOS para TIQUIPAYA y AMERICA --
@@ -35,18 +27,19 @@ function resolverDestino(clave) {
 }
 
 const baseDirDev = '/home/codespace/.n8n-files/tiq_v3_real_readonly_dev/dev_workdir';
-const dirEntrada = baseDirDev + '/control3_entrada/' + (caja === 'america' ? 'america/' : '') + periodo;
+const dirEntrada = baseDirDev + '/control3_institucional_entrada/' + periodo;
 const executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());
-const payloadPrep = { anio: anio, mes: mes, base_dir_dev: baseDirDev, caja: caja };
+const payloadPrep = { anio: anio, mes: mes, base_dir_dev: baseDirDev };
 
 return [{
   json: {
-    anio: anio, mes: mes, periodo: periodo, mes_nombre: mesNombre, caja: caja,
-    nombre_global: 'SAP_GLOBAL_' + prefijoCaja + '_' + mesNombre + '_' + anio + '.xlsx',
+    anio: anio, mes: mes, periodo: periodo, mes_nombre: mesNombre,
+    nombre_global_tiq: 'SAP_GLOBAL_TIQ_' + mesNombre + '_' + anio + '.xlsx',
+    nombre_global_ame: 'SAP_GLOBAL_AME_' + mesNombre + '_' + anio + '.xlsx',
     nombre_historico: 'HISTORICO_CXC_CXP.csv',
     nombre_periodos: 'HISTORICO_CXC_CXP_PERIODOS.json',
-    nombre_reporte: 'CONTROL_CXC_CXP_' + mesNombre + '_' + anio + '.xlsx',
-    nombre_reporte_json: 'CONTROL_CXC_CXP_' + mesNombre + '_' + anio + '.json',
+    nombre_reporte: 'CONTROL_CXC_CXP_INSTITUCIONAL_' + mesNombre + '_' + anio + '.xlsx',
+    nombre_reporte_json: 'CONTROL_CXC_CXP_INSTITUCIONAL_' + mesNombre + '_' + anio + '.json',
     // Drive: 05_CONTROLES (historicos MAESTROS), 05_CONTROLES/GLOBAL, 05_CONTROLES/CONTROL_3_CXC_CXP (una subcarpeta <YYYY-MM> por periodo).
     carpeta_controles_id: resolverDestino('controles'),
     carpeta_global_id: resolverDestino('global'),

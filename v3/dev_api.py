@@ -918,12 +918,18 @@ def preparar_control1_institucional_entrada(anio, mes, base_dir_dev):
     return {"dir_entrada": os.path.abspath(destino), "periodo": f"{anio:04d}-{mes:02d}"}
 
 
-def ejecutar_control1_institucional(anio, mes, base_dir_dev, dry_run=False):
+def ejecutar_control1_institucional(anio, mes, base_dir_dev, dry_run=False,
+                                     modo_control1=None, confirmacion_cierre=False):
     """CONTROL 1 institucional (un solo botón, no depende del selector de
     caja): lee `control1_institucional_entrada/<periodo>/`, que el backend
     materializó con AMBOS GLOBAL oficiales del periodo. Delega en
     `v3.control1_institucional.ejecutar_control1_institucional()` (adaptador
-    nuevo y pequeño sobre control_asignaciones.py, sin cambios)."""
+    nuevo y pequeño sobre control_asignaciones.py, sin cambios).
+
+    MODOS: `modo_control1` = "preliminar" (por defecto, mes abierto: nunca
+    toca el histórico institucional ni sella el periodo) o "cerrar" (exige
+    `confirmacion_cierre=True` explícito; revalida que no queden alertas
+    pendientes y solo entonces sella el PAR de SHA-256 del periodo)."""
     entrada = control1_institucional_entrada_dir(base_dir_dev, anio, mes)
     if not os.path.isdir(entrada):
         raise RuntimeError(
@@ -946,6 +952,7 @@ def ejecutar_control1_institucional(anio, mes, base_dir_dev, dry_run=False):
     resultado = control1_institucional.ejecutar_control1_institucional(
         ruta_tiq, ruta_ame, ruta_historico, directorio_revision=entrada,
         ruta_detalle_json=ruta_detalle, dry_run=dry_run,
+        modo=modo_control1, confirmacion_cierre=confirmacion_cierre,
     )
     resultado["dir_entrada"] = os.path.abspath(entrada)
     if resultado.get("periodo") not in (None, periodo_esperado):
@@ -956,11 +963,19 @@ def ejecutar_control1_institucional(anio, mes, base_dir_dev, dry_run=False):
     return resultado
 
 
-def corregir_control1_institucional(anio, mes, base_dir_dev, correcciones_tiq=None, correcciones_ame=None):
+def corregir_control1_institucional(anio, mes, base_dir_dev, correcciones_tiq=None, correcciones_ame=None,
+                                     confirmacion_cierre=False):
     """Aplica correcciones autorizadas: cada corrección toca SOLO el GLOBAL
     de su caja de origen (TIQ o AME); si cualquiera falla, ninguno de los
     dos GLOBAL queda modificado (ver control1_institucional.
-    aplicar_correcciones_institucional)."""
+    aplicar_correcciones_institucional). Igual que el cierre, exige
+    `confirmacion_cierre=True` explícito: corregir el GLOBAL de origen es
+    parte del flujo de cierre, nunca una acción implícita."""
+    if confirmacion_cierre is not True:
+        raise ValueError(
+            "ERROR_CONFIRMACION_CIERRE_REQUERIDA: corregir el GLOBAL institucional requiere "
+            "confirmacion_cierre=true explícito"
+        )
     entrada = control1_institucional_entrada_dir(base_dir_dev, anio, mes)
     nombre_tiq = consolidador_mensual.nombre_sap_global(anio, mes, cfg.TIQUIPAYA)
     nombre_ame = consolidador_mensual.nombre_sap_global(anio, mes, cfg.AMERICA)
@@ -986,13 +1001,22 @@ def preparar_control3_institucional_entrada(anio, mes, base_dir_dev):
     return {"dir_entrada": os.path.abspath(destino), "periodo": f"{anio:04d}-{mes:02d}"}
 
 
-def ejecutar_control3_institucional(anio, mes, base_dir_dev, dry_run=False):
+def ejecutar_control3_institucional(anio, mes, base_dir_dev, dry_run=False,
+                                     modo_control3=None, confirmacion_cierre=False,
+                                     ruta_observaciones_json=None):
     """CONTROL 3 institucional (un solo botón, no depende del selector de
     caja): lee `control3_institucional_entrada/<periodo>/`, que el backend
     materializó con AMBOS GLOBAL oficiales del periodo. Delega en
     `v3.control3_institucional.ejecutar_control3_institucional()` (adaptador
     nuevo y pequeño sobre control_cxc_cxp.py, sin cambios). NUNCA modifica
-    ningún GLOBAL."""
+    ningún GLOBAL.
+
+    MODOS: `modo_control3` = "preliminar" (por defecto, mes abierto: nunca
+    toca HISTORICO_CXC_CXP.csv ni el libro de periodos) o "cerrar" (exige
+    `confirmacion_cierre=True` explícito; idempotente por el PAR de
+    SHA-256). `ruta_observaciones_json` preserva observaciones del auditor /
+    cierre manual (mismo puente JSON que ejecutar_control3, ver
+    control_cxc_cxp.aplicar_observaciones)."""
     entrada = control3_institucional_entrada_dir(base_dir_dev, anio, mes)
     if not os.path.isdir(entrada):
         raise RuntimeError(
@@ -1016,6 +1040,8 @@ def ejecutar_control3_institucional(anio, mes, base_dir_dev, dry_run=False):
     resultado = control3_institucional.ejecutar_control3_institucional(
         ruta_tiq, ruta_ame, ruta_historico,
         ruta_salida_xlsx=ruta_xlsx, ruta_salida_json=ruta_json, dry_run=dry_run,
+        modo=modo_control3, confirmacion_cierre=confirmacion_cierre,
+        ruta_observaciones_json=ruta_observaciones_json,
     )
     resultado["dir_entrada"] = os.path.abspath(entrada)
     if resultado.get("periodo") not in (None, periodo_esperado):
@@ -1121,15 +1147,19 @@ def main(argv=None):
         elif args.accion == "ejecutar_control1_institucional":
             salida = {"resultado": "OK", **ejecutar_control1_institucional(
                 datos["anio"], datos["mes"], datos["base_dir_dev"], datos.get("dry_run", False),
+                datos.get("modo_control1"), datos.get("confirmacion_cierre", False),
             )}
         elif args.accion == "ejecutar_control3_institucional":
             salida = {"resultado": "OK", **ejecutar_control3_institucional(
                 datos["anio"], datos["mes"], datos["base_dir_dev"], datos.get("dry_run", False),
+                datos.get("modo_control3"), datos.get("confirmacion_cierre", False),
+                datos.get("ruta_observaciones_json"),
             )}
         elif args.accion == "corregir_control1_institucional":
             salida = {"resultado": "OK", **corregir_control1_institucional(
                 datos["anio"], datos["mes"], datos["base_dir_dev"],
                 datos.get("correcciones_tiq"), datos.get("correcciones_ame"),
+                datos.get("confirmacion_cierre", False),
             )}
     except Exception as exc:
         salida = {"resultado": "ERROR", "codigo": type(exc).__name__, "mensaje": str(exc)}

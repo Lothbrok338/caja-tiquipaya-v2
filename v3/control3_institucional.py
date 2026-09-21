@@ -28,6 +28,28 @@ import control_cxc_cxp as ctrl3
 CAJA_TIQ = cfg.TIQUIPAYA.codigo
 CAJA_AME = cfg.AMERICA.codigo
 
+# ---------------------------------------------------------------------------
+# Modo — igual espíritu que v3/control3_modos.py (PRELIMINAR/CERRAR), pero
+# aplicado al par institucional TIQ+AME en vez de a un único GLOBAL por caja.
+# ---------------------------------------------------------------------------
+
+PRELIMINAR = "preliminar"
+CERRAR = "cerrar"
+
+
+def validar_modo_institucional(modo, confirmacion_cierre=False):
+    """PRELIMINAR por defecto (mes abierto: nunca escribe HISTORICO_CXC_CXP.csv
+    ni el libro de periodos). CERRAR exige modo='cerrar' Y
+    confirmacion_cierre=True explícito — nunca se infiere el cierre."""
+    modo = PRELIMINAR if modo in (None, "") else modo
+    if modo not in (PRELIMINAR, CERRAR):
+        raise ValueError(f"MODO_CONTROL3_INSTITUCIONAL_INVALIDO: {modo!r} (use 'preliminar' o 'cerrar')")
+    if modo == CERRAR and confirmacion_cierre is not True:
+        raise ValueError(
+            "ERROR_CONFIRMACION_CIERRE_REQUERIDA: el cierre institucional requiere confirmacion_cierre=true explícito"
+        )
+    return modo
+
 
 def nombre_historico_institucional():
     return "HISTORICO_CXC_CXP.csv"
@@ -85,80 +107,13 @@ def _trazabilidad_por_clave(candidatas):
     return origenes
 
 
-def ejecutar_control3_institucional(ruta_global_tiq, ruta_global_ame, ruta_historico_institucional,
-                                     ruta_salida_xlsx=None, ruta_salida_json=None, dry_run=False):
-    """CONTROL 3 institucional. Nunca modifica ningún GLOBAL (solo
-    lectura). Idempotente por el PAR (sha256(TIQ), sha256(AME)), orden fijo
-    TIQ→AME: si cualquiera de los dos GLOBAL cambia, el periodo pasa a
-    GLOBAL_MODIFICADO_REQUIERE_REVISION."""
-    if not ruta_global_tiq or not os.path.isfile(ruta_global_tiq):
-        return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_TIQ_NO_ENCONTRADO"]}
-    if not ruta_global_ame or not os.path.isfile(ruta_global_ame):
-        return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_AME_NO_ENCONTRADO"]}
-
-    nombre_tiq = os.path.basename(ruta_global_tiq)
-    nombre_ame = os.path.basename(ruta_global_ame)
-    periodo, error = _validar_periodos(nombre_tiq, nombre_ame)
-    if error:
-        return error
-
-    sha_tiq = ctrl3._hash_archivo(ruta_global_tiq)
-    sha_ame = ctrl3._hash_archivo(ruta_global_ame)
-    sha_par = f"{sha_tiq}|{sha_ame}"  # orden fijo TIQ->AME
-
-    historico = ctrl3.cargar_historico(ruta_historico_institucional)
-    libro_periodos = ctrl3._cargar_libro_periodos(ruta_historico_institucional)
-    ahora = datetime.datetime.now().isoformat(timespec="seconds")
-
-    estado_idemp = ctrl3._estado_idempotencia(historico, libro_periodos, periodo, sha_par)
-
-    if estado_idemp == "RECUPERAR_APLICADO":
-        if not dry_run:
-            libro_periodos[periodo] = {
-                "sha256_global": sha_par, "estado": ctrl3._PERIODO_APLICADO,
-                "fecha_ejecucion": ahora, "recuperado": True,
-            }
-            ctrl3._guardar_libro_periodos(ruta_historico_institucional, libro_periodos)
-        estado_idemp = "YA_PROCESADO_SIN_CAMBIOS"
-    elif estado_idemp == "RECUPERAR_PENDIENTE":
-        estado_idemp = None
-
-    if estado_idemp == "GLOBAL_MODIFICADO_REQUIERE_REVISION":
-        return {
-            "estado": estado_idemp,
-            "periodo": periodo,
-            "sha_par": sha_par,
-            "archivo_global_tiq": nombre_tiq,
-            "archivo_global_ame": nombre_ame,
-            "mensaje": (
-                "Ya existe un histórico institucional para este periodo con un "
-                "PAR de SHA-256 (TIQ,AME) distinto al actual. Requiere decisión "
-                "humana; el GLOBAL nunca se modifica."
-            ),
-            "dry_run": dry_run,
-            "historico_actualizado": False,
-        }
-
-    if estado_idemp == "YA_PROCESADO_SIN_CAMBIOS":
-        return {
-            "estado": estado_idemp,
-            "periodo": periodo,
-            "sha_par": sha_par,
-            "archivo_global_tiq": nombre_tiq,
-            "archivo_global_ame": nombre_ame,
-            "mensaje": "Este PAR GLOBAL TIQ/AME ya fue acumulado. No se vuelve a acumular.",
-            "dry_run": dry_run,
-            "historico_actualizado": False,
-        }
-
-    try:
-        candidatas_tiq, faltantes_tiq = _leer_candidatas_tagged(ruta_global_tiq, CAJA_TIQ)
-        candidatas_ame, faltantes_ame = _leer_candidatas_tagged(ruta_global_ame, CAJA_AME)
-    except ctrl3.HojaNoEncontradaError:
-        return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_HOJA_1_NO_ENCONTRADA"]}
-    except Exception as exc:  # noqa: BLE001 — GLOBAL ilegible, se reporta y se detiene
-        return {"estado": "ERROR_TECNICO", "problemas": [f"GLOBAL_ILEGIBLE:{exc}"]}
-
+def _calcular_nuevo_historico(ruta_global_tiq, ruta_global_ame, historico, periodo, sha_par, ahora):
+    """Cálculo puro EN MEMORIA (nunca escribe nada): candidatas TIQ+AME,
+    movimientos del mes y el histórico propuesto (todavía sin guardar).
+    Usado tanto por PRELIMINAR (solo para previsualizar) como por CERRAR
+    (para sellar)."""
+    candidatas_tiq, faltantes_tiq = _leer_candidatas_tagged(ruta_global_tiq, CAJA_TIQ)
+    candidatas_ame, faltantes_ame = _leer_candidatas_tagged(ruta_global_ame, CAJA_AME)
     candidatas = candidatas_tiq + candidatas_ame  # orden fijo TIQ->AME
     faltantes = faltantes_tiq + faltantes_ame
     grupos_mes = ctrl3.agrupar_movimientos_mes(candidatas)
@@ -176,15 +131,19 @@ def ejecutar_control3_institucional(ruta_global_tiq, ruta_global_ame, ruta_histo
         nuevo_historico[clave] = ctrl3._actualizar_fila(
             clave, tipo_cuenta, tipo_label, prev_row, debe_mes, haber_mes, periodo, sha_par, ahora,
         )
+    return candidatas, faltantes, grupos_mes, trazabilidad, nuevo_historico
 
+
+def _resumen_calculo(periodo, sha_par, nombre_tiq, nombre_ame, ahora, faltantes, trazabilidad, nuevo_historico,
+                     grupos_mes, dry_run):
     abiertas = sum(1 for f in nuevo_historico.values() if f["estado"] == ctrl3._ESTADO_ABIERTO)
     cerradas = sum(1 for f in nuevo_historico.values() if f["estado"] == ctrl3._ESTADO_CERRADO)
     revisar = sum(1 for f in nuevo_historico.values() if f["estado"] == ctrl3._ESTADO_REVISAR)
-
-    resumen = {
+    return {
         "estado": "OK",
         "periodo": periodo,
         "sha_par": sha_par,
+        "periodo_cerrado": False,
         "archivo_global_tiq": nombre_tiq,
         "archivo_global_ame": nombre_ame,
         "fecha_ejecucion": ahora,
@@ -203,20 +162,79 @@ def ejecutar_control3_institucional(ruta_global_tiq, ruta_global_ame, ruta_histo
         "archivo_control_json": None,
     }
 
-    if not dry_run:
-        libro_periodos[periodo] = {
-            "sha256_global": sha_par, "estado": ctrl3._PERIODO_PENDIENTE, "fecha_inicio": ahora,
-        }
-        ctrl3._guardar_libro_periodos(ruta_historico_institucional, libro_periodos)
 
-        ctrl3.guardar_historico(ruta_historico_institucional, nuevo_historico)
+def ejecutar_control3_institucional(ruta_global_tiq, ruta_global_ame, ruta_historico_institucional,
+                                     ruta_salida_xlsx=None, ruta_salida_json=None, dry_run=False,
+                                     modo=PRELIMINAR, confirmacion_cierre=False, ruta_observaciones_json=None):
+    """CONTROL 3 institucional. Nunca modifica ningún GLOBAL (solo lectura).
 
-        libro_periodos[periodo] = {
-            "sha256_global": sha_par, "estado": ctrl3._PERIODO_APLICADO, "fecha_ejecucion": ahora,
-        }
-        ctrl3._guardar_libro_periodos(ruta_historico_institucional, libro_periodos)
-        resumen["historico_actualizado"] = True
+    PRELIMINAR (por defecto, mes abierto): calcula TIQ+AME en memoria y
+    escribe SOLO el reporte del periodo (xlsx/json) si se piden las rutas de
+    salida — NUNCA actualiza HISTORICO_CXC_CXP.csv ni el libro de periodos.
+    Repetible las veces que haga falta.
 
+    CERRAR (`modo='cerrar'` + `confirmacion_cierre=True`): idempotente por el
+    PAR (sha256(TIQ), sha256(AME)), orden fijo TIQ→AME: si cualquiera de los
+    dos GLOBAL cambió desde el cierre anterior, el periodo pasa a
+    GLOBAL_MODIFICADO_REQUIERE_REVISION sin tocar nada. Preserva
+    observaciones del auditor / cierre manual (vía `ctrl3.aplicar_observaciones`,
+    sin cambios), reapertura por movimiento posterior y recuperación de una
+    publicación interrumpida (vía `ctrl3._estado_idempotencia`, sin cambios)."""
+    modo = validar_modo_institucional(modo, confirmacion_cierre)
+
+    if not ruta_global_tiq or not os.path.isfile(ruta_global_tiq):
+        return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_TIQ_NO_ENCONTRADO"], "modo_control3": modo}
+    if not ruta_global_ame or not os.path.isfile(ruta_global_ame):
+        return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_AME_NO_ENCONTRADO"], "modo_control3": modo}
+
+    nombre_tiq = os.path.basename(ruta_global_tiq)
+    nombre_ame = os.path.basename(ruta_global_ame)
+    periodo, error = _validar_periodos(nombre_tiq, nombre_ame)
+    if error:
+        return {**error, "modo_control3": modo}
+
+    sha_tiq = ctrl3._hash_archivo(ruta_global_tiq)
+    sha_ame = ctrl3._hash_archivo(ruta_global_ame)
+    sha_par = f"{sha_tiq}|{sha_ame}"  # orden fijo TIQ->AME
+
+    historico = ctrl3.cargar_historico(ruta_historico_institucional)
+    libro_periodos = ctrl3._cargar_libro_periodos(ruta_historico_institucional)
+    ahora = datetime.datetime.now().isoformat(timespec="seconds")
+
+    estado_idemp = ctrl3._estado_idempotencia(historico, libro_periodos, periodo, sha_par)
+
+    if modo == PRELIMINAR:
+        if estado_idemp in ("YA_PROCESADO_SIN_CAMBIOS", "RECUPERAR_APLICADO"):
+            return {
+                "estado": "PERIODO_YA_CERRADO", "modo_control3": modo, "periodo": periodo, "sha_par": sha_par,
+                "archivo_global_tiq": nombre_tiq, "archivo_global_ame": nombre_ame,
+                "periodo_cerrado": True, "dry_run": dry_run, "historico_actualizado": False,
+                "archivo_control_xlsx": None, "archivo_control_json": None,
+                "mensaje": "El periodo institucional ya está cerrado: la revisión preliminar no se ejecuta ni modifica nada.",
+            }
+        if estado_idemp == "GLOBAL_MODIFICADO_REQUIERE_REVISION":
+            return {
+                "estado": estado_idemp, "modo_control3": modo, "periodo": periodo, "sha_par": sha_par,
+                "archivo_global_tiq": nombre_tiq, "archivo_global_ame": nombre_ame,
+                "periodo_cerrado": True, "dry_run": dry_run, "historico_actualizado": False,
+                "archivo_control_xlsx": None, "archivo_control_json": None,
+                "mensaje": (
+                    "Ya existe un histórico institucional para este periodo con un PAR de "
+                    "SHA-256 (TIQ,AME) distinto al actual. Requiere decisión humana."
+                ),
+            }
+        # estado_idemp is None o RECUPERAR_PENDIENTE -> vista previa normal.
+        try:
+            _candidatas, faltantes, grupos_mes, trazabilidad, nuevo_historico = _calcular_nuevo_historico(
+                ruta_global_tiq, ruta_global_ame, historico, periodo, sha_par, ahora)
+        except ctrl3.HojaNoEncontradaError:
+            return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_HOJA_1_NO_ENCONTRADA"], "modo_control3": modo}
+        except Exception as exc:  # noqa: BLE001 — GLOBAL ilegible, se reporta y se detiene
+            return {"estado": "ERROR_TECNICO", "problemas": [f"GLOBAL_ILEGIBLE:{exc}"], "modo_control3": modo}
+
+        resumen = _resumen_calculo(periodo, sha_par, nombre_tiq, nombre_ame, ahora, faltantes, trazabilidad,
+                                   nuevo_historico, grupos_mes, dry_run)
+        resumen["modo_control3"] = modo
         if ruta_salida_xlsx:
             filas_excel = ctrl3._construir_filas_excel(nuevo_historico, grupos_mes, periodo, faltantes)
             ctrl3.guardar_control_xlsx(ruta_salida_xlsx, filas_excel)
@@ -225,5 +243,95 @@ def ejecutar_control3_institucional(ruta_global_tiq, ruta_global_ame, ruta_histo
             resumen["archivo_control_json"] = ruta_salida_json
             with open(ruta_salida_json, "w", encoding="utf-8") as f:
                 json.dump(resumen, f, ensure_ascii=False, indent=2, default=str)
+        return resumen
+
+    # ------------------------------------------------------------------
+    # CERRAR
+    # ------------------------------------------------------------------
+    if estado_idemp == "RECUPERAR_APLICADO":
+        if not dry_run:
+            libro_periodos[periodo] = {
+                "sha256_global": sha_par, "estado": ctrl3._PERIODO_APLICADO,
+                "fecha_ejecucion": ahora, "recuperado": True,
+            }
+            ctrl3._guardar_libro_periodos(ruta_historico_institucional, libro_periodos)
+        estado_idemp = "YA_PROCESADO_SIN_CAMBIOS"
+    elif estado_idemp == "RECUPERAR_PENDIENTE":
+        estado_idemp = None
+
+    if estado_idemp == "GLOBAL_MODIFICADO_REQUIERE_REVISION":
+        return {
+            "estado": estado_idemp, "modo_control3": modo, "periodo": periodo, "sha_par": sha_par,
+            "archivo_global_tiq": nombre_tiq, "archivo_global_ame": nombre_ame, "periodo_cerrado": True,
+            "mensaje": (
+                "Ya existe un histórico institucional para este periodo con un "
+                "PAR de SHA-256 (TIQ,AME) distinto al actual. Requiere decisión "
+                "humana; el GLOBAL nunca se modifica."
+            ),
+            "dry_run": dry_run,
+            "historico_actualizado": False,
+        }
+
+    if estado_idemp == "YA_PROCESADO_SIN_CAMBIOS":
+        return {
+            "estado": estado_idemp, "modo_control3": modo, "periodo": periodo, "sha_par": sha_par,
+            "archivo_global_tiq": nombre_tiq, "archivo_global_ame": nombre_ame, "periodo_cerrado": True,
+            "mensaje": "Este PAR GLOBAL TIQ/AME ya fue acumulado. No se vuelve a acumular.",
+            "dry_run": dry_run,
+            "historico_actualizado": False,
+        }
+
+    try:
+        _candidatas, faltantes, grupos_mes, trazabilidad, nuevo_historico = _calcular_nuevo_historico(
+            ruta_global_tiq, ruta_global_ame, historico, periodo, sha_par, ahora)
+    except ctrl3.HojaNoEncontradaError:
+        return {"estado": "ERROR_TECNICO", "problemas": ["GLOBAL_HOJA_1_NO_ENCONTRADA"], "modo_control3": modo}
+    except Exception as exc:  # noqa: BLE001 — GLOBAL ilegible, se reporta y se detiene
+        return {"estado": "ERROR_TECNICO", "problemas": [f"GLOBAL_ILEGIBLE:{exc}"], "modo_control3": modo}
+
+    resumen = _resumen_calculo(periodo, sha_par, nombre_tiq, nombre_ame, ahora, faltantes, trazabilidad,
+                               nuevo_historico, grupos_mes, dry_run)
+    resumen["modo_control3"] = modo
+
+    if ruta_observaciones_json:
+        with open(ruta_observaciones_json, "r", encoding="utf-8") as f:
+            datos_obs = json.load(f)
+        ok, problemas, aplicadas = ctrl3.aplicar_observaciones(datos_obs, periodo, sha_par, nuevo_historico, ahora)
+        if not ok:
+            resumen["estado"] = "CIERRE_BLOQUEADO_OBSERVACIONES"
+            resumen["problemas_observaciones_json"] = problemas
+            resumen["mensaje"] = (
+                "No se cerró: las observaciones del auditor no son válidas (" + ", ".join(problemas) +
+                "). Histórico y libro no se tocaron."
+            )
+            return resumen
+        resumen["observaciones_aplicadas"] = aplicadas
+
+    if dry_run:
+        resumen["estado"] = "CIERRE_SIMULACRO"
+        return resumen
+
+    libro_periodos[periodo] = {
+        "sha256_global": sha_par, "estado": ctrl3._PERIODO_PENDIENTE, "fecha_inicio": ahora,
+    }
+    ctrl3._guardar_libro_periodos(ruta_historico_institucional, libro_periodos)
+
+    ctrl3.guardar_historico(ruta_historico_institucional, nuevo_historico)
+
+    libro_periodos[periodo] = {
+        "sha256_global": sha_par, "estado": ctrl3._PERIODO_APLICADO, "fecha_ejecucion": ahora,
+    }
+    ctrl3._guardar_libro_periodos(ruta_historico_institucional, libro_periodos)
+    resumen["historico_actualizado"] = True
+    resumen["periodo_cerrado"] = True
+
+    if ruta_salida_xlsx:
+        filas_excel = ctrl3._construir_filas_excel(nuevo_historico, grupos_mes, periodo, faltantes)
+        ctrl3.guardar_control_xlsx(ruta_salida_xlsx, filas_excel)
+        resumen["archivo_control_xlsx"] = ruta_salida_xlsx
+    if ruta_salida_json:
+        resumen["archivo_control_json"] = ruta_salida_json
+        with open(ruta_salida_json, "w", encoding="utf-8") as f:
+            json.dump(resumen, f, ensure_ascii=False, indent=2, default=str)
 
     return resumen
