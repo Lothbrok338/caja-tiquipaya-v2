@@ -101,7 +101,7 @@
             "index": 0
           },
           {
-            "node": "EJECUTAR - 01 INGESTA (Drive real)",
+            "node": "RESOLVER - Drive entrada por caja (INGESTA)",
             "type": "main",
             "index": 0
           }
@@ -1546,7 +1546,7 @@
       "main": [
         [
           {
-            "node": "BUSCAR MACROS oficial (Drive)",
+            "node": "BUSCAR - Carpeta anio MACROS (Drive)",
             "type": "main",
             "index": 0
           }
@@ -1713,6 +1713,61 @@
           }
         ]
       ]
+    },
+    "RESOLVER - Drive entrada por caja (INGESTA)": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR - 01 INGESTA (Drive real)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Carpeta anio MACROS (Drive)": {
+      "main": [
+        [
+          {
+            "node": "VERIFICAR - Carpeta anio MACROS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VERIFICAR - Carpeta anio MACROS": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Carpeta mes MACROS (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Carpeta mes MACROS (Drive)": {
+      "main": [
+        [
+          {
+            "node": "VERIFICAR - Carpeta mes MACROS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VERIFICAR - Carpeta mes MACROS": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR MACROS oficial (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "nodes": [
@@ -1841,7 +1896,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst rp = $('RESOLVER procesar_entrada (MACROS y cierres)').first().json;\n\n// Payload para v3.dev_api (procesar_lote) -- Python es la unica autoridad.\n// FASE 11A.3: requiere_ingesta_drive=true (modo oficial de este despliegue) -- si EJECUTAR - 01 INGESTA (Drive real) no\n// entrego drive_file_id para algun cierre ENCONTRADO (o fallo tecnicamente y t.data.cierres nunca llego),\n// v3.dev_api.procesar_lote() rechaza el lote ENTERO (IngestaDriveRequeridaError, estado_lote=ERROR) en vez de caer al\n// listado local (os.listdir).\n// HOTFIX 2026-09-19: el cierre y MACROS ya NO vienen de copias estaticas locales: se descargaron de Drive en ESTA corrida\n// a procesar_entrada/<lote_id>/ (cierres por drive_file_id exacto; MACROS oficial vigente por nombre exacto en su carpeta).\n// Plantilla y markers siguen viniendo de sus copias de origen (sin cambios).\n// v3.precheck_maestro (Python) sigue decidiendo MAESTRO_APTO/BLOQUEADO (cobertura por fecha de cierre Y de depositos)\n// antes de invocar el motor; este nodo no reinterpreta esa decision.\n// FIX (bug real, primer intento oficial 10/09): el INTERPRETAR del subworkflow 01 INGESTA envuelve su salida bajo .data\n// -> se lee t.data.cierres.\nconst payload = { lote_id: $('INTERPRETAR resultado crear_lote_pendiente').first().json.data.lote_id, base_dir_dev: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_real_readonly_dev/dev_workdir', origen_cierres_dir: rp.dir_cierres, ruta_maestro_origen: rp.dir_entrada + '/' + rp.macros_nombre, ruta_plantilla_origen: '' + ($env.TIQ_PLANTILLA_SAP_MAESTRA || \"/app/assets/Plantilla SAP maestra.xlsx\") + '', markers_origen_dir: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_real_readonly_dev/markers_origen', ingesta_precomputada: (t && t.data && t.data.cierres) || null, requiere_ingesta_drive: true };\n\nconst rutaInputTmp = '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_input_' + executionId + '.json';\nconst rutaOutputTmp = '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+        "jsCode": "const t = $input.first().json;\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst rp = $('RESOLVER procesar_entrada (MACROS y cierres)').first().json;\n\n// Payload para v3.dev_api (procesar_lote) -- Python es la unica autoridad.\n// FASE 11A.3: requiere_ingesta_drive=true (modo oficial de este despliegue) -- si EJECUTAR - 01 INGESTA (Drive real) no\n// entrego drive_file_id para algun cierre ENCONTRADO (o fallo tecnicamente y t.data.cierres nunca llego),\n// v3.dev_api.procesar_lote() rechaza el lote ENTERO (IngestaDriveRequeridaError, estado_lote=ERROR) en vez de caer al\n// listado local (os.listdir).\n// HOTFIX 2026-09-19: el cierre y MACROS ya NO vienen de copias estaticas locales: se descargaron de Drive en ESTA corrida\n// a procesar_entrada/<lote_id>/ (cierres por drive_file_id exacto; MACROS oficial vigente por nombre exacto en su carpeta).\n// Plantilla y markers siguen viniendo de sus copias de origen (sin cambios).\n// v3.precheck_maestro (Python) sigue decidiendo MAESTRO_APTO/BLOQUEADO (cobertura por fecha de cierre Y de depositos)\n// antes de invocar el motor; este nodo no reinterpreta esa decision.\n// FIX (bug real, primer intento oficial 10/09): el INTERPRETAR del subworkflow 01 INGESTA envuelve su salida bajo .data\n// -> se lee t.data.cierres.\nconst payload = { lote_id: $('INTERPRETAR resultado crear_lote_pendiente').first().json.data.lote_id, base_dir_dev: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_real_readonly_dev/dev_workdir', origen_cierres_dir: rp.dir_cierres, ruta_maestro_origen: rp.dir_entrada + '/' + (($('CLASIFICAR - MACROS y cierres de procesar').all().map(function(i){ return i.json; }).find(function(j){ return j && j.tipo === 'macros'; }) || {}).name), ruta_plantilla_origen: '' + ($env.TIQ_PLANTILLA_SAP_MAESTRA || \"/app/assets/Plantilla SAP maestra.xlsx\") + '', markers_origen_dir: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_real_readonly_dev/markers_origen', ingesta_precomputada: (t && t.data && t.data.cierres) || null, requiere_ingesta_drive: true };\n\nconst rutaInputTmp = '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_input_' + executionId + '.json';\nconst rutaOutputTmp = '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_procesar_lote_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
       }
     },
     {
@@ -2658,6 +2713,21 @@
       }
     },
     {
+      "id": "b2b2b2b2-0001-4a1a-9a1a-000000000101",
+      "name": "RESOLVER - Drive entrada por caja (INGESTA)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// FASE CAJA-AMERICA: /procesar debe pedirle a \"01 INGESTA\" el folder_entrada\n// de la CAJA del LOTE (identidad ya persistida por crear_lote_pendiente,\n// nunca del request) -- antes este nodo no existia y \"EJECUTAR - 01 INGESTA\n// (Drive real)\" tenia el folder de 00_ENTRADA_CIERRES de TIQUIPAYA fijo,\n// asi que un lote de AMERICA leia igual los cierres de TIQUIPAYA. Copia de\n// referencia EXACTA del resolverDestino('entrada') del nodo \"RESOLVER -\n// Destinos Drive por caja\" (06B PUBLICACION OFICIAL / PREFLIGHT OFICIAL) y\n// de config_drive_oficial.resolver_destinos_drive() en el backend Python --\n// misma identidad; mantener las 3 copias sincronizadas.\nconst caja = ((($('INTERPRETAR resultado crear_lote_pendiente').first().json.data || {}).caja) || 'tiquipaya').toString().trim().toLowerCase();\n\nif (caja !== 'tiquipaya' && caja !== 'america') {\n  throw new Error('CAJA_DESCONOCIDA: \"' + caja + '\". Cajas validas: america, tiquipaya.');\n}\n\n// Default TIQUIPAYA: EXACTAMENTE el folder ID historico de 00_ENTRADA_CIERRES\n// (idem config_drive_oficial._TIQ_DEFAULTS['entrada']). AMERICA no tiene\n// default a proposito -- sin DRIVE_ENTRADA_AME configurada, falla cerrado,\n// nunca hereda el folder de TIQUIPAYA.\nconst DEFAULT_ENTRADA_TIQ = '1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1';\nconst envVar = 'DRIVE_ENTRADA_' + (caja === 'america' ? 'AME' : 'TIQ');\nconst valor = $env[envVar];\nconst folderEntrada = valor || (caja === 'tiquipaya' ? DEFAULT_ENTRADA_TIQ : null);\nif (!folderEntrada) {\n  throw new Error('DRIVE_AME_PENDIENTE: falta configurar ' + envVar + ' (carpeta \"entrada\" de CAJA AMERICA todavia no existe en Drive).');\n}\n\nreturn [{ json: { caja: caja, folder_entrada: folderEntrada } }];"
+      }
+    },
+    {
       "id": "c241bf98-0a91-4e99-9191-6d32c4e4fbb4",
       "name": "EJECUTAR - 01 INGESTA (Drive real)",
       "type": "n8n-nodes-base.executeWorkflow",
@@ -2680,7 +2750,7 @@
           "value": {
             "fecha_inicio": "={{ $('WEBHOOK procesar').item.json.body.fecha_inicio }}",
             "fecha_fin": "={{ $('WEBHOOK procesar').item.json.body.fecha_fin }}",
-            "drive_folder_entrada": "1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1",
+            "drive_folder_entrada": "={{ $('RESOLVER - Drive entrada por caja (INGESTA)').first().json.folder_entrada }}",
             "candidatos_por_fecha": {},
             "source_mode": "drive_readonly"
           },
@@ -4620,7 +4690,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// HOTFIX 2026-09-19 -- /procesar: Drive = fuente de verdad de MACROS y del cierre. Cada corrida materializa en\n// procesar_entrada/<lote_id>/ el MACROS oficial vigente y los cierres exactos que resolvio la ingesta (por drive_file_id).\nconst lote = $('INTERPRETAR resultado crear_lote_pendiente').first().json.data.lote_id;\nconst body = $('WEBHOOK procesar').first().json.body || {};\nconst fechaInicio = String(body.fecha_inicio || '');\nconst periodo = fechaInicio.slice(0, 7); // YYYY-MM del inicio del rango (mismo criterio que mes_rango de Python)\n// MACROS oficial por periodo (identidad exacta: nombre + carpeta de Drive). Es configuracion, no logica: cada mes nuevo\n// agrega aqui su archivo. Un periodo sin configurar falla explicito (nunca se cae a una copia local).\nconst MACROS_OFICIALES = {\n  '2026-09': { nombre: 'MACROS SEPTIEMBRE.xlsm', carpeta_id: '1U0HBoAsiDZy8Dqr3zEHa8_YfS5XcoMab' },\n};\nconst cfg = MACROS_OFICIALES[periodo];\nconst baseDirDev = '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_real_readonly_dev/dev_workdir';\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst dirEntrada = baseDirDev + '/procesar_entrada/' + lote;\nreturn [{\n  json: {\n    lote_id: lote, periodo: periodo,\n    macros_configurado: !!cfg,\n    macros_nombre: cfg ? cfg.nombre : null,\n    macros_carpeta_id: cfg ? cfg.carpeta_id : null,\n    dir_entrada: dirEntrada, dir_cierres: dirEntrada + '/cierres',\n    input_b64: Buffer.from(JSON.stringify({ lote_id: lote, base_dir_dev: baseDirDev }), 'utf8').toString('base64'),\n    ruta_input_tmp: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_prep_procesar_input_' + executionId + '.json',\n    ruta_output_tmp: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_prep_procesar_output_' + executionId + '.json',\n  },\n}];"
+        "jsCode": "// HOTFIX 2026-09-19 -- /procesar: Drive = fuente de verdad de MACROS y del cierre. Cada corrida materializa en\n// procesar_entrada/<lote_id>/ el MACROS oficial vigente y los cierres exactos que resolvio la ingesta (por drive_file_id).\n// FASE CAJA-AMERICA: el MACROS ya NO se busca por un mapa MACROS_OFICIALES hardcodeado a un unico periodo (2026-09) --\n// eso rompia cualquier mes distinto. La estructura REAL en Drive (carpeta raiz de MACROS, ver DRIVE_MACROS_RAIZ) es\n// <raiz>/<YYYY>/<YYYY-MM>/MACROS*.xlsm|xlsx -- este nodo solo calcula el periodo y la carpeta raiz; la carpeta del\n// anio, la del mes y el archivo se resuelven mas adelante buscando en Drive en cada nivel (0/>1 = falla cerrado,\n// ver \"VERIFICAR - Carpeta anio MACROS\", \"VERIFICAR - Carpeta mes MACROS\" y \"CLASIFICAR - MACROS y cierres de procesar\").\nconst lote = $('INTERPRETAR resultado crear_lote_pendiente').first().json.data.lote_id;\nconst body = $('WEBHOOK procesar').first().json.body || {};\nconst fechaInicio = String(body.fecha_inicio || '');\nconst periodo = fechaInicio.slice(0, 7); // YYYY-MM del inicio del rango (mismo criterio que mes_rango de Python)\nconst anio = periodo.slice(0, 4);\n// Carpeta INSTITUCIONAL raiz de MACROS (02_MAESTROS): la MISMA para cualquier periodo y cualquier caja -- Python\n// filtra TIQ/AME con la columna CAJA de ATC, el MACROS es compartido. Override solo para pruebas/entornos nuevos.\nconst MACROS_RAIZ_DEFAULT = '1XOlFEKP3nKSvbHCEpk5l8BKWhOMbhMZB';\nconst macrosRaizId = $env.DRIVE_MACROS_RAIZ || MACROS_RAIZ_DEFAULT;\nconst baseDirDev = '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_real_readonly_dev/dev_workdir';\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst dirEntrada = baseDirDev + '/procesar_entrada/' + lote;\nreturn [{\n  json: {\n    lote_id: lote, periodo: periodo, anio: anio, macros_raiz_id: macrosRaizId,\n    dir_entrada: dirEntrada, dir_cierres: dirEntrada + '/cierres',\n    input_b64: Buffer.from(JSON.stringify({ lote_id: lote, base_dir_dev: baseDirDev }), 'utf8').toString('base64'),\n    ruta_input_tmp: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_prep_procesar_input_' + executionId + '.json',\n    ruta_output_tmp: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_prep_procesar_output_' + executionId + '.json',\n  },\n}];"
       }
     },
     {
@@ -4638,6 +4708,106 @@
       "executeOnce": true
     },
     {
+      "id": "b2b2b2b2-0002-4a1a-9a1a-000000000102",
+      "name": "BUSCAR - Carpeta anio MACROS (Drive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1660,
+        900
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "={{ $('RESOLVER procesar_entrada (MACROS y cierres)').first().json.anio }}",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER procesar_entrada (MACROS y cierres)').first().json.macros_raiz_id }}"
+          },
+          "whatToSearch": "folders",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "b2b2b2b2-0003-4a1a-9a1a-000000000103",
+      "name": "VERIFICAR - Carpeta anio MACROS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1880,
+        900
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Carpeta del anio dentro de la raiz institucional de MACROS. 0 -> no configurado (falla cerrado, nunca\n// se inventa ni se cae a otro anio); >1 -> ambiguo (falla cerrado, nunca se elige el primero).\nconst rp = $('RESOLVER procesar_entrada (MACROS y cierres)').first().json;\nconst anios = $('BUSCAR - Carpeta anio MACROS (Drive)').all()\n  .map(function (i) { return i.json; })\n  .filter(function (j) { return j && j.id && j.name === rp.anio; });\nif (anios.length > 1) {\n  return [{ json: { hay_error: true, mensaje_error: 'ERROR_AMBIGUO_CARPETA_ANIO_MACROS: hay ' + anios.length + ' carpetas \"' + rp.anio + '\" en la carpeta raiz de MACROS. No se elige ninguna: deje una sola y vuelva a procesar.' } }];\n}\nif (anios.length === 0) {\n  return [{ json: { hay_error: true, mensaje_error: 'MACROS_CARPETA_ANIO_NO_ENCONTRADA: no existe la carpeta \"' + rp.anio + '\" en la carpeta raiz de MACROS en Drive. Procesar no usa una copia local como sustituto.' } }];\n}\nreturn [{ json: { hay_error: false, carpeta_anio_id: String(anios[0].id) } }];"
+      }
+    },
+    {
+      "id": "b2b2b2b2-0004-4a1a-9a1a-000000000104",
+      "name": "BUSCAR - Carpeta mes MACROS (Drive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2100,
+        900
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "={{ $('RESOLVER procesar_entrada (MACROS y cierres)').first().json.periodo }}",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('VERIFICAR - Carpeta anio MACROS').first().json.carpeta_anio_id || $('RESOLVER procesar_entrada (MACROS y cierres)').first().json.macros_raiz_id }}"
+          },
+          "whatToSearch": "folders",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "b2b2b2b2-0005-4a1a-9a1a-000000000105",
+      "name": "VERIFICAR - Carpeta mes MACROS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        900
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Carpeta del periodo (YYYY-MM) dentro de la carpeta del anio de MACROS. Si la carpeta del anio ya fallo\n// (hay_error), no tiene sentido buscar el mes: se propaga el mismo error tal cual, sin volver a evaluar nada.\nconst rpAnio = $('VERIFICAR - Carpeta anio MACROS').first().json;\nif (rpAnio.hay_error) {\n  return [{ json: rpAnio }];\n}\nconst rp = $('RESOLVER procesar_entrada (MACROS y cierres)').first().json;\nconst meses = $('BUSCAR - Carpeta mes MACROS (Drive)').all()\n  .map(function (i) { return i.json; })\n  .filter(function (j) { return j && j.id && j.name === rp.periodo; });\nif (meses.length > 1) {\n  return [{ json: { hay_error: true, mensaje_error: 'ERROR_AMBIGUO_CARPETA_MES_MACROS: hay ' + meses.length + ' carpetas \"' + rp.periodo + '\" dentro de \"' + rp.anio + '\". No se elige ninguna: deje una sola y vuelva a procesar.' } }];\n}\nif (meses.length === 0) {\n  return [{ json: { hay_error: true, mensaje_error: 'MACROS_OFICIAL_NO_CONFIGURADO: no hay una carpeta de MACROS oficial de Drive configurada para el periodo ' + rp.periodo + '. Procesar no usa una copia local como sustituto.' } }];\n}\nreturn [{ json: { hay_error: false, carpeta_mes_id: String(meses[0].id) } }];"
+      }
+    },
+    {
       "id": "2a7ca834-cc29-4c27-a705-6c8d2633cea7",
       "name": "BUSCAR MACROS oficial (Drive)",
       "type": "n8n-nodes-base.googleDrive",
@@ -4650,13 +4820,13 @@
         "resource": "fileFolder",
         "operation": "search",
         "searchMethod": "name",
-        "queryString": "={{ $('RESOLVER procesar_entrada (MACROS y cierres)').first().json.macros_nombre || '__sin_macros_configurado__' }}",
+        "queryString": "",
         "returnAll": true,
         "filter": {
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "={{ $('RESOLVER procesar_entrada (MACROS y cierres)').first().json.macros_carpeta_id || '1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1' }}"
+            "value": "={{ $('VERIFICAR - Carpeta mes MACROS').first().json.carpeta_mes_id || $('RESOLVER procesar_entrada (MACROS y cierres)').first().json.macros_raiz_id }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -4684,7 +4854,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// MACROS oficial: EXACTAMENTE un archivo con el nombre configurado en la carpeta oficial (0 -> error explicito,\n// >1 -> ERROR_AMBIGUO_MACROS; nunca se elige uno arbitrariamente). Cierres: cada ENCONTRADO por la ingesta se descarga\n// por su drive_file_id (identidad exacta ya resuelta), con el nombre esperado. Los errores no lanzan: salen como un item\n// hay_error para que el lote quede en ERROR con un mensaje funcional (la interfaz no espera indefinidamente).\nconst rp = $('RESOLVER procesar_entrada (MACROS y cierres)').first().json;\nif (!rp.macros_configurado) {\n  return [{ json: { hay_error: true, mensaje_error: 'MACROS_OFICIAL_NO_CONFIGURADO: no hay un MACROS oficial de Drive configurado para el periodo ' + rp.periodo + '. Procesar no usa una copia local como sustituto.' } }];\n}\nconst macros = $('BUSCAR MACROS oficial (Drive)').all()\n  .map(function (i) { return i.json; })\n  .filter(function (j) { return j && j.id && j.name === rp.macros_nombre; });\nif (macros.length === 0) {\n  return [{ json: { hay_error: true, mensaje_error: 'MACROS_OFICIAL_NO_ENCONTRADO: no existe \"' + rp.macros_nombre + '\" en la carpeta oficial de MACROS en Drive. Procesar no usa una copia local como sustituto.' } }];\n}\nif (macros.length > 1) {\n  return [{ json: { hay_error: true, mensaje_error: 'ERROR_AMBIGUO_MACROS: hay ' + macros.length + ' archivos \"' + rp.macros_nombre + '\" en la carpeta oficial de MACROS. No se elige ninguno: deje uno solo y vuelva a procesar.' } }];\n}\nconst ingesta = (($('EJECUTAR - 01 INGESTA (Drive real)').first().json.data || {}).cierres) || [];\nconst vistos = {};\nconst items = [{ tipo: 'macros', id: String(macros[0].id), name: rp.macros_nombre, ruta_destino: rp.dir_entrada + '/' + rp.macros_nombre }];\ningesta.forEach(function (c) {\n  if (c && c.estado_ingesta === 'ENCONTRADO' && c.drive_file_id && c.archivo_esperado && !vistos[c.drive_file_id]) {\n    vistos[c.drive_file_id] = true;\n    items.push({ tipo: 'cierre', id: String(c.drive_file_id), name: c.archivo_esperado, ruta_destino: rp.dir_cierres + '/' + c.archivo_esperado });\n  }\n});\nreturn items.map(function (it) { return { json: Object.assign({ hay_error: false }, it) }; });"
+        "jsCode": "// MACROS oficial: EXACTAMENTE un archivo cuyo nombre empiece con \"MACROS\" (.xlsm o .xlsx) dentro de la carpeta\n// del periodo ya resuelta (0 -> error explicito, >1 -> ERROR_AMBIGUO_MACROS; nunca se elige uno arbitrariamente,\n// nunca se asume un nombre exacto fijo: el MACROS de agosto se llamaba distinto al de septiembre en Drive real).\n// Si la carpeta del anio o del mes ya fallo (hay_error), se propaga ese mismo error sin tocar Drive de nuevo.\n// Cierres: cada ENCONTRADO por la ingesta se descarga por su drive_file_id (identidad exacta ya resuelta), con el\n// nombre esperado. Los errores no lanzan: salen como un item hay_error para que el lote quede en ERROR con un\n// mensaje funcional (la interfaz no espera indefinidamente).\nconst rpMes = $('VERIFICAR - Carpeta mes MACROS').first().json;\nif (rpMes.hay_error) {\n  return [{ json: { hay_error: true, mensaje_error: rpMes.mensaje_error } }];\n}\nconst rp = $('RESOLVER procesar_entrada (MACROS y cierres)').first().json;\nconst candidatos = $('BUSCAR MACROS oficial (Drive)').all()\n  .map(function (i) { return i.json; })\n  .filter(function (j) { return j && j.id && typeof j.name === 'string' && j.name.indexOf('MACROS') === 0 && (j.name.slice(-5) === '.xlsm' || j.name.slice(-5) === '.xlsx'); });\nif (candidatos.length === 0) {\n  return [{ json: { hay_error: true, mensaje_error: 'MACROS_OFICIAL_NO_ENCONTRADO: no existe ningun archivo \"MACROS*.xlsm/.xlsx\" en la carpeta oficial de MACROS del periodo ' + rp.periodo + ' en Drive. Procesar no usa una copia local como sustituto.' } }];\n}\nif (candidatos.length > 1) {\n  return [{ json: { hay_error: true, mensaje_error: 'ERROR_AMBIGUO_MACROS: hay ' + candidatos.length + ' archivos \"MACROS*\" en la carpeta oficial de MACROS del periodo ' + rp.periodo + '. No se elige ninguno: deje uno solo y vuelva a procesar.' } }];\n}\nconst macrosNombre = candidatos[0].name;\nconst ingesta = (($('EJECUTAR - 01 INGESTA (Drive real)').first().json.data || {}).cierres) || [];\nconst vistos = {};\nconst items = [{ tipo: 'macros', id: String(candidatos[0].id), name: macrosNombre, ruta_destino: rp.dir_entrada + '/' + macrosNombre }];\ningesta.forEach(function (c) {\n  if (c && c.estado_ingesta === 'ENCONTRADO' && c.drive_file_id && c.archivo_esperado && !vistos[c.drive_file_id]) {\n    vistos[c.drive_file_id] = true;\n    items.push({ tipo: 'cierre', id: String(c.drive_file_id), name: c.archivo_esperado, ruta_destino: rp.dir_cierres + '/' + c.archivo_esperado });\n  }\n});\nreturn items.map(function (it) { return { json: Object.assign({ hay_error: false }, it) }; });"
       }
     },
     {
@@ -5864,6 +6034,21 @@
         }
       },
       {
+        "id": "b2b2b2b2-0001-4a1a-9a1a-000000000101",
+        "name": "RESOLVER - Drive entrada por caja (INGESTA)",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          900,
+          500
+        ],
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "// FASE CAJA-AMERICA: /procesar debe pedirle a \"01 INGESTA\" el folder_entrada\n// de la CAJA del LOTE (identidad ya persistida por crear_lote_pendiente,\n// nunca del request) -- antes este nodo no existia y \"EJECUTAR - 01 INGESTA\n// (Drive real)\" tenia el folder de 00_ENTRADA_CIERRES de TIQUIPAYA fijo,\n// asi que un lote de AMERICA leia igual los cierres de TIQUIPAYA. Copia de\n// referencia EXACTA del resolverDestino('entrada') del nodo \"RESOLVER -\n// Destinos Drive por caja\" (06B PUBLICACION OFICIAL / PREFLIGHT OFICIAL) y\n// de config_drive_oficial.resolver_destinos_drive() en el backend Python --\n// misma identidad; mantener las 3 copias sincronizadas.\nconst caja = ((($('INTERPRETAR resultado crear_lote_pendiente').first().json.data || {}).caja) || 'tiquipaya').toString().trim().toLowerCase();\n\nif (caja !== 'tiquipaya' && caja !== 'america') {\n  throw new Error('CAJA_DESCONOCIDA: \"' + caja + '\". Cajas validas: america, tiquipaya.');\n}\n\n// Default TIQUIPAYA: EXACTAMENTE el folder ID historico de 00_ENTRADA_CIERRES\n// (idem config_drive_oficial._TIQ_DEFAULTS['entrada']). AMERICA no tiene\n// default a proposito -- sin DRIVE_ENTRADA_AME configurada, falla cerrado,\n// nunca hereda el folder de TIQUIPAYA.\nconst DEFAULT_ENTRADA_TIQ = '1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1';\nconst envVar = 'DRIVE_ENTRADA_' + (caja === 'america' ? 'AME' : 'TIQ');\nconst valor = $env[envVar];\nconst folderEntrada = valor || (caja === 'tiquipaya' ? DEFAULT_ENTRADA_TIQ : null);\nif (!folderEntrada) {\n  throw new Error('DRIVE_AME_PENDIENTE: falta configurar ' + envVar + ' (carpeta \"entrada\" de CAJA AMERICA todavia no existe en Drive).');\n}\n\nreturn [{ json: { caja: caja, folder_entrada: folderEntrada } }];"
+        }
+      },
+      {
         "id": "c241bf98-0a91-4e99-9191-6d32c4e4fbb4",
         "name": "EJECUTAR - 01 INGESTA (Drive real)",
         "type": "n8n-nodes-base.executeWorkflow",
@@ -5886,7 +6071,7 @@
             "value": {
               "fecha_inicio": "={{ $('WEBHOOK procesar').item.json.body.fecha_inicio }}",
               "fecha_fin": "={{ $('WEBHOOK procesar').item.json.body.fecha_fin }}",
-              "drive_folder_entrada": "1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1",
+              "drive_folder_entrada": "={{ $('RESOLVER - Drive entrada por caja (INGESTA)').first().json.folder_entrada }}",
               "candidatos_por_fecha": {},
               "source_mode": "drive_readonly"
             },
@@ -7950,7 +8135,7 @@
               "index": 0
             },
             {
-              "node": "EJECUTAR - 01 INGESTA (Drive real)",
+              "node": "RESOLVER - Drive entrada por caja (INGESTA)",
               "type": "main",
               "index": 0
             }
@@ -9418,6 +9603,17 @@
           [
             {
               "node": "BUSCAR historico CxC/CxP maestro (Drive)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "RESOLVER - Drive entrada por caja (INGESTA)": {
+        "main": [
+          [
+            {
+              "node": "EJECUTAR - 01 INGESTA (Drive real)",
               "type": "main",
               "index": 0
             }
