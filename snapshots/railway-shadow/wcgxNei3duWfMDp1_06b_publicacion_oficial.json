@@ -359,11 +359,22 @@
         ]
       ]
     },
-    "GUARDIA SHADOW (bloquea si TIQ_BLOCK_OFFICIAL_PUBLISH)": {
+    "RESOLVER - Destinos Drive por caja": {
       "main": [
         [
           {
             "node": "BUSCAR - Marker existente en Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GUARDIA SHADOW (bloquea si TIQ_BLOCK_OFFICIAL_PUBLISH)": {
+      "main": [
+        [
+          {
+            "node": "RESOLVER - Destinos Drive por caja",
             "type": "main",
             "index": 0
           }
@@ -416,9 +427,28 @@
             {
               "name": "usuario_auditor",
               "type": "string"
+            },
+            {
+              "name": "caja",
+              "type": "string"
             }
           ]
         }
+      }
+    },
+    {
+      "id": "f1a4c1a2-6f1b-4d6a-9a7c-1b1c9c2d3e4f",
+      "name": "RESOLVER - Destinos Drive por caja",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const T = $('ENTRADA (Execute Workflow Trigger)').item.json;\nconst caja = (T.caja || 'tiquipaya').toString().trim().toLowerCase();\n\nif (caja !== 'tiquipaya' && caja !== 'america') {\n  throw new Error('CAJA_DESCONOCIDA: \"' + caja + '\". Cajas validas: america, tiquipaya.');\n}\n\n// Defaults TIQUIPAYA: EXACTAMENTE los folder IDs historicos de este\n// workflow (FASE 11A.1/11A.2). Solo se usan si DRIVE_*_TIQ no esta\n// definida -- asi TIQUIPAYA sigue funcionando igual que siempre aunque\n// no se despliegue ninguna variable de entorno nueva.\nconst DEFAULTS_TIQ = {\n  entrada: '1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1',\n  sap: '1mid4gUHnCmZbISlsAYMwWta3RudTSE13',\n  resultado: '16Z7Uhf-NgiZ6YuqWLnReaIozRIiOg5HO',\n  procesados: '1BkNC6lnonMM7YeWDKck-TM8WTyY2BJJP',\n  marker: '1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu',\n};\n\n// AMERICA: SIN defaults a proposito -- no existen carpetas reales todavia\n// y NUNCA se reutilizan las de TIQUIPAYA. Hasta que DRIVE_*_AME se\n// configure, cualquier intento de publicar como america falla cerrado.\nconst PREFIJOS = {\n  tiquipaya: ['SAP_TIQ_', 'SAP_GLOBAL_TIQ_', 'RESULTADO_TIQ_'],\n  america: ['SAP_AME_', 'SAP_GLOBAL_AME_', 'RESULTADO_AME_'],\n};\n\nfunction validarPrefijo(nombreArchivo) {\n  if (!nombreArchivo) return;\n  const propios = PREFIJOS[caja];\n  if (propios.some(function (p) { return nombreArchivo.startsWith(p); })) return;\n  const otras = Object.keys(PREFIJOS).filter(function (c) { return c !== caja; });\n  for (const otra of otras) {\n    if (PREFIJOS[otra].some(function (p) { return nombreArchivo.startsWith(p); })) {\n      throw new Error('PREFIJO_CAJA_NO_COINCIDE: \"' + nombreArchivo + '\" tiene prefijo de ' + otra.toUpperCase() + ' pero se esta publicando como ' + caja.toUpperCase() + '.');\n    }\n  }\n}\n\nvalidarPrefijo((T.ruta_sap_publicado || '').split('/').pop());\nvalidarPrefijo((T.ruta_resultado_publicado || '').split('/').pop());\n\nfunction resolverDestino(clave) {\n  const envVar = 'DRIVE_' + clave.toUpperCase() + '_' + (caja === 'america' ? 'AME' : 'TIQ');\n  const valor = $env[envVar];\n  if (valor) return valor;\n  if (caja === 'tiquipaya') return DEFAULTS_TIQ[clave];\n  throw new Error('DRIVE_AME_PENDIENTE: falta configurar ' + envVar + ' (carpeta \"' + clave + '\" de CAJA AMERICA todavia no existe en Drive).');\n}\n\nreturn [{ json: {\n  caja: caja,\n  folder_entrada: resolverDestino('entrada'),\n  folder_sap: resolverDestino('sap'),\n  folder_resultado: resolverDestino('resultado'),\n  folder_procesados: resolverDestino('procesados'),\n  folder_marker: resolverDestino('marker'),\n} }];"
       }
     },
     {
@@ -439,7 +469,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_marker }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -496,7 +526,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nreturn [{ json: {\n  fecha: t.fecha, sha256: t.sha256,\n  estado_publicacion: 'YA_PUBLICADO', publicado: false,\n  mensaje: 'Marcador ya existe en Drive (oficial): no se republica (idempotencia SHA256).',\n} }];"
+        "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst caja = $('RESOLVER - Destinos Drive por caja').first().json.caja;\nreturn [{ json: {\n  fecha: t.fecha, sha256: t.sha256, caja: caja,\n  estado_publicacion: 'YA_PUBLICADO', publicado: false,\n  mensaje: 'Marcador ya existe en Drive (oficial): no se republica (idempotencia SHA256).',\n} }];"
       }
     },
     {
@@ -517,7 +547,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "1mid4gUHnCmZbISlsAYMwWta3RudTSE13"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_sap }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -627,7 +657,7 @@
         "folderId": {
           "__rl": true,
           "mode": "id",
-          "value": "1mid4gUHnCmZbISlsAYMwWta3RudTSE13"
+          "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_sap }}"
         },
         "options": {}
       },
@@ -671,7 +701,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "16Z7Uhf-NgiZ6YuqWLnReaIozRIiOg5HO"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_resultado }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -781,7 +811,7 @@
         "folderId": {
           "__rl": true,
           "mode": "id",
-          "value": "16Z7Uhf-NgiZ6YuqWLnReaIozRIiOg5HO"
+          "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_resultado }}"
         },
         "options": {}
       },
@@ -825,7 +855,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_entrada }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -918,7 +948,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "1BkNC6lnonMM7YeWDKck-TM8WTyY2BJJP"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_procesados }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -1033,7 +1063,7 @@
         "folderId": {
           "__rl": true,
           "mode": "id",
-          "value": "1BkNC6lnonMM7YeWDKck-TM8WTyY2BJJP"
+          "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_procesados }}"
         }
       },
       "credentials": {
@@ -1064,7 +1094,7 @@
         "folderId": {
           "__rl": true,
           "mode": "id",
-          "value": "1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu"
+          "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_marker }}"
         },
         "options": {}
       },
@@ -1087,7 +1117,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nreturn [{ json: {\n  fecha: t.fecha, sha256: t.sha256,\n  estado_publicacion: 'PUBLICADO_OFICIAL', publicado: true,\n  drive_entrada_file_id: $('CONSOLIDAR - Cierre resuelto').first().json.cierre_file_id,\n  drive_sap_file_id: $('CONSOLIDAR - SAP resuelto').first().json.sap_file_id,\n  drive_resultado_file_id: $('CONSOLIDAR - Resultado resuelto').first().json.resultado_file_id,\n  drive_marker_file_id: $json.id,\n  mensaje: 'Cierre publicado oficialmente en Drive: SAP + resultado + cierre movido a 03_PROCESADOS + marcador.',\n} }];"
+        "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst caja = $('RESOLVER - Destinos Drive por caja').first().json.caja;\nreturn [{ json: {\n  fecha: t.fecha, sha256: t.sha256, caja: caja,\n  estado_publicacion: 'PUBLICADO_OFICIAL', publicado: true,\n  drive_entrada_file_id: $('CONSOLIDAR - Cierre resuelto').first().json.cierre_file_id,\n  drive_sap_file_id: $('CONSOLIDAR - SAP resuelto').first().json.sap_file_id,\n  drive_resultado_file_id: $('CONSOLIDAR - Resultado resuelto').first().json.resultado_file_id,\n  drive_marker_file_id: $json.id,\n  mensaje: 'Cierre publicado oficialmente en Drive: SAP + resultado + cierre movido a 03_PROCESADOS + marcador.',\n} }];"
       }
     },
     {

@@ -20,7 +20,7 @@
       "main": [
         [
           {
-            "node": "BUSCAR - Carpeta ENTRADA accesible",
+            "node": "RESOLVER - Destinos Drive por caja",
             "type": "main",
             "index": 0
           }
@@ -125,6 +125,17 @@
           }
         ]
       ]
+    },
+    "RESOLVER - Destinos Drive por caja": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Carpeta ENTRADA accesible",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "nodes": [
@@ -164,9 +175,28 @@
             {
               "name": "ruta_resultado_publicado",
               "type": "string"
+            },
+            {
+              "name": "caja",
+              "type": "string"
             }
           ]
         }
+      }
+    },
+    {
+      "id": "f1a4c1a2-6f1b-4d6a-9a7c-1b1c9c2d3e4f",
+      "name": "RESOLVER - Destinos Drive por caja",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const T = $('ENTRADA (Execute Workflow Trigger)').item.json;\nconst caja = (T.caja || 'tiquipaya').toString().trim().toLowerCase();\n\nif (caja !== 'tiquipaya' && caja !== 'america') {\n  throw new Error('CAJA_DESCONOCIDA: \"' + caja + '\". Cajas validas: america, tiquipaya.');\n}\n\n// Defaults TIQUIPAYA: EXACTAMENTE los folder IDs historicos de este\n// workflow (FASE 11A.1/11A.2). Solo se usan si DRIVE_*_TIQ no esta\n// definida -- asi TIQUIPAYA sigue funcionando igual que siempre aunque\n// no se despliegue ninguna variable de entorno nueva.\nconst DEFAULTS_TIQ = {\n  entrada: '1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1',\n  sap: '1mid4gUHnCmZbISlsAYMwWta3RudTSE13',\n  resultado: '16Z7Uhf-NgiZ6YuqWLnReaIozRIiOg5HO',\n  procesados: '1BkNC6lnonMM7YeWDKck-TM8WTyY2BJJP',\n  marker: '1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu',\n};\n\n// AMERICA: SIN defaults a proposito -- no existen carpetas reales todavia\n// y NUNCA se reutilizan las de TIQUIPAYA. Hasta que DRIVE_*_AME se\n// configure, cualquier intento de publicar como america falla cerrado.\nconst PREFIJOS = {\n  tiquipaya: ['SAP_TIQ_', 'SAP_GLOBAL_TIQ_', 'RESULTADO_TIQ_'],\n  america: ['SAP_AME_', 'SAP_GLOBAL_AME_', 'RESULTADO_AME_'],\n};\n\nfunction validarPrefijo(nombreArchivo) {\n  if (!nombreArchivo) return;\n  const propios = PREFIJOS[caja];\n  if (propios.some(function (p) { return nombreArchivo.startsWith(p); })) return;\n  const otras = Object.keys(PREFIJOS).filter(function (c) { return c !== caja; });\n  for (const otra of otras) {\n    if (PREFIJOS[otra].some(function (p) { return nombreArchivo.startsWith(p); })) {\n      throw new Error('PREFIJO_CAJA_NO_COINCIDE: \"' + nombreArchivo + '\" tiene prefijo de ' + otra.toUpperCase() + ' pero se esta publicando como ' + caja.toUpperCase() + '.');\n    }\n  }\n}\n\nvalidarPrefijo((T.ruta_sap_publicado || '').split('/').pop());\nvalidarPrefijo((T.ruta_resultado_publicado || '').split('/').pop());\n\nfunction resolverDestino(clave) {\n  const envVar = 'DRIVE_' + clave.toUpperCase() + '_' + (caja === 'america' ? 'AME' : 'TIQ');\n  const valor = $env[envVar];\n  if (valor) return valor;\n  if (caja === 'tiquipaya') return DEFAULTS_TIQ[clave];\n  throw new Error('DRIVE_AME_PENDIENTE: falta configurar ' + envVar + ' (carpeta \"' + clave + '\" de CAJA AMERICA todavia no existe en Drive).');\n}\n\nreturn [{ json: {\n  caja: caja,\n  folder_entrada: resolverDestino('entrada'),\n  folder_sap: resolverDestino('sap'),\n  folder_resultado: resolverDestino('resultado'),\n  folder_procesados: resolverDestino('procesados'),\n  folder_marker: resolverDestino('marker'),\n} }];"
       }
     },
     {
@@ -187,7 +217,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_entrada }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -219,7 +249,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "1mid4gUHnCmZbISlsAYMwWta3RudTSE13"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_sap }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -251,7 +281,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "16Z7Uhf-NgiZ6YuqWLnReaIozRIiOg5HO"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_resultado }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -283,7 +313,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "1BkNC6lnonMM7YeWDKck-TM8WTyY2BJJP"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_procesados }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -315,7 +345,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_marker }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -347,7 +377,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "1i8wXRM-2yiH5N3SPOEd4eEqZnizCeCGu"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_marker }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -380,7 +410,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_entrada }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -413,7 +443,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "1mid4gUHnCmZbISlsAYMwWta3RudTSE13"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_sap }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -446,7 +476,7 @@
           "folderId": {
             "__rl": true,
             "mode": "id",
-            "value": "16Z7Uhf-NgiZ6YuqWLnReaIozRIiOg5HO"
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_resultado }}"
           },
           "whatToSearch": "files",
           "includeTrashed": false
@@ -473,7 +503,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst marker = $('BUSCAR - Marker existente (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.id;});\nconst cierre = $('BUSCAR - Cierre exacto en ENTRADA (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.name === t.archivo_esperado && j.id;});\nconst sap = $('BUSCAR - SAP oficial existente (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.name === t.ruta_sap_publicado.split('/').pop() && j.id;});\nconst resultado = $('BUSCAR - Resultado oficial existente (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.name === t.ruta_resultado_publicado.split('/').pop() && j.id;});\n\nconst markerYaExiste = marker.length > 0;\nconst cierreAmbiguo = cierre.length > 1;\nconst cierreResuelto = cierre.length === 1;\nconst cierreFileIdCoincide = cierreResuelto && (!t.drive_file_id || cierre[0].id === t.drive_file_id);\nconst sapDuplicado = sap.length > 1;\nconst sapYaExiste = sap.length === 1;\nconst resultadoDuplicado = resultado.length > 1;\nconst resultadoYaExiste = resultado.length === 1;\n\nconst bloqueadores = [];\nif (markerYaExiste) bloqueadores.push('MARKER_YA_EXISTE');\nif (cierreAmbiguo) bloqueadores.push('CIERRE_AMBIGUO_EN_ENTRADA');\nif (!cierreResuelto && !markerYaExiste) bloqueadores.push('CIERRE_NO_RESUELTO_EN_ENTRADA');\nif (cierreResuelto && !cierreFileIdCoincide) bloqueadores.push('FILEID_INGESTA_NO_COINCIDE');\nif (sapDuplicado) bloqueadores.push('SAP_DUPLICADO');\nif (resultadoDuplicado) bloqueadores.push('RESULTADO_DUPLICADO');\n\nreturn [{ json: {\n  fecha: t.fecha, archivo_esperado: t.archivo_esperado, sha256: t.sha256,\n  carpetas_accesibles: true,\n  marker_ya_existe: markerYaExiste,\n  cierre_resuelto: cierreResuelto, cierre_ambiguo: cierreAmbiguo, cierre_fileid_coincide: cierreFileIdCoincide,\n  sap_ya_existe: sapYaExiste, sap_duplicado: sapDuplicado,\n  resultado_ya_existe: resultadoYaExiste, resultado_duplicado: resultadoDuplicado,\n  bloqueadores: bloqueadores,\n  apto_para_publicar: bloqueadores.length === 0,\n  mensaje: bloqueadores.length === 0\n    ? (markerYaExiste ? 'YA_PUBLICADO (idempotente): nada que bloquee, pero tampoco hay nada nuevo que publicar.' : 'Apto para publicar: carpetas accesibles, cierre resuelto, sin duplicados.')\n    : 'Bloqueado: ' + bloqueadores.join(', '),\n} }];"
+        "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst caja = $('RESOLVER - Destinos Drive por caja').first().json.caja;\nconst marker = $('BUSCAR - Marker existente (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.id;});\nconst cierre = $('BUSCAR - Cierre exacto en ENTRADA (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.name === t.archivo_esperado && j.id;});\nconst sap = $('BUSCAR - SAP oficial existente (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.name === t.ruta_sap_publicado.split('/').pop() && j.id;});\nconst resultado = $('BUSCAR - Resultado oficial existente (preflight)').all().map(function(it){return it.json;}).filter(function(j){return j && j.name === t.ruta_resultado_publicado.split('/').pop() && j.id;});\n\nconst markerYaExiste = marker.length > 0;\nconst cierreAmbiguo = cierre.length > 1;\nconst cierreResuelto = cierre.length === 1;\nconst cierreFileIdCoincide = cierreResuelto && (!t.drive_file_id || cierre[0].id === t.drive_file_id);\nconst sapDuplicado = sap.length > 1;\nconst sapYaExiste = sap.length === 1;\nconst resultadoDuplicado = resultado.length > 1;\nconst resultadoYaExiste = resultado.length === 1;\n\nconst bloqueadores = [];\nif (markerYaExiste) bloqueadores.push('MARKER_YA_EXISTE');\nif (cierreAmbiguo) bloqueadores.push('CIERRE_AMBIGUO_EN_ENTRADA');\nif (!cierreResuelto && !markerYaExiste) bloqueadores.push('CIERRE_NO_RESUELTO_EN_ENTRADA');\nif (cierreResuelto && !cierreFileIdCoincide) bloqueadores.push('FILEID_INGESTA_NO_COINCIDE');\nif (sapDuplicado) bloqueadores.push('SAP_DUPLICADO');\nif (resultadoDuplicado) bloqueadores.push('RESULTADO_DUPLICADO');\n\nreturn [{ json: {\n  fecha: t.fecha, archivo_esperado: t.archivo_esperado, sha256: t.sha256, caja: caja,\n  carpetas_accesibles: true,\n  marker_ya_existe: markerYaExiste,\n  cierre_resuelto: cierreResuelto, cierre_ambiguo: cierreAmbiguo, cierre_fileid_coincide: cierreFileIdCoincide,\n  sap_ya_existe: sapYaExiste, sap_duplicado: sapDuplicado,\n  resultado_ya_existe: resultadoYaExiste, resultado_duplicado: resultadoDuplicado,\n  bloqueadores: bloqueadores,\n  apto_para_publicar: bloqueadores.length === 0,\n  mensaje: bloqueadores.length === 0\n    ? (markerYaExiste ? 'YA_PUBLICADO (idempotente): nada que bloquee, pero tampoco hay nada nuevo que publicar.' : 'Apto para publicar: carpetas accesibles, cierre resuelto, sin duplicados.')\n    : 'Bloqueado: ' + bloqueadores.join(', '),\n} }];"
       }
     },
     {
