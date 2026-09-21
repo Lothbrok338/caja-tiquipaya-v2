@@ -16,6 +16,7 @@ Uso: python -m pytest tests_v3/test_dev_api_caja_america.py -q
 import os
 import sys
 
+import openpyxl
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -26,26 +27,50 @@ import run_batch  # noqa: E402
 from v3.clasificacion import LISTO_PARA_PUBLICAR  # noqa: E402
 from v3 import dev_api  # noqa: E402
 import config_cajas as cfg  # noqa: E402
+from tests.test_caja_america import crear_cierre_america  # noqa: E402
 
 
 _SFC_VACIO = {"total_movimiento": "0.00", "cobros_atc": "0.00", "dolares": "0.00", "depositos": []}
+_SFC_VACIO_AME = dict(_SFC_VACIO, posgrado_reserva="0.00")  # AMERICA exige este campo
 
 
-def _preparar_origen(tmp_path, fechas):
+def _preparar_origen(tmp_path, fechas, caja=None):
     """Mismo patrón que tests_v3/test_dev_api.py::_preparar_origen: el
-    contenido del cierre/maestro no importa aquí (INGESTA/MATERIALIZACION/
-    PRECHECK son agnósticos de caja; solo se necesita que existan para que
-    la cadena 01→03 llegue hasta ejecutar_motor, que en estas pruebas se
-    reemplaza por un doble)."""
+    contenido del cierre/maestro no importa aquí más allá de lo que exige
+    el PRECHECK (v3/precheck_maestro.py, FASE 10C) según la caja: hojas
+    SFC de esa caja (para poder leer cobros_atc) y, si `caja` no es
+    TIQUIPAYA, columna CAJA en el ATC del maestro (un maestro histórico
+    sin esa columna falla cerrado para cualquier otra caja -- ver
+    excel_io._resolver_columna_caja). Solo se necesita que la cadena
+    01->03 llegue hasta ejecutar_motor, que en estas pruebas se reemplaza
+    por un doble."""
+    caja_resuelta = cfg.resolver_caja(caja)
     origen_dir = tmp_path / "origen_drive"
     origen_dir.mkdir()
     for fecha in fechas:
         nombre = run_batch.nombre_cierre_esperado(fecha)
-        fx.crear_cierre(str(origen_dir / nombre), _SFC_VACIO, _SFC_VACIO)
+        if caja_resuelta.codigo == cfg.TIQUIPAYA.codigo:
+            fx.crear_cierre(str(origen_dir / nombre), _SFC_VACIO, _SFC_VACIO)
+        else:
+            crear_cierre_america(str(origen_dir / nombre), _SFC_VACIO_AME, _SFC_VACIO_AME)
     ruta_maestro = tmp_path / "MAESTRO.xlsm"
     macros_filas = [(fecha, "DUMMY-PRECHECK", "0.01") for fecha in fechas]
-    atc_filas = [(fecha, "BANCO (NETO)", "999999999", "DUMMY PRECHECK", "0.00", "DUMMY") for fecha in fechas]
-    fx.crear_maestro_unico(str(ruta_maestro), macros_filas=macros_filas, atc_filas=atc_filas)
+    if caja_resuelta.codigo == cfg.TIQUIPAYA.codigo:
+        atc_filas = [(fecha, "BANCO (NETO)", "999999999", "DUMMY PRECHECK", "0.00", "DUMMY") for fecha in fechas]
+        fx.crear_maestro_unico(str(ruta_maestro), macros_filas=macros_filas, atc_filas=atc_filas)
+    else:
+        # sin filas ATC: cobros_atc="0.00" en ambos SFC -> el cierre no
+        # tuvo movimiento ATC, así que el precheck no exige ninguna fila
+        # (solo exige que la columna CAJA exista en el maestro).
+        wb = openpyxl.Workbook()
+        ws_macros = wb.active
+        ws_macros.title = "Tablas Dinamicas Profesional"
+        ws_macros.append(["Fecha", "Código de Asignación", "Créditos"])
+        for fila in macros_filas:
+            ws_macros.append(list(fila))
+        ws_atc = wb.create_sheet("ATC TIQUIPAYA")
+        ws_atc.append(["FECHA", "TIPO", "CUENTA CONTABLE", "DETALLE", "MONTO", "ASIGNACION", "CAJA"])
+        wb.save(str(ruta_maestro))
     ruta_plantilla = tmp_path / "Plantilla.xlsx"
     fx.crear_plantilla_sap(str(ruta_plantilla))
     return str(origen_dir), str(ruta_maestro), str(ruta_plantilla)
@@ -106,7 +131,7 @@ def test_lote_historico_sin_campo_caja_se_interpreta_tiquipaya(tmp_path):
 
 def test_procesar_lote_pasa_caja_america_al_motor(tmp_path, monkeypatch):
     fecha = "2026-09-01"
-    origen_dir, ruta_maestro, ruta_plantilla = _preparar_origen(tmp_path, [fecha])
+    origen_dir, ruta_maestro, ruta_plantilla = _preparar_origen(tmp_path, [fecha], caja="america")
     base_dir_dev = str(tmp_path / "dev")
 
     llamadas = []

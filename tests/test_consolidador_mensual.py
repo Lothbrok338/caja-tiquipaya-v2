@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import openpyxl
 
+import config_cajas as cfg
 import consolidador_mensual as cm
 from tests.xlsx_fixtures import crear_plantilla_sap
 
@@ -31,7 +32,8 @@ from tests.xlsx_fixtures import crear_plantilla_sap
 # partidas cuadradas desde fila 16).
 # ---------------------------------------------------------------------------
 
-def _crear_sap_diario(ruta, partidas, tipo_asiento="DB", cargar_cabecera_valida=True):
+def _crear_sap_diario(ruta, partidas, tipo_asiento="DB", cargar_cabecera_valida=True,
+                       nombre_sap="CAJA TIQUIPAYA"):
     """partidas: lista de dicts con las claves de una partida (ver
     consolidador_mensual.leer_y_validar_sap_diario). Cargo/Haber pueden
     pasarse como str/Decimal/float; se escriben tal cual (Decimal)."""
@@ -43,7 +45,7 @@ def _crear_sap_diario(ruta, partidas, tipo_asiento="DB", cargar_cabecera_valida=
         ws["B10"] = "BO01"
         ws["C10"] = tipo_asiento
         ws["H10"] = "BOB"
-        ws["L10"] = "CAJA TIQUIPAYA"
+        ws["L10"] = nombre_sap
 
     fila = 16
     for p in partidas:
@@ -412,6 +414,132 @@ class TestSapInvalidoBloquea(_ConsolidadorTestBase):
         self.assertTrue(
             any("CARGO_HABER_INCONSISTENTE" in b for b in resultado["blockers"])
         )
+
+
+# ---------------------------------------------------------------------------
+# BUG real (bloque caja-america): el GLOBAL rechazaba la partida
+# estructural del HABER normal cuando un SFC de la caja quedaba en 0.00
+# (cargo=0.00, haber=0.00), aunque motor_tiquipaya.py la construye
+# deliberadamente así -- una partida real por cada SFC de la caja, no un
+# hueco. Solo se acepta 0/0 cuando es EXACTAMENTE esa partida estructural:
+# cuenta_mayor == caja.cuenta_haber y asignacion in caja.sfcs. Cualquier
+# otra fila 0/0 sigue fallando cerrado.
+# ---------------------------------------------------------------------------
+
+class TestPartidaEstructuralSfcCero(_ConsolidadorTestBase):
+
+    def test_america_sfc108_cero_estructural_aceptada(self):
+        # HABER normal AMERICA: SFC107 con movimiento, SFC108 en 0.00 (la
+        # partida SIGUE presente, con cuenta_haber de AMERICA y asignacion
+        # "SFC108", tal como la construye motor_tiquipaya.py). Se agrega
+        # el DEBE que cuadra el archivo (cuadre propio del SAP diario no
+        # es lo que este test verifica).
+        ruta = self._ruta_diaria(1)
+        _crear_sap_diario(ruta, [
+            {"cuenta_mayor": "210201005", "cargo": "1900.00", "haber": "0.00",
+             "asignacion": "SFC107"},
+            {"cuenta_mayor": "110101003", "cargo": "0.00", "haber": "1900.00",
+             "asignacion": "SFC107"},
+            {"cuenta_mayor": "110101003", "cargo": "0.00", "haber": "0.00",
+             "asignacion": "SFC108"},
+        ], nombre_sap=cfg.AMERICA.nombre_sap)
+        resultado = cm.leer_y_validar_sap_diario(ruta, caja=cfg.AMERICA)
+        self.assertEqual(resultado["problemas"], [])
+        self.assertEqual(resultado["haber_total"], Decimal("1900.00"))
+        self.assertEqual(resultado["cargo_total"], Decimal("1900.00"))
+
+    def test_america_sfc107_cero_estructural_aceptada(self):
+        # Simetrico: SFC108 con movimiento, SFC107 en 0.00.
+        ruta = self._ruta_diaria(1)
+        _crear_sap_diario(ruta, [
+            {"cuenta_mayor": "210201005", "cargo": "1900.00", "haber": "0.00",
+             "asignacion": "SFC108"},
+            {"cuenta_mayor": "110101003", "cargo": "0.00", "haber": "0.00",
+             "asignacion": "SFC107"},
+            {"cuenta_mayor": "110101003", "cargo": "0.00", "haber": "1900.00",
+             "asignacion": "SFC108"},
+        ], nombre_sap=cfg.AMERICA.nombre_sap)
+        resultado = cm.leer_y_validar_sap_diario(ruta, caja=cfg.AMERICA)
+        self.assertEqual(resultado["problemas"], [])
+
+    def test_tiquipaya_sfc101_102_cero_estructural_compatibilidad(self):
+        # Compatibilidad: TIQUIPAYA (default) tambien acepta su propia
+        # partida estructural en 0/0 (cuenta_haber TIQUIPAYA, asignacion
+        # SFC101/SFC102).
+        ruta = self._ruta_diaria(1)
+        _crear_sap_diario(ruta, [
+            {"cuenta_mayor": "210201005", "cargo": "500.00", "haber": "0.00",
+             "asignacion": "SFC101"},
+            {"cuenta_mayor": "110101001", "cargo": "0.00", "haber": "500.00",
+             "asignacion": "SFC101"},
+            {"cuenta_mayor": "110101001", "cargo": "0.00", "haber": "0.00",
+             "asignacion": "SFC102"},
+        ])
+        resultado = cm.leer_y_validar_sap_diario(ruta)  # sin caja -> TIQUIPAYA
+        self.assertEqual(resultado["problemas"], [])
+
+    def test_cero_con_otra_cuenta_falla(self):
+        # Misma asignacion valida (SFC108) pero cuenta_mayor distinta de
+        # caja.cuenta_haber: no es la partida estructural, sigue bloqueando.
+        ruta = self._ruta_diaria(1)
+        _crear_sap_diario(ruta, [
+            {"cuenta_mayor": "999999999", "cargo": "0.00", "haber": "0.00",
+             "asignacion": "SFC108"},
+        ], nombre_sap=cfg.AMERICA.nombre_sap)
+        resultado = cm.leer_y_validar_sap_diario(ruta, caja=cfg.AMERICA)
+        self.assertTrue(
+            any("CARGO_HABER_INCONSISTENTE" in p for p in resultado["problemas"])
+        )
+
+    def test_cero_con_asignacion_no_sfc_falla(self):
+        # cuenta_mayor correcta pero asignacion que no es un SFC de la
+        # caja: tampoco es la partida estructural, sigue bloqueando.
+        ruta = self._ruta_diaria(1)
+        _crear_sap_diario(ruta, [
+            {"cuenta_mayor": "110101003", "cargo": "0.00", "haber": "0.00",
+             "asignacion": "POSTG-SEPT"},
+        ], nombre_sap=cfg.AMERICA.nombre_sap)
+        resultado = cm.leer_y_validar_sap_diario(ruta, caja=cfg.AMERICA)
+        self.assertTrue(
+            any("CARGO_HABER_INCONSISTENTE" in p for p in resultado["problemas"])
+        )
+
+    def test_ambos_positivos_en_partida_estructural_sigue_invalido(self):
+        # Aunque cuenta_mayor/asignacion coincidan con la partida
+        # estructural, ambos > 0 sigue siendo SIEMPRE invalido.
+        ruta = self._ruta_diaria(1)
+        _crear_sap_diario(ruta, [
+            {"cuenta_mayor": "110101003", "cargo": "10.00", "haber": "10.00",
+             "asignacion": "SFC108"},
+        ], nombre_sap=cfg.AMERICA.nombre_sap)
+        resultado = cm.leer_y_validar_sap_diario(ruta, caja=cfg.AMERICA)
+        self.assertTrue(
+            any("CARGO_HABER_INCONSISTENTE" in p for p in resultado["problemas"])
+        )
+
+    def test_global_america_con_sfc_en_cero_consolida_correctamente(self):
+        # Integracion completa: un SAP diario AMERICA con SFC108 en 0/0
+        # estructural consolida sin blockers y el GLOBAL queda cuadrado.
+        sap_dir = os.path.join(self.tmpdir, "sap_diarios_ame")
+        os.makedirs(sap_dir)
+        ruta_diaria = os.path.join(sap_dir, "SAP_AME_01-08-2026.xlsx")
+        _crear_sap_diario(ruta_diaria, [
+            {"cuenta_mayor": "110101003", "cargo": "0.00", "haber": "1900.00",
+             "asignacion": "SFC107", "fecha_valor": datetime.date(2026, 8, 1)},
+            {"cuenta_mayor": "110101003", "cargo": "0.00", "haber": "0.00",
+             "asignacion": "SFC108", "fecha_valor": datetime.date(2026, 8, 1)},
+            {"cuenta_mayor": "210201005", "cargo": "1900.00", "haber": "0.00",
+             "asignacion": "SFC107", "fecha_valor": datetime.date(2026, 8, 1)},
+        ], nombre_sap=cfg.AMERICA.nombre_sap)
+
+        ruta_salida = os.path.join(self.tmpdir, "SAP_GLOBAL_AME_AGOSTO_2026.xlsx")
+        args = self._args(sap_dir=sap_dir, salida=ruta_salida)
+        args.caja = cfg.AMERICA
+
+        resultado = cm.ejecutar_consolidacion(args)
+        self.assertEqual(resultado["estado"], "VALIDADO_PENDIENTE_PUBLICACION", resultado)
+        self.assertEqual(resultado["cargo_global"], resultado["haber_global"])
+        self.assertTrue(os.path.isfile(ruta_salida))
 
 
 # ---------------------------------------------------------------------------

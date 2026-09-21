@@ -62,6 +62,7 @@ from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import config_cajas as cfg  # noqa: E402  (reutilizado tal cual: resolver_caja)
 import excel_io  # noqa: E402  (reutilizado tal cual, ver docstring)
 from v3.materializacion import MATERIALIZADO  # noqa: E402
 from v3.motor import NO_PROCESADO  # noqa: E402
@@ -85,27 +86,31 @@ def _fecha_maxima_macros(ruta_maestro):
     return _fecha_maxima(fechas)
 
 
-def _fecha_maxima_atc(ruta_maestro):
-    atc = excel_io.leer_atc_mensual(ruta_maestro)
+def _fecha_maxima_atc(ruta_maestro, caja=None):
+    atc = excel_io.leer_atc_mensual(ruta_maestro, caja=caja)
     return _fecha_maxima(atc["por_fecha"].keys())
 
 
-def _cierre_tiene_movimiento_atc(ruta_cierre):
+def _cierre_tiene_movimiento_atc(ruta_cierre, caja=None):
     """MISMO criterio EXACTO que motor_tiquipaya.cruzar_atc_preconciliado()
-    usa para decidir ATC_NO_APLICA: bruto_cierre = cobros_atc(SFC101) +
-    cobros_atc(SFC102). Reutiliza excel_io.leer_cierre() (mismo parser que
-    ya usa V2/V3) -- no reinterpreta el archivo del cierre."""
-    cierre = excel_io.leer_cierre(ruta_cierre)
-    bruto = Decimal(cierre["sfc101"]["cobros_atc"]) + Decimal(cierre["sfc102"]["cobros_atc"])
+    usa para decidir ATC_NO_APLICA: bruto_cierre = suma de cobros_atc de
+    los DOS SFC de la caja (SFC101/SFC102 para TIQUIPAYA, SFC107/SFC108
+    para AMERICA — nunca hardcodeado). Reutiliza excel_io.leer_cierre()
+    (mismo parser que ya usa V2/V3) -- no reinterpreta el archivo del cierre."""
+    caja = cfg.resolver_caja(caja)
+    cierre = excel_io.leer_cierre(ruta_cierre, caja=caja)
+    bruto = sum(Decimal(cierre[clave]["cobros_atc"]) for clave in caja.claves_sfc)
     return bruto != 0
 
 
-def _depositos_del_cierre(ruta_cierre):
-    """Fechas de depósito (YYYY-MM-DD) de SFC101/SFC102, separadas en plausibles
-    (mismo año que el cierre) y anómalas (otro año, p. ej. un tipeo 2016 en vez de
-    2026). Reutiliza excel_io.leer_cierre(); nunca corrige la fecha del cierre."""
-    cierre = excel_io.leer_cierre(ruta_cierre)
-    return cierre, [d.get("fecha_deposito") for k in ("sfc101", "sfc102") for d in cierre[k]["depositos"]]
+def _depositos_del_cierre(ruta_cierre, caja=None):
+    """Fechas de depósito (YYYY-MM-DD) de los DOS SFC de la caja, separadas
+    en plausibles (mismo año que el cierre) y anómalas (otro año, p. ej. un
+    tipeo 2016 en vez de 2026). Reutiliza excel_io.leer_cierre(); nunca
+    corrige la fecha del cierre."""
+    caja = cfg.resolver_caja(caja)
+    cierre = excel_io.leer_cierre(ruta_cierre, caja=caja)
+    return cierre, [d.get("fecha_deposito") for k in caja.claves_sfc for d in cierre[k]["depositos"]]
 
 
 def _clasificar_fechas_deposito(fechas, fecha_cierre):
@@ -115,7 +120,7 @@ def _clasificar_fechas_deposito(fechas, fecha_cierre):
     return plausibles, anomalas
 
 
-def _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre):
+def _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre, caja=None):
     """Evalúa UN maestro (más el propio cierre, para saber si ese día tuvo
     movimiento ATC) contra UNA fecha de cierre. Devuelve dict con
     EXACTAMENTE estas claves: estado, fecha_cierre, fecha_maxima_macros,
@@ -137,9 +142,10 @@ def _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre):
     o un cierre cuyo archivo no se puede leer para determinar si tuvo
     movimiento ATC, SIEMPRE bloquea — nunca se asume apto por defecto ante
     evidencia insuficiente ("no adivinar")."""
+    caja = cfg.resolver_caja(caja)
     try:
         fecha_maxima_macros = _fecha_maxima_macros(ruta_maestro)
-        atc = excel_io.leer_atc_mensual(ruta_maestro)
+        atc = excel_io.leer_atc_mensual(ruta_maestro, caja=caja)
     except Exception as exc:
         return {
             "estado": BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
@@ -181,7 +187,7 @@ def _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre):
         }
 
     try:
-        _cierre, fechas_dep = _depositos_del_cierre(ruta_cierre)
+        _cierre, fechas_dep = _depositos_del_cierre(ruta_cierre, caja=caja)
     except Exception:  # noqa: BLE001 — un cierre ilegible lo reporta el chequeo ATC de abajo, con su mensaje de siempre
         fechas_dep = []
     plausibles, anomalas = _clasificar_fechas_deposito(fechas_dep, fecha_cierre)
@@ -202,7 +208,7 @@ def _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre):
         }
 
     try:
-        tiene_atc = _cierre_tiene_movimiento_atc(ruta_cierre)
+        tiene_atc = _cierre_tiene_movimiento_atc(ruta_cierre, caja=caja)
     except Exception as exc:
         return {
             "estado": BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
@@ -241,14 +247,14 @@ def _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre):
     }
 
 
-def evaluar_cobertura_maestro(ruta_maestro, fecha_cierre, ruta_cierre):
-    r = _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre)
+def evaluar_cobertura_maestro(ruta_maestro, fecha_cierre, ruta_cierre, caja=None):
+    r = _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre, caja=caja)
     r.setdefault("codigo_bloqueo", None)
     r.setdefault("fecha_requerida_deposito", None)
     observaciones = []
     if r["estado"] == MAESTRO_APTO or r.get("codigo_bloqueo") == MACROS_NO_CUBRE_FECHA_DEPOSITO:
         try:
-            _c, fechas_dep = _depositos_del_cierre(ruta_cierre)
+            _c, fechas_dep = _depositos_del_cierre(ruta_cierre, caja=caja)
             _pl, anomalas = _clasificar_fechas_deposito(fechas_dep, fecha_cierre)
             if r.get("fecha_requerida_deposito") is None:
                 r["fecha_requerida_deposito"] = _fecha_maxima(_pl)
@@ -274,13 +280,18 @@ def evaluar_cobertura_maestro(ruta_maestro, fecha_cierre, ruta_cierre):
 # llega al motor, con o sin este precheck).
 # ---------------------------------------------------------------------------
 
-def aplicar_precheck_maestro(cierres_materializados):
+def aplicar_precheck_maestro(cierres_materializados, caja=None):
     """Anota cada item MATERIALIZADO con estado_precheck_maestro/
     fecha_maxima_macros/fecha_maxima_atc/mensaje_precheck_maestro. Los
     demás items pasan intactos (mismo criterio de "no evaluar lo que no
     hace falta" que el resto de V3). Para los items BLOQUEADOS, fija
     también estado_motor=NO_PROCESADO (v3.motor.ejecutar_motor NUNCA
-    los ve — ver filtrar_aptos_para_motor)."""
+    los ve — ver filtrar_aptos_para_motor).
+
+    `caja` (config_cajas.CajaConfig o su `codigo`) decide qué hojas SFC y
+    qué filas ATC (columna CAJA) se evalúan. Por defecto (None) TIQUIPAYA,
+    EXACTAMENTE como antes de que este parámetro existiera."""
+    caja = cfg.resolver_caja(caja)
     resultados = []
     for item in cierres_materializados:
         if item.get("estado_materializacion") != MATERIALIZADO:
@@ -289,6 +300,7 @@ def aplicar_precheck_maestro(cierres_materializados):
 
         cobertura = evaluar_cobertura_maestro(
             item.get("ruta_maestro_local"), item.get("fecha"), item.get("ruta_cierre_local"),
+            caja=caja,
         )
         salida = dict(item)
         salida.update({

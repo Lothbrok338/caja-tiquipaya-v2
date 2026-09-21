@@ -235,7 +235,7 @@ def procesar_lote(lote_id, base_dir_dev, origen_cierres_dir, ruta_maestro_origen
         # v3/precheck_maestro.py) — v3.motor.ejecutar_motor() JAMAS recibe
         # un cierre BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA (filtrado
         # aqui, no solo "no procesado" dentro del motor).
-        anotados_precheck = aplicar_precheck_maestro(materializados)
+        anotados_precheck = aplicar_precheck_maestro(materializados, caja=caja_lote.codigo)
         aptos_para_motor = filtrar_aptos_para_motor(anotados_precheck)
         procesados_motor = ejecutar_motor(aptos_para_motor, base_dir_dev, version_codigo, caja=caja_lote.codigo)
         procesados_motor_por_fecha = {c["fecha"]: c for c in procesados_motor}

@@ -333,7 +333,8 @@ def leer_y_validar_sap_diario(ruta, caja=None):
     Cuenta, TextoPosicion, Cargo, Haber, CentroBeneficio, FechaValor,
     Asignacion y XREF1/2/3 tal cual están en el archivo.
     """
-    cabecera_esperada = _cabecera_esperada(caja)
+    caja_resuelta = cfg.resolver_caja(caja)
+    cabecera_esperada = _cabecera_esperada(caja_resuelta)
     try:
         wb = _abrir_libro(ruta, read_only=True, data_only=True)
     except Exception as exc:  # noqa: BLE001 — archivo ilegible, se reporta y bloquea
@@ -383,8 +384,20 @@ def leer_y_validar_sap_diario(ruta, caja=None):
                 cargo_dec = haber_dec = Decimal("0.00")
 
             if (cargo_dec > 0) == (haber_dec > 0):
-                # ambos > 0, o ambos == 0: no es una partida Cargo/Haber válida
-                problemas.append(f"PARTIDA_{fila}_CARGO_HABER_INCONSISTENTE")
+                # ambos > 0 siempre es inválido. ambos == 0 es inválido salvo
+                # que sea EXACTAMENTE la partida estructural del HABER normal
+                # que motor_tiquipaya.py construye por cada SFC de la caja
+                # (cuenta_mayor == caja.cuenta_haber y asignacion == uno de
+                # caja.sfcs): esa fila puede legítimamente valer 0/0 cuando
+                # ese SFC no tuvo movimiento, sin dejar de ser una partida real.
+                asignacion_txt = _texto_celda(ws[f"R{fila}"].value)
+                es_estructural_cero = (
+                    cargo_dec == 0 and haber_dec == 0
+                    and cuenta_txt == caja_resuelta.cuenta_haber
+                    and asignacion_txt in caja_resuelta.sfcs
+                )
+                if not es_estructural_cero:
+                    problemas.append(f"PARTIDA_{fila}_CARGO_HABER_INCONSISTENTE")
 
             fecha_valor_val = ws[f"O{fila}"].value
             if fecha_valor_val is not None and not isinstance(
