@@ -502,7 +502,7 @@
 <header>
   <div class="brand">
     <h1>CAJA TIQUIPAYA <span class="v3">V3</span></h1>
-    <span id="badge-entorno" class="badge-dev">ENTORNO: DEV</span>
+    <span id="badge-entorno" class="badge-dev">VERIFICANDO ENTORNO...</span>
   </div>
   <div class="sub">Control de Cierres · interfaz de desarrollo, separada del frontend V2</div>
   <div class="spacer"></div>
@@ -669,13 +669,19 @@
   // responder) -- el frontend NUNCA decide esto por si mismo. Se lee UNA
   // vez al cargar la pagina (cargarModoPublicacion(), mas abajo) y queda
   // en state.publicationMode. Mientras no haya respuesta todavia (o si
-  // falla la lectura), el valor por defecto es "official": ante
-  // incertidumbre, se asume el escenario que requiere MAS cuidado
-  // (avisar como oficial de mas, nunca coquetear con "dev" cuando en
-  // realidad ya escribe Drive). Controla UNICAMENTE el indicador visual y
-  // el texto de la confirmacion antes de publicar (ver renderShell() y
-  // confirmarPublicacion()) -- nunca cambia que endpoint se llama ni la
-  // logica de negocio.
+  // falla la lectura), la LOGICA interna (esPublicacionOficial(), usada
+  // por confirmarPublicacion() y demas) sigue asumiendo "official": ante
+  // incertidumbre, el escenario que requiere MAS cuidado (avisar como
+  // oficial de mas, nunca coquetear con "dev" cuando en realidad ya
+  // escribe Drive) -- eso NO cambia aqui. Lo que sí cambia (bloque
+  // caja-america) es que la INSIGNIA VISUAL ya no puede afirmar
+  // "PUBLICACIÓN: OFICIAL" ni "ENTORNO: DEV" antes de que /estado
+  // responda de verdad: mientras se carga se muestra un texto neutral
+  // ("VERIFICANDO ENTORNO...", ver renderBadgeEntorno()), y si /estado
+  // falla se sigue tratando como oficial (fail-safe, sin cambios de
+  // comportamiento) pero la insignia lo marca como "sin confirmar" en
+  // vez de darlo por bueno visualmente. `state.publicationModeConfirmado`
+  // es exclusivamente para ese matiz visual, nunca para decidir logica.
   function esPublicacionOficial() { return state.publicationMode !== "dev"; }
 
   function cargarModoPublicacion() {
@@ -683,9 +689,11 @@
       .then(function (r) { return r.json().catch(function () { return {}; }); })
       .then(function (data) {
         state.publicationMode = (data && data.publication_mode === "dev") ? "dev" : "official";
+        state.publicationModeConfirmado = true;
       })
       .catch(function () {
         state.publicationMode = "official"; // fail-safe: ante duda, asumir oficial
+        state.publicationModeConfirmado = false;
       });
   }
 
@@ -702,7 +710,7 @@
     BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA: { label: "Maestro sin cobertura", tag: "bloqueo-maestro" },
   };
 
-  var state = { cierres: [], seleccion: null, loteId: null, publicationMode: "official", caja: null };
+  var state = { cierres: [], seleccion: null, loteId: null, publicationMode: "loading", publicationModeConfirmado: false, caja: null };
 
   // Caja: se elige UNA sola vez, al crear el lote (ver v3/dev_api.py
   // crear_lote_pendiente/_caja_lote). Una vez creado el lote, el selector
@@ -846,8 +854,13 @@
       mostrarResultadoMensual("Indica un año y un mes válidos (1-12) antes de " + etiqueta + ".", "error");
       return;
     }
-    mostrarResultadoMensual(etiqueta + " en curso… (modo " + state.publicationMode + ")", "cargando");
-    var body = { anio: anio, mes: mes, modo: state.publicationMode };
+    // esPublicacionOficial() (nunca state.publicationMode crudo): con
+    // publicationMode="loading" (bloque caja-america, ver renderBadgeEntorno)
+    // esto sigue resolviendo al mismo fail-safe de siempre ("official")
+    // en vez de filtrarle "loading" al backend como si fuera un modo valido.
+    var modoMensual = esPublicacionOficial() ? "official" : "dev";
+    mostrarResultadoMensual(etiqueta + " en curso… (modo " + modoMensual + ")", "cargando");
+    var body = { anio: anio, mes: mes, modo: modoMensual };
     if (!(opts && opts.sinCaja)) {
       // GENERAR GLOBAL depende del selector de caja: state.caja (identidad
       // bloqueada por un lote diario activo) tiene prioridad; si no hay
@@ -1577,6 +1590,12 @@
     var btn = qs("#btn-procesar");
     var wrap = qs("#progress-wrap"), bar = qs("#progress-bar"), pct = qs("#progress-pct"), label = qs("#progress-label");
     var usuarioAuditor = qs("#in-usuario-auditor").value || "auditor.dev";
+    // FASE CAJA-AMERICA: capturar la caja PEDIDA primero, antes de tocar
+    // ningun state/lote -- asi, si mas abajo el backend responde otra
+    // cosa, hay algo estable contra que compararla (nunca releer el
+    // selector despues: entre el click y la respuesta puede haberse
+    // desbloqueado/tocado).
+    var cajaSolicitada = qs("#in-caja").value;
     btn.disabled = true;
     wrap.classList.add("show");
     bar.style.width = "0%"; pct.textContent = "0%";
@@ -1589,12 +1608,27 @@
       fecha_inicio: qs("#in-fecha-desde").value,
       fecha_fin: qs("#in-fecha-hasta").value,
       usuario_auditor: usuarioAuditor,
-      caja: qs("#in-caja").value,
+      caja: cajaSolicitada,
     }).then(function (resp) {
+      // FAIL CLOSED (bloque caja-america): el lote recien creado DEBE
+      // quedar registrado con EXACTAMENTE la caja pedida. Si el backend
+      // no trae `caja`, o trae una distinta (p. ej. el default historico
+      // de Python si el transporte la hubiera perdido), NUNCA se
+      // continua: ni se pinta el selector con lo que respondio el
+      // backend (eso lo cambiaria en silencio), ni se hace polling de
+      // /estado, ni se muestra ningun resultado de un lote que podria
+      // pertenecer a otra caja. El selector queda tal cual (visible, con
+      // cajaSolicitada, desbloqueado desde arriba) para que el error sea
+      // imposible de pasar por alto.
+      if (!resp || resp.caja !== cajaSolicitada) {
+        throw new Error(
+          "CAJA_LOTE_NO_COINCIDE: se pidio la caja \"" + cajaSolicitada + "\" pero el backend registro el lote" +
+          (resp && resp.lote_id ? " " + resp.lote_id : "") + " como \"" + (resp && resp.caja ? resp.caja : "(sin caja)") +
+          "\". No se continua: revise el backend antes de reintentar."
+        );
+      }
       state.loteId = resp.lote_id;
-      // La caja mostrada/bloqueada es SIEMPRE la que respondio el backend
-      // (identidad persistida en el lote), nunca la que se acaba de enviar.
-      state.caja = resp.caja || qs("#in-caja").value;
+      state.caja = resp.caja;
       bloquearSelectorCaja(state.caja);
       label.textContent = "Procesando lote " + resp.lote_id + "...";
       return pollEstadoHastaListo(resp.lote_id);
@@ -1665,10 +1699,32 @@
     }, 220);
   }
 
+  // FASE CAJA-AMERICA: antes de la primera respuesta REAL de /estado no se
+  // afirma visualmente ningun entorno (ni "OFICIAL" ni "DEV") -- eso era
+  // literalmente falso mientras carga (el HTML/JS arrancaba pintando
+  // "PUBLICACIÓN: OFICIAL" y recien despues, cuando /estado contestaba
+  // "dev", cambiaba a "ENTORNO: DEV": un usuario podia ver el estado
+  // equivocado varios cientos de ms). state.publicationMode empieza en
+  // "loading" (ver `state` mas arriba) y solo se resuelve a "dev"/
+  // "official" cuando cargarModoPublicacion() ya tiene respuesta (o fallo
+  // confirmado) -- ver esa funcion.
   function renderBadgeEntorno() {
     var badgeEntorno = qs("#badge-entorno");
+    if (state.publicationMode === "loading") {
+      badgeEntorno.textContent = "VERIFICANDO ENTORNO...";
+      badgeEntorno.className = "badge-dev";
+      badgeEntorno.title = "Consultando " + ENDPOINTS.estado + " para confirmar si este entorno publica en Drive real o solo en desarrollo.";
+      return;
+    }
     if (esPublicacionOficial()) {
-      badgeEntorno.textContent = "PUBLICACIÓN: OFICIAL";
+      // Fail-safe de /estado (ver cargarModoPublicacion): la LOGICA sigue
+      // tratando esto como oficial aunque /estado haya fallado, pero la
+      // insignia no debe darlo por CONFIRMADO si en realidad no llego
+      // respuesta -- se marca "sin confirmar" en vez de afirmar un dato
+      // que nunca vino del backend.
+      badgeEntorno.textContent = state.publicationModeConfirmado
+        ? "PUBLICACIÓN: OFICIAL"
+        : "PUBLICACIÓN: OFICIAL (sin confirmar)";
       badgeEntorno.className = "badge-oficial";
       badgeEntorno.title = "PUBLICAR sube SAP/resultado/marcador reales a Drive y mueve el cierre a Procesados.";
     } else {
@@ -1696,8 +1752,17 @@
     qs("#tabla-body").innerHTML = '<tr><td colspan="8" class="empty-state">' + textoPlaceholderVacio() + '</td></tr>';
     qs("#btn-procesar").addEventListener("click", procesarCierres);
     qs("#btn-recargar").addEventListener("click", function () {
+      // FASE CAJA-AMERICA: Recargar debe liberar el lote Y la caja por
+      // completo -- antes solo limpiaba cierres/seleccion y dejaba
+      // state.loteId/state.caja con el valor del lote anterior, y el
+      // selector seguia bloqueado (bloquearSelectorCaja lo deshabilita),
+      // asi que no se podia arrancar limpio un lote de OTRA caja sin
+      // recargar la pagina entera.
       state.cierres = [];
       state.seleccion = null;
+      state.loteId = null;
+      state.caja = null;
+      desbloquearSelectorCaja();
       renderIndicadores([]);
       renderTabla([]);
       renderDetalle();

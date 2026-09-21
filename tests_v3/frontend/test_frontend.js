@@ -70,7 +70,7 @@ async function test_procesar_rango_valido() {
   window.fetch = function (url, opts) {
     calls.push({ url: url, opts: opts });
     if (url.indexOf("/procesar") !== -1) {
-      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-1", estado_lote: "PROCESANDO" }) });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-1", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
     }
     if (url.indexOf("/estado") !== -1) {
       estadoCall++;
@@ -211,6 +211,152 @@ async function test_acciones_posteriores_no_mandan_ni_cambian_caja() {
 }
 
 // ---------------------------------------------------------------------------
+// Bloque caja-america, parte C: la caja PEDIDA se captura ANTES de limpiar
+// state/lote, se manda exactamente esa (nunca releida despues), y si el
+// backend responde una caja distinta a la pedida el frontend falla cerrado
+// SIN llegar a hacer polling de /estado ni a cambiar el selector en
+// silencio. "Recargar" libera lote+caja+selector por completo.
+// ---------------------------------------------------------------------------
+async function test_procesar_captura_caja_solicitada_antes_de_limpiar_state() {
+  console.log("\n[CAJA] /procesar captura la caja pedida ANTES de limpiar state (aunque state.caja quede null mientras la request esta en vuelo)");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  let resolverProcesar;
+  const procesarPendiente = new Promise((resolve) => { resolverProcesar = resolve; });
+  window.fetch = function (url) {
+    if (url.indexOf("/procesar") !== -1) {
+      return procesarPendiente.then(() => ({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-ame-cap", estado_lote: "PROCESANDO", caja: "america" }) }));
+    }
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
+    if (url.indexOf("/datos") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", cierres: [] }) });
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  await waitFor(() => window.document.getElementById("in-caja"));
+  window.document.getElementById("in-caja").value = "america";
+  window.document.getElementById("btn-procesar").click();
+
+  // Mientras la request de /procesar sigue pendiente, state.caja/loteId ya
+  // fueron limpiados a null (ver procesarCierresReal) -- si el body enviado
+  // dependiera de state.caja en vez de la variable local capturada antes,
+  // este seria el momento en que ya se habria perdido.
+  await sleep(20);
+  resolverProcesar();
+  await waitFor(() => window.document.getElementById("in-caja").disabled === true, 3000);
+  ok(window.document.getElementById("in-caja").value === "america", "tras resolver, la caja sigue siendo 'america' (nunca se perdio con el state limpiado)");
+  dom.window.close();
+}
+
+async function test_america_respuesta_tiquipaya_falla_cerrado_sin_estado() {
+  console.log("\n[CAJA] Se pide AMERICA, el backend responde caja='tiquipaya' (o sin caja) -> falla cerrado, NUNCA hace /estado");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  let alertMsg = null;
+  window.alert = function (msg) { alertMsg = msg; };
+  const calls = [];
+  window.fetch = function (url, opts) {
+    calls.push({ url: url, opts: opts });
+    if (url.indexOf("/procesar") !== -1) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-mismatch", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
+    }
+    // /estado SI se llama una vez, al cargar la pagina, para publication_mode
+    // (cargarModoPublicacion() -- ver mas abajo, no tiene nada que ver con el
+    // mismatch de caja); cualquier otra cosa (y CUALQUIER /estado posterior al
+    // click de PROCESAR) es lo que este test verifica que nunca ocurra.
+    if (url.indexOf("/estado") !== -1) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "ERROR", mensaje: "sin lote todavia", publication_mode: "official" }) });
+    }
+    return Promise.reject(new Error("URL no esperada (NO deberia llamarse tras el mismatch): " + url));
+  };
+
+  await waitFor(() => window.document.getElementById("in-caja"));
+  window.document.getElementById("in-caja").value = "america";
+  const llamadasAntesDelClick = calls.length;
+  window.document.getElementById("btn-procesar").click();
+
+  await waitFor(() => alertMsg !== null, 3000);
+  ok(alertMsg !== null && alertMsg.indexOf("CAJA_LOTE_NO_COINCIDE") !== -1, "se avisa con CAJA_LOTE_NO_COINCIDE (" + alertMsg + ")");
+  await sleep(100);
+  const llamadasDesdeElClick = calls.slice(llamadasAntesDelClick);
+  ok(!llamadasDesdeElClick.some((c) => c.url.indexOf("/estado") !== -1), "NUNCA se llamo a /estado tras el mismatch de caja");
+  ok(!llamadasDesdeElClick.some((c) => c.url.indexOf("/datos") !== -1), "NUNCA se llamo a /datos tras el mismatch de caja");
+  ok(window.document.getElementById("in-caja").value === "america", "el selector NO se cambio en silencio a lo que respondio el backend (sigue en 'america')");
+  ok(window.document.getElementById("in-caja").disabled === false, "el selector sigue habilitado (no se bloqueo con un lote inconsistente)");
+  ok(window.document.getElementById("btn-procesar").disabled === false, "el boton PROCESAR se reactiva tras el fallo");
+  dom.window.close();
+}
+
+async function test_recargar_libera_lote_y_selector() {
+  console.log("\n[CAJA] Recargar libera lote_id/caja y desbloquea el selector para arrancar otra caja");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  window.fetch = function (url, opts) {
+    if (url.indexOf("/procesar") !== -1) {
+      // El lote persiste EXACTAMENTE la caja que vino en el body (nunca una
+      // fija) -- asi el segundo lote (otra caja) tras Recargar tambien pasa
+      // el check de coincidencia del frontend.
+      var cajaPedida = JSON.parse(opts.body).caja;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-recargar", estado_lote: "PROCESANDO", caja: cajaPedida }) });
+    }
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
+    if (url.indexOf("/datos") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", cierres: [] }) });
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  await waitFor(() => window.document.getElementById("in-caja"));
+  window.document.getElementById("in-caja").value = "america";
+  window.document.getElementById("btn-procesar").click();
+  await waitFor(() => window.document.getElementById("in-caja").disabled === true, 3000);
+  ok(window.document.getElementById("caja-lote-info").style.display !== "none", "info de lote visible antes de recargar");
+
+  window.document.getElementById("btn-recargar").click();
+
+  ok(window.document.getElementById("in-caja").disabled === false, "Recargar desbloquea el selector de caja");
+  ok(window.document.getElementById("caja-lote-info").style.display === "none", "Recargar oculta la info del lote anterior");
+  ok(window.document.querySelector("#tabla-body tr[data-hash]") === null, "Recargar limpia la tabla de cierres");
+
+  // Un segundo lote de OTRA caja debe poder arrancar limpio (selector ya no
+  // bloqueado, sin arrastrar loteId/caja del lote anterior).
+  window.document.getElementById("in-caja").value = "tiquipaya";
+  window.document.getElementById("btn-procesar").click();
+  await waitFor(() => window.document.getElementById("in-caja").disabled === true, 3000);
+  ok(window.document.getElementById("caja-lote-info").textContent.indexOf("TIQUIPAYA") !== -1, "el segundo lote (otra caja) arranca limpio tras Recargar");
+  dom.window.close();
+}
+
+// ---------------------------------------------------------------------------
+// Bloque caja-america, parte D: badge inicial neutral (nunca afirma OFICIAL
+// ni DEV antes de que /estado responda de verdad).
+// ---------------------------------------------------------------------------
+async function test_badge_inicial_verificando_no_oficial() {
+  console.log("\n[BADGE] El badge inicial dice 'VERIFICANDO ENTORNO...', nunca 'PUBLICACIÓN: OFICIAL' de entrada");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  let resolverEstado;
+  const estadoPendiente = new Promise((resolve) => { resolverEstado = resolve; });
+  window.fetch = function (url) {
+    if (url.indexOf("/estado") !== -1) {
+      return estadoPendiente.then(() => ({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "ERROR", mensaje: "sin lote todavia", publication_mode: "official" }) }));
+    }
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  await waitFor(() => window.document.getElementById("badge-entorno"));
+  const badge = window.document.getElementById("badge-entorno");
+  ok(badge.textContent.indexOf("VERIFICANDO") !== -1, "badge inicial neutral: 'VERIFICANDO ENTORNO...' (" + badge.textContent + ")");
+  ok(badge.textContent.indexOf("OFICIAL") === -1, "el badge inicial NUNCA afirma 'OFICIAL' antes de que /estado responda");
+  ok(badge.textContent.indexOf("DEV") === -1, "el badge inicial tampoco afirma 'DEV' antes de que /estado responda");
+
+  resolverEstado();
+  await waitFor(() => window.document.getElementById("badge-entorno").textContent.indexOf("PUBLICACIÓN: OFICIAL") !== -1, 3000);
+  ok(window.document.getElementById("badge-entorno").textContent.indexOf("PUBLICACIÓN: OFICIAL") !== -1, "tras responder /estado, el badge SI confirma 'PUBLICACIÓN: OFICIAL'");
+  dom.window.close();
+}
+
+// ---------------------------------------------------------------------------
 // Escenario 2: rango con SIN_ARCHIVO -> fila sin boton Publicar.
 // ---------------------------------------------------------------------------
 async function test_sin_archivo() {
@@ -219,7 +365,7 @@ async function test_sin_archivo() {
   const { window } = dom;
   window.alert = function (msg) { window.__lastAlert = msg; };
   window.fetch = function (url) {
-    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-2", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-2", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
     if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
     if (url.indexOf("/datos") !== -1) return Promise.resolve({
       ok: true, json: () => Promise.resolve({
@@ -251,7 +397,7 @@ async function test_revision_y_correccion() {
   const calls = [];
   window.fetch = function (url, opts) {
     calls.push({ url: url, opts: opts });
-    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-3", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-3", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
     if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
     if (url.indexOf("/datos") !== -1) return Promise.resolve({
       ok: true, json: () => Promise.resolve({
@@ -403,7 +549,7 @@ function _mockComunPostCorreccion(fecha, revisarResponses, corregirResponse) {
   let revisarCallCount = 0;
   const fetchImpl = function (url, opts) {
     calls.push({ url, opts });
-    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-x", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-x", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
     if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
     if (url.indexOf("/datos") !== -1) return Promise.resolve({
       ok: true, json: () => Promise.resolve({
@@ -553,7 +699,7 @@ async function test_publicacion() {
   let publicarCalls = 0;
   window.fetch = function (url, opts) {
     calls.push({ url: url, opts: opts });
-    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-4", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-4", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
     if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION", publication_mode: "dev" }) });
     if (url.indexOf("/datos") !== -1) return Promise.resolve({
       ok: true, json: () => Promise.resolve({
@@ -610,7 +756,7 @@ async function test_cierre_ya_publicado_no_ofrece_boton_ni_infla_historial() {
   window.alert = function (msg) { window.__lastAlert = msg; };
   const mensajeIdempotente = "Marcador ya existente en publicacion/markers/: no se republica (idempotencia SHA256).";
   window.fetch = function (url) {
-    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-6", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-6", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
     if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION", publication_mode: "dev" }) });
     if (url.indexOf("/datos") !== -1) return Promise.resolve({
       ok: true, json: () => Promise.resolve({
@@ -676,7 +822,7 @@ async function test_no_publicar_no_habilitado() {
   const { window } = dom;
   window.alert = function (msg) { window.__lastAlert = msg; };
   window.fetch = function (url) {
-    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-5", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-5", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
     if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
     if (url.indexOf("/datos") !== -1) return Promise.resolve({
       ok: true, json: () => Promise.resolve({
@@ -709,7 +855,7 @@ async function test_maestro_sin_cobertura_no_ofrece_correccion_ni_publicacion() 
   const { window } = dom;
   window.alert = function (msg) { window.__lastAlert = msg; };
   window.fetch = function (url) {
-    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-precheck", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-precheck", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
     if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
     if (url.indexOf("/datos") !== -1) return Promise.resolve({
       ok: true, json: () => Promise.resolve({
@@ -761,7 +907,7 @@ async function test_ajustes_interfaz_fase_10f() {
   const { window } = dom;
   window.alert = function (msg) { window.__lastAlert = msg; };
   window.fetch = function (url) {
-    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-10f", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-10f", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
     if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
     if (url.indexOf("/datos") !== -1) return Promise.resolve({
       ok: true, json: () => Promise.resolve({
@@ -818,7 +964,7 @@ async function test_cancelar_confirmacion_publicar_no_llama_backend() {
   window.confirm = function (msg) { confirmMensaje = msg; return false; }; // el usuario cancela
   let publicarCalls = 0;
   window.fetch = function (url) {
-    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-11a1", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-11a1", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
     if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
     if (url.indexOf("/datos") !== -1) return Promise.resolve({
       ok: true, json: () => Promise.resolve({
@@ -1083,7 +1229,7 @@ async function _flujoOficial(cierreDatos, respuestaPublicar) {
   window.confirm = function () { return true; };
   let publicarCalls = 0;
   window.fetch = function (url) {
-    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-of", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-of", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
     if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION", publication_mode: "official" }) });
     if (url.indexOf("/datos") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", cierres: [Object.assign({ fecha: "2026-09-11", archivo_esperado: "CIERRE 11-09-2026.xlsm", estado_final: "LISTO_PARA_PUBLICAR", requiere_revision: false, publicado: false, mensajes: [] }, cierreDatos)] }) });
     if (url.indexOf("/publicar") !== -1) {
@@ -1175,7 +1321,7 @@ async function test_flujo_diario_nunca_llama_endpoints_mensuales() {
   window.confirm = function () { return true; };
   let publicarCalls = 0;
   window.fetch = function (url, opts) {
-    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-12b", estado_lote: "PROCESANDO" }) });
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-12b", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
     if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION", publication_mode: "official" }) });
     if (url.indexOf("/datos") !== -1) return Promise.resolve({
       ok: true, json: () => Promise.resolve({
@@ -1207,6 +1353,10 @@ async function test_flujo_diario_nunca_llama_endpoints_mensuales() {
   await test_selector_caja_opciones_y_default();
   await test_crear_lote_america_manda_caja_america();
   await test_acciones_posteriores_no_mandan_ni_cambian_caja();
+  await test_procesar_captura_caja_solicitada_antes_de_limpiar_state();
+  await test_america_respuesta_tiquipaya_falla_cerrado_sin_estado();
+  await test_recargar_libera_lote_y_selector();
+  await test_badge_inicial_verificando_no_oficial();
   await test_sin_archivo();
   await test_revision_y_correccion();
   await test_campos_aplicables_por_excepcion();

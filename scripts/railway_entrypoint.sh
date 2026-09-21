@@ -34,6 +34,23 @@ fi
 # aqui, antes de arrancar n8n, nunca dentro de un nodo del workflow.
 mkdir -p "${TIQ_BASE_DIR:-/app/dev_workdir}/tiq_v3_tmp"
 
+# FIX (bug real, bloque caja-america): el script que arranca n8n (ver
+# scripts/) solo lo arranca con lo que YA esta guardado en su Postgres
+# persistente -- nunca importa nada. El unico mecanismo previo para llevar un fix de
+# snapshots/railway-shadow/*.json al n8n en ejecucion era MANUAL
+# (scripts/import_workflows_railway.sh, "una sola vez por instancia
+# nueva"), asi que un commit nuevo podia quedar en la imagen Docker sin
+# que el workflow REAL en Postgres cambiara. sync_workflows_railway.sh
+# cierra ese hueco en CADA boot, sin dejar ningun proceso n8n corriendo
+# (son comandos CLI de una sola corrida, ver ese script) -- el modelo
+# on-demand/sleep de GestorN8N (serve_v3_frontend.py) sigue intacto.
+#
+# FAIL CLOSED: si el sync falla, este entrypoint aborta ANTES de servir el
+# frontend (set -euo pipefail ya activo arriba) -- nunca se expone una UI
+# nueva contra workflows n8n desincronizados.
+echo "[railway_entrypoint] Sincronizando workflows n8n con snapshots/railway-shadow ..."
+bash /app/scripts/sync_workflows_railway.sh
+
 # Frontend + proxy /webhook/* en foreground: es el UNICO proceso que este
 # entrypoint arranca ahora, y es el proceso principal del contenedor
 # (Railway enruta $PORT hacia el). n8n lo arranca y lo apaga el propio

@@ -31,6 +31,40 @@ function assertLanza(fn, subcadenaEsperada) {
   assert.ok(lanzo, 'se esperaba que lanzara un error y no lanzo nada');
 }
 
+// -----------------------------------------------------------------------
+// CONTRATO /procesar: caja EXPLICITA obligatoria (nodo "CONSTRUIR payload
+// crear_lote_pendiente"). A diferencia del default historico de Python
+// (config_cajas.resolver_caja(None) -> TIQUIPAYA, que sigue vivo para
+// otras APIs/fixtures legacy), esta ruta HTTP nunca debe crear un lote ni
+// invocar Python si la caja llega ausente o invalida.
+// -----------------------------------------------------------------------
+const construirPayloadCrearLote = function (bodyCaja, restoBody) {
+  const body = Object.assign({ fecha_inicio: '2026-09-12', fecha_fin: '2026-09-12' }, restoBody, { caja: bodyCaja });
+  return ejecutar(cargar('construir_payload_crear_lote_pendiente'), {}, [{ json: { body: body } }]);
+};
+
+test('crear_lote_pendiente: caja "tiquipaya" explicita se acepta y se normaliza igual', function () {
+  const p = construirPayloadCrearLote('tiquipaya')[0].json;
+  const pl = JSON.parse(Buffer.from(p.input_b64, 'base64').toString('utf8'));
+  assert.strictEqual(pl.caja, 'tiquipaya');
+});
+
+test('crear_lote_pendiente: caja "AMERICA" (mayusculas/espacios) se acepta y se normaliza a "america"', function () {
+  const p = construirPayloadCrearLote('  AMERICA  ')[0].json;
+  const pl = JSON.parse(Buffer.from(p.input_b64, 'base64').toString('utf8'));
+  assert.strictEqual(pl.caja, 'america');
+});
+
+test('crear_lote_pendiente: SIN caja -> CAJA_REQUERIDA_EN_PROCESAR, nunca crea el lote (no llega a devolver payload)', function () {
+  assertLanza(function () { construirPayloadCrearLote(undefined); }, 'CAJA_REQUERIDA_EN_PROCESAR');
+  assertLanza(function () { construirPayloadCrearLote(null); }, 'CAJA_REQUERIDA_EN_PROCESAR');
+  assertLanza(function () { construirPayloadCrearLote(''); }, 'CAJA_REQUERIDA_EN_PROCESAR');
+});
+
+test('crear_lote_pendiente: caja invalida ("brasil") -> CAJA_REQUERIDA_EN_PROCESAR, nunca se adivina', function () {
+  assertLanza(function () { construirPayloadCrearLote('brasil'); }, 'CAJA_REQUERIDA_EN_PROCESAR');
+});
+
 const LOTE = 'abc123def456';
 const base = function (fechaInicio, caja) {
   return {
@@ -217,7 +251,8 @@ test('el codigo desplegado en el snapshot de BACKEND DEV coincide con estos arch
     'CONSTRUIR payload procesar_lote': 'construir_payload_procesar_lote', 'CONSTRUIR payload publicar': 'construir_payload_publicar',
     'CONSTRUIR payload consolidar publicar': 'construir_payload_consolidar', 'RESPUESTA publicar (estado oficial)': 'respuesta_publicar_final',
     'RESOLVER - Drive entrada por caja (INGESTA)': 'resolver_drive_entrada_por_caja',
-    'VERIFICAR - Carpeta anio MACROS': 'verificar_carpeta_anio_macros', 'VERIFICAR - Carpeta mes MACROS': 'verificar_carpeta_mes_macros' };
+    'VERIFICAR - Carpeta anio MACROS': 'verificar_carpeta_anio_macros', 'VERIFICAR - Carpeta mes MACROS': 'verificar_carpeta_mes_macros',
+    'CONSTRUIR payload crear_lote_pendiente': 'construir_payload_crear_lote_pendiente' };
   Object.keys(mapa).forEach(function (nombre) {
     const nodo = nodos.find(function (n) { return n.name === nombre; });
     if (!nodo) assert.fail('falta nodo ' + nombre);

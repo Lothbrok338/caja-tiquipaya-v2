@@ -36,7 +36,7 @@ RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 
 COPY . .
 
-RUN chmod +x scripts/start_n8n.sh scripts/railway_entrypoint.sh && \
+RUN chmod +x scripts/start_n8n.sh scripts/railway_entrypoint.sh scripts/sync_workflows_railway.sh && \
     mkdir -p /app/.n8n && \
     chown -R node:node /app
 
