@@ -55,6 +55,7 @@ from v3.auditoria import (  # noqa: E402
     consolidar_auditoria_lote,
     generar_global_mensual, ejecutar_control1_mensual, ejecutar_control3_mensual,
 )
+from v3 import global_institucional  # noqa: E402  (reutilizado tal cual — fusion GLOBAL INSTITUCIONAL)
 import consolidador_mensual  # noqa: E402  (reutilizado tal cual — solo para nombre_sap_global)
 import control_asignaciones as _ctrl1_v2  # noqa: E402  (V2, sin cambios — solo lectura del historico para la guardia de cierre)
 from v3 import control1_modos  # noqa: E402
@@ -754,6 +755,67 @@ def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None,
     return generar_global_mensual(anio, mes, sap_dir, ruta_plantilla_origen, ruta_salida, force=True, caja=caja_resuelta)
 
 
+def _ruta_global_institucional(base_dir_dev, anio, mes):
+    """`global/institucional/<nombre>.xlsx` — ruta LOCAL propia del GLOBAL
+    INSTITUCIONAL: NUNCA `global/` (TIQ) ni `global/america/` (AME), para
+    que la fusión no pueda pisar ninguna de las dos fuentes que lee."""
+    nombre = consolidador_mensual.nombre_sap_global(anio, mes, global_institucional.CAJA_INSTITUCIONAL)
+    return os.path.join(base_dir_dev, "global", "institucional", nombre)
+
+
+def generar_global_institucional(anio, mes, base_dir_dev, ruta_plantilla_origen,
+                                  sap_dir_tiq=None, sap_dir_ame=None):
+    """Cierre MENSUAL — GENERAR GLOBAL institucional: UN solo botón que
+    produce los TRES SAP GLOBAL del periodo (TIQ, AME, INSTITUCIONAL).
+
+    NO reemplaza `generar_global()`: es una NUEVA orquestación que la
+    reutiliza SIN cambios, dos veces (TIQ y luego AME, en ese orden fijo),
+    exactamente como ya la usa el flujo por caja (misma validación de
+    entrada materializada, mismo `_verificar_periodo_no_cerrado`, mismos
+    guardarrieles de salida) — `generar_global()` sigue disponible tal
+    cual para el flujo diario/por caja.
+
+    Después fusiona los dos GLOBAL recién generados con
+    `v3.global_institucional.fusionar_global_institucional()` (ya
+    implementado y probado, sin cambios) en
+    `SAP_GLOBAL_INSTITUCIONAL_<MES>_<AÑO>.xlsx`, en una ruta LOCAL propia
+    (`global/institucional/`) que nunca sobrescribe `global/` (TIQ) ni
+    `global/america/` (AME).
+
+    FALLA CERRADO en cascada: si GLOBAL TIQ o GLOBAL AME no pueden
+    generarse (p.ej. `GLOBAL_ENTRADA_NO_MATERIALIZADA` porque falta la
+    carpeta SAP oficial de esa caja), la excepción sube tal cual y la
+    fusión INSTITUCIONAL NUNCA se ejecuta -- nunca se publica/genera un
+    INSTITUCIONAL parcial. Si la fusión misma falla, tampoco se declara
+    éxito (`fusionar_global_institucional` ya es todo-o-nada)."""
+    resultado_tiq = generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir_tiq, cfg.TIQUIPAYA)
+    resultado_ame = generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir_ame, cfg.AMERICA)
+
+    ruta_global_tiq = resultado_tiq["ruta_global_generado"]
+    ruta_global_ame = resultado_ame["ruta_global_generado"]
+    ruta_institucional = _ruta_global_institucional(base_dir_dev, anio, mes)
+    os.makedirs(os.path.dirname(ruta_institucional), exist_ok=True)
+
+    resultado_institucional = global_institucional.fusionar_global_institucional(
+        ruta_global_tiq, ruta_global_ame, anio, mes, ruta_plantilla_origen, ruta_institucional, force=True,
+    )
+
+    return {
+        "anio": anio,
+        "mes": mes,
+        "resultado_tiq": resultado_tiq,
+        "resultado_ame": resultado_ame,
+        "resultado_institucional": resultado_institucional,
+        "ruta_global_tiq": ruta_global_tiq,
+        "ruta_global_ame": ruta_global_ame,
+        "ruta_global_institucional": resultado_institucional["ruta_global_institucional"],
+        "ruta_mapa_origen_institucional": resultado_institucional["ruta_mapa_origen"],
+        "cantidad_partidas_tiq": resultado_institucional["cantidad_partidas_tiq"],
+        "cantidad_partidas_ame": resultado_institucional["cantidad_partidas_ame"],
+        "cantidad_partidas_total": resultado_institucional["cantidad_partidas_total"],
+    }
+
+
 def ejecutar_control1(anio, mes, base_dir_dev, ruta_revision_json=None, dry_run=False,
                       modo_control1=None, confirmacion_cierre=False, caja=None):
     """Cierre MENSUAL — paso 2 (AUDITORÍA DE ASIGNACIONES / CONTROL 1).
@@ -909,7 +971,7 @@ def main(argv=None):
     parser.add_argument("--accion", required=True, choices=[
         "crear_lote_pendiente", "procesar_lote", "estado", "datos", "revisar", "corregir", "publicar",
         "consolidar_publicacion_oficial", "preparar_procesar_entrada", "marcar_lote_error",
-        "generar_global", "preparar_global_entrada", "preparar_control1_entrada", "preparar_control3_entrada", "ejecutar_control1", "ejecutar_control3",
+        "generar_global", "generar_global_institucional", "preparar_global_entrada", "preparar_control1_entrada", "preparar_control3_entrada", "ejecutar_control1", "ejecutar_control3",
     ])
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
@@ -953,6 +1015,11 @@ def main(argv=None):
             salida = {"resultado": "OK", **generar_global(
                 datos["anio"], datos["mes"], datos["base_dir_dev"], datos["ruta_plantilla_origen"],
                 datos.get("sap_dir"), datos.get("caja"),
+            )}
+        elif args.accion == "generar_global_institucional":
+            salida = {"resultado": "OK", **generar_global_institucional(
+                datos["anio"], datos["mes"], datos["base_dir_dev"], datos["ruta_plantilla_origen"],
+                datos.get("sap_dir_tiq"), datos.get("sap_dir_ame"),
             )}
         elif args.accion == "preparar_global_entrada":
             salida = {"resultado": "OK", **preparar_global_entrada(

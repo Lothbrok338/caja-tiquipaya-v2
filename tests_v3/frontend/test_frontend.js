@@ -911,8 +911,19 @@ async function test_publication_mode_demo_nunca_llama_backend() {
 // ---------------------------------------------------------------------------
 
 function _mockFetchMensual(overrides) {
-  const calls = { global: 0, control1: 0, control3: 0, estado: 0, otros: 0 };
-  const fn = function (url) {
+  const calls = { global: 0, globalInstitucional: 0, control1: 0, control3: 0, estado: 0, otros: 0 };
+  const bodies = { globalInstitucional: [] };
+  const fn = function (url, opts) {
+    if (url.indexOf("/global-institucional") !== -1) {
+      calls.globalInstitucional++;
+      if (opts && opts.body) bodies.globalInstitucional.push(JSON.parse(opts.body));
+      return (overrides && overrides.globalInstitucional) || Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({
+        resultado: "OK",
+        resultado_tiq: { estado: "VALIDADO_PENDIENTE_PUBLICACION", fechas_faltantes: [] },
+        resultado_ame: { estado: "VALIDADO_PENDIENTE_PUBLICACION", fechas_faltantes: [] },
+        cantidad_partidas_tiq: 2, cantidad_partidas_ame: 1, cantidad_partidas_total: 3,
+      }) });
+    }
     if (url.indexOf("/global") !== -1) {
       calls.global++;
       return (overrides && overrides.global) || Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", estado: "VALIDADO_PENDIENTE_PUBLICACION", cantidad_sap_incluidos: 2, fechas_faltantes: [] }) });
@@ -932,15 +943,15 @@ function _mockFetchMensual(overrides) {
     calls.otros++;
     return Promise.reject(new Error("URL no esperada: " + url));
   };
-  return { fn, calls };
+  return { fn, calls, bodies };
 }
 
 async function test_boton_global_llama_una_vez_y_muestra_resultado() {
-  console.log("\n[12B] Botón GENERAR GLOBAL llama una vez y muestra resultado claro");
+  console.log("\n[12B] Botón GENERAR GLOBAL llama una vez (a /global-institucional, sin caja) y muestra resultado claro");
   const dom = makeDom("http://localhost/v3_control_cierres.html");
   const { window } = dom;
   window.alert = function (msg) { window.__lastAlert = msg; };
-  const { fn, calls } = _mockFetchMensual();
+  const { fn, calls, bodies } = _mockFetchMensual();
   window.fetch = fn;
 
   await waitFor(() => window.document.getElementById("in-mensual-anio") && window.document.getElementById("in-mensual-anio").value !== "");
@@ -948,10 +959,12 @@ async function test_boton_global_llama_una_vez_y_muestra_resultado() {
   await waitFor(() => window.document.getElementById("mensual-resultado").className.indexOf("ok") !== -1
     || window.document.getElementById("mensual-resultado").className.indexOf("error") !== -1, 3000);
 
-  ok(calls.global === 1, "el botón GENERAR GLOBAL llamó a /global exactamente una vez");
+  ok(calls.globalInstitucional === 1, "el botón GENERAR GLOBAL llamó a /global-institucional exactamente una vez");
+  ok(calls.global === 0, "GENERAR GLOBAL ya NO llama al /global por caja (un solo botón institucional)");
   ok(calls.control1 === 0 && calls.control3 === 0, "GENERAR GLOBAL no llamó a CONTROL 1 ni CONTROL 3");
+  ok(bodies.globalInstitucional.length === 1 && !("caja" in bodies.globalInstitucional[0]), "el body de GENERAR GLOBAL nunca manda 'caja' (no depende del selector)");
   const texto = window.document.getElementById("mensual-resultado").textContent;
-  ok(texto.indexOf("GLOBAL generado") !== -1, "el área de resultado muestra un mensaje claro (no JSON crudo)");
+  ok(texto.indexOf("GLOBAL institucional generado") !== -1, "el área de resultado muestra un mensaje claro (no JSON crudo)");
   ok(texto.indexOf("{") === -1, "el área de resultado NO muestra JSON técnico");
   ok(window.document.getElementById("mensual-resultado").className.indexOf("ok") !== -1, "el resultado se marca como 'ok'");
   dom.window.close();
@@ -1202,13 +1215,13 @@ async function test_mensual_error_se_muestra_claramente() {
   const { window } = dom;
   window.alert = function (msg) { window.__lastAlert = msg; };
   const { fn, calls } = _mockFetchMensual({
-    global: Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "ERROR", mensaje: "SIN_SAP_PARA_CONSOLIDAR" }) }),
+    globalInstitucional: Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "ERROR", mensaje: "SIN_SAP_PARA_CONSOLIDAR" }) }),
   });
   window.fetch = fn;
 
   await waitFor(() => window.document.getElementById("in-mensual-anio") && window.document.getElementById("in-mensual-anio").value !== "");
   window.document.getElementById("btn-mensual-global").click();
-  await waitFor(() => calls.global === 1, 3000);
+  await waitFor(() => calls.globalInstitucional === 1, 3000);
   await waitFor(() => window.document.getElementById("mensual-resultado").className.indexOf("error") !== -1, 3000);
 
   const el = window.document.getElementById("mensual-resultado");

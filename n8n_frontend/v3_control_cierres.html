@@ -647,7 +647,13 @@
     // FASE 12B — CIERRE MENSUAL (GLOBAL/CONTROL 1/CONTROL 3). Completamente
     // separados del namespace diario de arriba: ningun boton de "Procesar"/
     // "Publicar" los llama, y estos 3 nunca disparan nada del flujo diario.
-    global:    NAMESPACE + "/global",     // POST — genera SAP_GLOBAL_TIQ_<MES>_<AÑO> del periodo
+    global:    NAMESPACE + "/global",     // POST — genera SAP_GLOBAL_TIQ_<MES>_<AÑO> del periodo (por caja; flujo diario)
+    // GENERAR GLOBAL (botón del cierre mensual): un solo click produce los
+    // TRES SAP GLOBAL del periodo (TIQ, AME, INSTITUCIONAL). Nunca manda
+    // caja -- ver generarGlobalMensual() mas abajo. Completamente separado
+    // de "global" (por caja), que sigue existiendo tal cual para el flujo
+    // diario/por-caja.
+    globalInstitucional: NAMESPACE + "/global-institucional",
     control1:  NAMESPACE + "/control1",   // POST — CONTROL 1 (asignaciones) sobre ese GLOBAL
     control3:  NAMESPACE + "/control3",   // POST — CONTROL 3 (CxC/CxP) sobre el MISMO GLOBAL
   };
@@ -829,7 +835,11 @@
   }
 
   // formatearOk puede devolver un string (tipo "ok") o {texto, tipo}.
-  function ejecutarAccionMensual(endpoint, etiqueta, formatearOk, extraBody) {
+  // opts.sinCaja=true (GENERAR GLOBAL institucional): el body NUNCA lleva
+  // "caja" -- ese flujo ya no depende del selector de caja, a diferencia de
+  // AUDITORÍA DE ASIGNACIONES / CxC-CxP y del flujo DIARIO, que siguen
+  // mandándola tal cual.
+  function ejecutarAccionMensual(endpoint, etiqueta, formatearOk, extraBody, opts) {
     var anio = parseInt(qs("#in-mensual-anio").value, 10);
     var mes = parseInt(qs("#in-mensual-mes").value, 10);
     if (!anio || !mes || mes < 1 || mes > 12) {
@@ -837,11 +847,14 @@
       return;
     }
     mostrarResultadoMensual(etiqueta + " en curso… (modo " + state.publicationMode + ")", "cargando");
-    // El cierre mensual (GLOBAL/CONTROL1/CONTROL3) es independiente del "lote"
-    // diario: no hay lote_id que fije la caja, así que cada acción manda la
-    // suya. state.caja (identidad bloqueada por un lote diario activo) tiene
-    // prioridad; si no hay lote activo, se usa el selector visible #in-caja.
-    var body = { anio: anio, mes: mes, modo: state.publicationMode, caja: state.caja || qs("#in-caja").value };
+    var body = { anio: anio, mes: mes, modo: state.publicationMode };
+    if (!(opts && opts.sinCaja)) {
+      // El cierre mensual (CONTROL1/CONTROL3) es independiente del "lote"
+      // diario: no hay lote_id que fije la caja, así que cada acción manda la
+      // suya. state.caja (identidad bloqueada por un lote diario activo) tiene
+      // prioridad; si no hay lote activo, se usa el selector visible #in-caja.
+      body.caja = state.caja || qs("#in-caja").value;
+    }
     Object.keys(extraBody || {}).forEach(function (k) { body[k] = extraBody[k]; });
     apiPost(endpoint, body)
       .then(function (resp) {
@@ -860,12 +873,18 @@
     return r.publicacion_oficial.publicado ? " Publicado en Drive oficial." : "";
   }
 
+  // GENERAR GLOBAL: un solo botón, sin selector de caja -- produce los TRES
+  // SAP GLOBAL del periodo (TIQ, AME, INSTITUCIONAL) en una sola petición a
+  // /global-institucional. Nunca botones separados TIQ/AME/FUSIONAR.
   function generarGlobalMensual() {
-    ejecutarAccionMensual(ENDPOINTS.global, "GENERAR GLOBAL", function (r) {
-      var faltantes = (r.fechas_faltantes || []).length;
-      return "GLOBAL generado (" + (r.cantidad_sap_incluidos || 0) + " SAP incluidos, "
-        + faltantes + " fecha(s) sin cierre). Estado: " + r.estado + "." + sufijoPublicacionOficial(r);
-    });
+    ejecutarAccionMensual(ENDPOINTS.globalInstitucional, "GENERAR GLOBAL", function (r) {
+      var faltantesTiq = ((r.resultado_tiq || {}).fechas_faltantes || []).length;
+      var faltantesAme = ((r.resultado_ame || {}).fechas_faltantes || []).length;
+      return "GLOBAL institucional generado: " + (r.cantidad_partidas_total || 0) + " partidas "
+        + "(TIQ " + (r.cantidad_partidas_tiq || 0) + ", AME " + (r.cantidad_partidas_ame || 0) + "). "
+        + "Fechas sin cierre — TIQ: " + faltantesTiq + ", AME: " + faltantesAme + "."
+        + sufijoPublicacionOficial(r);
+    }, {}, { sinCaja: true });
   }
 
   // AUDITORÍA DE ASIGNACIONES: SIEMPRE modo preliminar (mes abierto; no cierra nada).
