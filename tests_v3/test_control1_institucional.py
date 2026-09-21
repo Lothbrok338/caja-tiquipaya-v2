@@ -17,6 +17,7 @@ import sys
 import tempfile
 import unittest
 from decimal import Decimal
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -197,6 +198,43 @@ class TestCorreccionAtomica(BaseInstitucional):
         partidas_ame = ca.leer_partidas_global(self.ruta_ame)
         self.assertEqual(partidas_tiq[0]["asignacion"], "MALA_TIQ", "TIQ no debe quedar modificado")
         self.assertEqual(partidas_ame[0]["asignacion"], "MALA_AME", "AME no debe quedar modificado")
+
+    def test_fallo_durante_reemplazo_del_segundo_global_hace_rollback(self):
+        """Ambas correcciones pasan la validación previa (ASIGNACION_ORIGINAL
+        correcta): TIQ se reemplaza con éxito, pero simulamos que
+        os.replace() falla justo al reemplazar el segundo GLOBAL (AME,
+        orden fijo TIQ->AME). Verifica que AMBOS originales quedan
+        BYTE A BYTE idénticos al contenido de arranque (TIQ hace rollback
+        desde su respaldo; AME nunca llegó a reemplazarse)."""
+        bytes_tiq_original = open(self.ruta_tiq, "rb").read()
+        bytes_ame_original = open(self.ruta_ame, "rb").read()
+
+        real_replace = os.replace
+
+        def fake_replace(src, dst, *a, **kw):
+            if os.path.abspath(dst) == os.path.abspath(self.ruta_ame):
+                raise OSError("SIMULADO_FALLO_REEMPLAZO_SEGUNDO_GLOBAL")
+            return real_replace(src, dst, *a, **kw)
+
+        with mock.patch("os.replace", side_effect=fake_replace):
+            with self.assertRaises(OSError):
+                ci.aplicar_correcciones_institucional(
+                    self.ruta_tiq, self.ruta_ame,
+                    correcciones_tiq=[(16, "MALA_TIQ", "BUENA_TIQ")],
+                    correcciones_ame=[(16, "MALA_AME", "BUENA_AME")],
+                )
+
+        self.assertEqual(
+            open(self.ruta_tiq, "rb").read(), bytes_tiq_original,
+            "TIQ debe quedar IDENTICO al inicio tras el rollback",
+        )
+        self.assertEqual(
+            open(self.ruta_ame, "rb").read(), bytes_ame_original,
+            "AME debe quedar IDENTICO al inicio (nunca llegó a reemplazarse)",
+        )
+        # No deben quedar respaldos huérfanos.
+        self.assertFalse(os.path.isfile(f"{self.ruta_tiq}.rollback"))
+        self.assertFalse(os.path.isfile(f"{self.ruta_ame}.rollback"))
 
 
 class TestPeriodos(BaseInstitucional):

@@ -918,12 +918,22 @@ def preparar_control1_institucional_entrada(anio, mes, base_dir_dev):
     return {"dir_entrada": os.path.abspath(destino), "periodo": f"{anio:04d}-{mes:02d}"}
 
 
-def ejecutar_control1_institucional(anio, mes, base_dir_dev, dry_run=False):
+def ejecutar_control1_institucional(anio, mes, base_dir_dev, dry_run=False, confirmacion_cierre=False):
     """CONTROL 1 institucional (un solo botón, no depende del selector de
     caja): lee `control1_institucional_entrada/<periodo>/`, que el backend
     materializó con AMBOS GLOBAL oficiales del periodo. Delega en
     `v3.control1_institucional.ejecutar_control1_institucional()` (adaptador
-    nuevo y pequeño sobre control_asignaciones.py, sin cambios)."""
+    nuevo y pequeño sobre control_asignaciones.py, sin cambios).
+
+    PRELIMINAR (`confirmacion_cierre=False`, por defecto — AUDITORÍA):
+    corre siempre en modo preview (`dry_run` efectivo forzado a True): nunca
+    persiste al histórico institucional ni sella nada, sin importar lo que
+    detecte. CIERRE (`confirmacion_cierre=True`, explícito tras confirmación
+    humana): si no hay duplicados pendientes, persiste al histórico. Nunca
+    se auto-infiere el cierre a partir del resultado — solo el flag
+    explícito lo habilita, igual criterio que ejecutar_control1()/
+    ejecutar_control3() (ver v3/control1_modos.py)."""
+    dry_run_efectivo = bool(dry_run) or not confirmacion_cierre
     entrada = control1_institucional_entrada_dir(base_dir_dev, anio, mes)
     if not os.path.isdir(entrada):
         raise RuntimeError(
@@ -945,9 +955,10 @@ def ejecutar_control1_institucional(anio, mes, base_dir_dev, dry_run=False):
     ruta_detalle = os.path.join(entrada, control1_institucional.nombre_reporte_institucional(periodo_esperado))
     resultado = control1_institucional.ejecutar_control1_institucional(
         ruta_tiq, ruta_ame, ruta_historico, directorio_revision=entrada,
-        ruta_detalle_json=ruta_detalle, dry_run=dry_run,
+        ruta_detalle_json=ruta_detalle, dry_run=dry_run_efectivo,
     )
     resultado["dir_entrada"] = os.path.abspath(entrada)
+    resultado["modo"] = "cierre" if confirmacion_cierre else "preliminar"
     if resultado.get("periodo") not in (None, periodo_esperado):
         raise RuntimeError(
             f"PERIODO_INCONSISTENTE: CONTROL 1 institucional devolvió {resultado.get('periodo')!r} "
@@ -986,13 +997,21 @@ def preparar_control3_institucional_entrada(anio, mes, base_dir_dev):
     return {"dir_entrada": os.path.abspath(destino), "periodo": f"{anio:04d}-{mes:02d}"}
 
 
-def ejecutar_control3_institucional(anio, mes, base_dir_dev, dry_run=False):
+def ejecutar_control3_institucional(anio, mes, base_dir_dev, dry_run=False, confirmacion_cierre=False):
     """CONTROL 3 institucional (un solo botón, no depende del selector de
     caja): lee `control3_institucional_entrada/<periodo>/`, que el backend
     materializó con AMBOS GLOBAL oficiales del periodo. Delega en
     `v3.control3_institucional.ejecutar_control3_institucional()` (adaptador
     nuevo y pequeño sobre control_cxc_cxp.py, sin cambios). NUNCA modifica
-    ningún GLOBAL."""
+    ningún GLOBAL.
+
+    PRELIMINAR (`confirmacion_cierre=False`, por defecto — AUDITORÍA): corre
+    siempre en modo preview (`dry_run` efectivo forzado a True), nunca
+    actualiza los históricos maestros ni sella el periodo. CIERRE
+    (`confirmacion_cierre=True`, explícito tras confirmación humana):
+    actualiza HISTORICO_CXC_CXP.csv y su libro de periodos (sella el
+    periodo). Nunca se auto-infiere el cierre a partir del resultado."""
+    dry_run_efectivo = bool(dry_run) or not confirmacion_cierre
     entrada = control3_institucional_entrada_dir(base_dir_dev, anio, mes)
     if not os.path.isdir(entrada):
         raise RuntimeError(
@@ -1015,9 +1034,10 @@ def ejecutar_control3_institucional(anio, mes, base_dir_dev, dry_run=False):
     ruta_json = os.path.join(entrada, control3_institucional.nombre_detalle_institucional(periodo_esperado))
     resultado = control3_institucional.ejecutar_control3_institucional(
         ruta_tiq, ruta_ame, ruta_historico,
-        ruta_salida_xlsx=ruta_xlsx, ruta_salida_json=ruta_json, dry_run=dry_run,
+        ruta_salida_xlsx=ruta_xlsx, ruta_salida_json=ruta_json, dry_run=dry_run_efectivo,
     )
     resultado["dir_entrada"] = os.path.abspath(entrada)
+    resultado["modo"] = "cierre" if confirmacion_cierre else "preliminar"
     if resultado.get("periodo") not in (None, periodo_esperado):
         raise RuntimeError(
             f"PERIODO_INCONSISTENTE: CONTROL 3 institucional devolvió {resultado.get('periodo')!r} "
@@ -1121,10 +1141,12 @@ def main(argv=None):
         elif args.accion == "ejecutar_control1_institucional":
             salida = {"resultado": "OK", **ejecutar_control1_institucional(
                 datos["anio"], datos["mes"], datos["base_dir_dev"], datos.get("dry_run", False),
+                datos.get("confirmacion_cierre", False),
             )}
         elif args.accion == "ejecutar_control3_institucional":
             salida = {"resultado": "OK", **ejecutar_control3_institucional(
                 datos["anio"], datos["mes"], datos["base_dir_dev"], datos.get("dry_run", False),
+                datos.get("confirmacion_cierre", False),
             )}
         elif args.accion == "corregir_control1_institucional":
             salida = {"resultado": "OK", **corregir_control1_institucional(

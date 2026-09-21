@@ -19,6 +19,7 @@ import csv
 import datetime
 import json
 import os
+import shutil
 
 import config_cajas as cfg
 import control_asignaciones as ctrl1
@@ -309,19 +310,59 @@ def aplicar_correcciones_institucional(ruta_global_tiq, ruta_global_ame,
                                         correcciones_tiq, correcciones_ame):
     """Aplica correcciones autorizadas a CADA GLOBAL de origen (nunca a un
     archivo combinado, que no existe). Valida TODAS las correcciones de
-    AMBOS archivos antes de escribir ninguna: si cualquiera falla, ninguno
-    de los dos GLOBAL queda modificado."""
+    AMBOS archivos antes de escribir ninguna; además, la ESCRITURA en sí es
+    atómica CROSS-ARCHIVO vía staging (copia de respaldo) + rollback: si el
+    reemplazo del segundo GLOBAL (AME, orden fijo TIQ→AME) falla por
+    cualquier motivo, el primero (TIQ) se restaura byte a byte desde su
+    respaldo antes de propagar el error. Nunca deja un GLOBAL a medio
+    corregir mientras el otro ya fue actualizado."""
+    correcciones_tiq = correcciones_tiq or []
+    correcciones_ame = correcciones_ame or []
     if correcciones_tiq:
         _validar_correcciones_previas(ruta_global_tiq, correcciones_tiq)
     if correcciones_ame:
         _validar_correcciones_previas(ruta_global_ame, correcciones_ame)
 
-    if correcciones_tiq:
-        ctrl1.aplicar_correcciones_global(ruta_global_tiq, correcciones_tiq)
-    if correcciones_ame:
-        ctrl1.aplicar_correcciones_global(ruta_global_ame, correcciones_ame)
+    respaldo_tiq = f"{ruta_global_tiq}.rollback" if correcciones_tiq else None
+    respaldo_ame = f"{ruta_global_ame}.rollback" if correcciones_ame else None
+    if respaldo_tiq:
+        shutil.copy2(ruta_global_tiq, respaldo_tiq)
+    if respaldo_ame:
+        shutil.copy2(ruta_global_ame, respaldo_ame)
+
+    reemplazado_tiq = False
+    reemplazado_ame = False
+    try:
+        if correcciones_tiq:
+            ctrl1.aplicar_correcciones_global(ruta_global_tiq, correcciones_tiq)
+            reemplazado_tiq = True
+        if correcciones_ame:
+            ctrl1.aplicar_correcciones_global(ruta_global_ame, correcciones_ame)
+            reemplazado_ame = True
+    except Exception:
+        # Rollback: SOLO el GLOBAL que ya llegó a reemplazarse (si lo hay)
+        # vuelve a su contenido original desde el respaldo; el respaldo del
+        # que nunca se tocó (porque falló antes o durante su propio
+        # reemplazo) simplemente se descarta. Ninguno de los dos queda a
+        # medio corregir.
+        if respaldo_tiq and os.path.isfile(respaldo_tiq):
+            if reemplazado_tiq:
+                os.replace(respaldo_tiq, ruta_global_tiq)
+            else:
+                os.remove(respaldo_tiq)
+        if respaldo_ame and os.path.isfile(respaldo_ame):
+            if reemplazado_ame:
+                os.replace(respaldo_ame, ruta_global_ame)
+            else:
+                os.remove(respaldo_ame)
+        raise
+    else:
+        if respaldo_tiq and os.path.isfile(respaldo_tiq):
+            os.remove(respaldo_tiq)
+        if respaldo_ame and os.path.isfile(respaldo_ame):
+            os.remove(respaldo_ame)
 
     return {
-        "correcciones_aplicadas_tiq": len(correcciones_tiq or []),
-        "correcciones_aplicadas_ame": len(correcciones_ame or []),
+        "correcciones_aplicadas_tiq": len(correcciones_tiq),
+        "correcciones_aplicadas_ame": len(correcciones_ame),
     }

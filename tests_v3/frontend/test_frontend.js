@@ -922,12 +922,16 @@ function _mockFetchMensual(overrides) {
     if (url.indexOf("/control1") !== -1) {
       calls.control1++;
       if (opts && opts.body) bodies.control1.push(JSON.parse(opts.body));
-      return (overrides && overrides.control1) || Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", estado: "OK_SIN_DUPLICADOS", filas_incorporadas_historico: 3 }) });
+      const ov1 = overrides && overrides.control1;
+      if (typeof ov1 === "function") return ov1(calls.control1, opts);
+      return ov1 || Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", estado: "OK_SIN_DUPLICADOS", filas_incorporadas_historico: 3 }) });
     }
     if (url.indexOf("/control3") !== -1) {
       calls.control3++;
       if (opts && opts.body) bodies.control3.push(JSON.parse(opts.body));
-      return (overrides && overrides.control3) || Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", estado: "OK", abiertas: 1, cerradas: 2, revisar: 0 }) });
+      const ov3 = overrides && overrides.control3;
+      if (typeof ov3 === "function") return ov3(calls.control3, opts);
+      return ov3 || Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", estado: "OK", abiertas: 1, cerradas: 2, revisar: 0 }) });
     }
     if (url.indexOf("/estado") !== -1) {
       calls.estado++;
@@ -962,11 +966,12 @@ async function test_boton_global_llama_una_vez_y_muestra_resultado() {
   dom.window.close();
 }
 
-async function test_boton_control1_llama_una_vez_sin_caja() {
-  console.log("\n[12B] Botón CONTROL 1 (institucional) llama una vez, sin selector de caja");
+async function test_boton_control1_preliminar_declina_cierre_no_llama_de_nuevo() {
+  console.log("\n[12B] Botón CONTROL 1 (institucional): preliminar sin duplicados, el auditor DECLINA el cierre -> no hay segunda llamada");
   const dom = makeDom("http://localhost/v3_control_cierres.html");
   const { window } = dom;
   window.alert = function (msg) { window.__lastAlert = msg; };
+  window.confirm = function () { return false; }; // el auditor declina el cierre contextual
   const { fn, calls, bodies } = _mockFetchMensual();
   window.fetch = fn;
 
@@ -975,18 +980,50 @@ async function test_boton_control1_llama_una_vez_sin_caja() {
   await waitFor(() => window.document.getElementById("mensual-resultado").className.indexOf("ok") !== -1
     || window.document.getElementById("mensual-resultado").className.indexOf("error") !== -1, 3000);
 
-  ok(calls.control1 === 1, "el botón CONTROL 1 llamó a /control1 exactamente una vez");
+  ok(calls.control1 === 1, "sin confirmar el cierre, /control1 se llamó UNA sola vez (la preliminar)");
   ok(calls.global === 0 && calls.control3 === 0, "CONTROL 1 no llamó a GLOBAL ni a CONTROL 3");
   ok(bodies.control1.length === 1 && !("caja" in bodies.control1[0]), "el body de CONTROL 1 nunca manda 'caja' (institucional)");
-  ok(window.document.getElementById("mensual-resultado").textContent.indexOf("Sin duplicados") !== -1, "muestra el mensaje funcional institucional");
+  ok(!("confirmacion_cierre" in bodies.control1[0]) || bodies.control1[0].confirmacion_cierre === undefined, "la llamada preliminar no manda confirmacion_cierre");
+  ok(window.document.getElementById("mensual-resultado").textContent.indexOf("vista previa") !== -1, "el mensaje deja claro que fue una vista previa (PRELIMINAR)");
+  dom.window.close();
+}
+
+async function test_boton_control1_preliminar_confirma_cierre_llama_de_nuevo_con_confirmacion() {
+  console.log("\n[12B] Botón CONTROL 1 (institucional): preliminar sin duplicados, el auditor CONFIRMA el cierre -> segunda llamada con confirmacion_cierre=true");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  window.confirm = function () { return true; }; // el auditor confirma el cierre contextual
+  const { fn, calls, bodies } = _mockFetchMensual({
+    control1: function (n) {
+      const cuerpo = n === 1
+        ? { resultado: "OK", estado: "OK_SIN_DUPLICADOS", modo: "preliminar", historico_actualizado: false }
+        : { resultado: "OK", estado: "OK_SIN_DUPLICADOS", modo: "cierre", historico_actualizado: true, filas_incorporadas_historico: 3 };
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(cuerpo) });
+    },
+  });
+  window.fetch = fn;
+
+  await waitFor(() => window.document.getElementById("in-mensual-anio") && window.document.getElementById("in-mensual-anio").value !== "");
+  window.document.getElementById("btn-mensual-control1").click();
+  await waitFor(() => calls.control1 === 2, 3000);
+  await waitFor(() => window.document.getElementById("mensual-resultado").textContent.indexOf("incorporadas al histórico") !== -1, 3000);
+
+  ok(calls.control1 === 2, "CONTROL 1 llamó dos veces: preliminar + cierre confirmado");
+  ok(bodies.control1.length === 2, "se registraron ambos bodies");
+  ok(!("confirmacion_cierre" in bodies.control1[0]) || bodies.control1[0].confirmacion_cierre === undefined, "la primera llamada (preliminar) no manda confirmacion_cierre");
+  ok(bodies.control1[1].confirmacion_cierre === true, "la segunda llamada (cierre) manda confirmacion_cierre=true explícito");
+  ok(!("caja" in bodies.control1[1]), "la llamada de cierre tampoco manda 'caja'");
+  ok(window.document.getElementById("mensual-resultado").textContent.indexOf("incorporadas al histórico") !== -1, "el mensaje final refleja el cierre aplicado");
   dom.window.close();
 }
 
 async function test_boton_control3_llama_una_vez_sin_caja() {
-  console.log("\n[12B] Botón CONTROL 3 (institucional) llama una vez, sin selector de caja");
+  console.log("\n[12B] Botón CONTROL 3 (institucional): preliminar declina cierre -> una sola llamada, sin selector de caja");
   const dom = makeDom("http://localhost/v3_control_cierres.html");
   const { window } = dom;
   window.alert = function (msg) { window.__lastAlert = msg; };
+  window.confirm = function () { return false; };
   const { fn, calls, bodies } = _mockFetchMensual();
   window.fetch = fn;
 
@@ -1187,7 +1224,8 @@ async function test_flujo_diario_nunca_llama_endpoints_mensuales() {
   await test_publication_mode_official_muestra_badge_oficial();
   await test_publication_mode_demo_nunca_llama_backend();
   await test_boton_global_llama_una_vez_y_muestra_resultado();
-  await test_boton_control1_llama_una_vez_sin_caja();
+  await test_boton_control1_preliminar_declina_cierre_no_llama_de_nuevo();
+  await test_boton_control1_preliminar_confirma_cierre_llama_de_nuevo_con_confirmacion();
   await test_boton_control3_llama_una_vez_sin_caja();
   await test_control1_muestra_alertas_de_duplicados_institucionales();
   await test_mensual_error_se_muestra_claramente();

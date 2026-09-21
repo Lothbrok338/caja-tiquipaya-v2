@@ -99,6 +99,71 @@ def test_ejecutar_control3_institucional_ok(tmp_path):
     assert "america" not in entrada and "tiquipaya" not in entrada
 
 
+def test_ejecutar_control1_institucional_preliminar_no_persiste_historico(tmp_path):
+    """AUDITORÍA (preliminar, sin confirmacion_cierre): nunca escribe el
+    histórico institucional, aunque no haya duplicados -- solo previsualiza."""
+    base_dir_dev = _materializar_control1_institucional(tmp_path)
+    r = dev_api.ejecutar_control1_institucional(ANIO, MES, base_dir_dev)
+    assert r["modo"] == "preliminar"
+    assert r["dry_run"] is True
+    assert r["historico_actualizado"] is False
+    entrada = dev_api.control1_institucional_entrada_dir(base_dir_dev, ANIO, MES)
+    ruta_historico = os.path.join(entrada, "HISTORICO_ASIGNACIONES_INSTITUCIONAL.csv")
+    assert not os.path.isfile(ruta_historico)
+
+
+def test_ejecutar_control1_institucional_cierre_persiste_historico(tmp_path):
+    """CIERRE (confirmacion_cierre=True explícito): sin duplicados pendientes,
+    sí persiste al histórico institucional."""
+    base_dir_dev = _materializar_control1_institucional(tmp_path)
+    r = dev_api.ejecutar_control1_institucional(ANIO, MES, base_dir_dev, confirmacion_cierre=True)
+    assert r["modo"] == "cierre"
+    assert r["dry_run"] is False
+    assert r["historico_actualizado"] is True
+    entrada = dev_api.control1_institucional_entrada_dir(base_dir_dev, ANIO, MES)
+    ruta_historico = os.path.join(entrada, "HISTORICO_ASIGNACIONES_INSTITUCIONAL.csv")
+    assert os.path.isfile(ruta_historico)
+
+
+def test_ejecutar_control1_institucional_confirmacion_cierre_nunca_se_infiere(tmp_path):
+    """dry_run=True explícito sigue ganando incluso con confirmacion_cierre=True:
+    nunca hay un camino donde el cierre se infiera solo."""
+    base_dir_dev = _materializar_control1_institucional(tmp_path)
+    r = dev_api.ejecutar_control1_institucional(ANIO, MES, base_dir_dev, dry_run=True, confirmacion_cierre=True)
+    assert r["dry_run"] is True
+    assert r["historico_actualizado"] is False
+
+
+def test_ejecutar_control3_institucional_preliminar_no_sella_periodo(tmp_path):
+    base_dir_dev = str(tmp_path / "dev")
+    dev_api.preparar_control3_institucional_entrada(ANIO, MES, base_dir_dev)
+    entrada = dev_api.control3_institucional_entrada_dir(base_dir_dev, ANIO, MES)
+    ruta_tiq = os.path.join(entrada, consolidador_mensual.nombre_sap_global(ANIO, MES, cfg.TIQUIPAYA))
+    ruta_ame = os.path.join(entrada, consolidador_mensual.nombre_sap_global(ANIO, MES, cfg.AMERICA))
+    _crear_global(ruta_tiq, [{"asignacion": "A1", "cuenta_mayor": "110201002", "cargo": "10.00"}])
+    _crear_global(ruta_ame, [{"asignacion": "B1", "cuenta_mayor": "210103002", "cargo": "0.00"}])
+    r = dev_api.ejecutar_control3_institucional(ANIO, MES, base_dir_dev)
+    assert r["modo"] == "preliminar"
+    assert r["historico_actualizado"] is False
+    ruta_historico = os.path.join(entrada, "HISTORICO_CXC_CXP.csv")
+    assert not os.path.isfile(ruta_historico)
+
+
+def test_ejecutar_control3_institucional_cierre_sella_periodo(tmp_path):
+    base_dir_dev = str(tmp_path / "dev")
+    dev_api.preparar_control3_institucional_entrada(ANIO, MES, base_dir_dev)
+    entrada = dev_api.control3_institucional_entrada_dir(base_dir_dev, ANIO, MES)
+    ruta_tiq = os.path.join(entrada, consolidador_mensual.nombre_sap_global(ANIO, MES, cfg.TIQUIPAYA))
+    ruta_ame = os.path.join(entrada, consolidador_mensual.nombre_sap_global(ANIO, MES, cfg.AMERICA))
+    _crear_global(ruta_tiq, [{"asignacion": "A1", "cuenta_mayor": "110201002", "cargo": "10.00"}])
+    _crear_global(ruta_ame, [{"asignacion": "B1", "cuenta_mayor": "210103002", "cargo": "0.00"}])
+    r = dev_api.ejecutar_control3_institucional(ANIO, MES, base_dir_dev, confirmacion_cierre=True)
+    assert r["modo"] == "cierre"
+    assert r["historico_actualizado"] is True
+    ruta_historico = os.path.join(entrada, "HISTORICO_CXC_CXP.csv")
+    assert os.path.isfile(ruta_historico)
+
+
 def test_cli_no_ofrece_generar_global_institucional():
     import argparse
     parser_choices = None

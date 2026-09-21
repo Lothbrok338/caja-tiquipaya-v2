@@ -885,8 +885,13 @@
 
   // AUDITORÍA DE ASIGNACIONES (CONTROL 1): institucional -- analiza TIQ+AME
   // juntos en memoria, sin selector de caja (el backend obtiene ambos
-  // GLOBAL automáticamente). Idempotente: correrlo de nuevo sobre el mismo
-  // par TIQ/AME no reincorpora nada.
+  // GLOBAL automáticamente). SIEMPRE corre primero en modo PRELIMINAR (el
+  // backend fuerza esto salvo confirmacion_cierre=true explícito): nunca
+  // toca el histórico institucional solo por pulsar este botón. Si no hay
+  // duplicados pendientes, se ofrece el CIERRE como acción CONTEXTUAL (un
+  // confirm(), no un botón permanente) que requiere confirmación humana
+  // explícita antes de reenviar con confirmacion_cierre=true. Idempotente:
+  // correrlo de nuevo sobre el mismo par TIQ/AME no reincorpora nada.
   function ejecutarControl1Mensual() {
     ejecutarAccionMensual(ENDPOINTS.control1, "AUDITORÍA DE ASIGNACIONES", function (r) {
       if (r.estado === "YA_PROCESADO_SIN_CAMBIOS") {
@@ -901,13 +906,28 @@
       if (r.estado === "REVISAR_DUPLICADOS_ENCONTRADOS") {
         return { texto: "Se encontraron " + ((r.alertas || []).length) + " alerta(s) de asignación duplicada TIQ/AME. Requiere revisión del auditor antes de incorporar al histórico.", tipo: "error" };
       }
-      return "Auditoría de Asignaciones institucional actualizada: " + (r.filas_incorporadas_historico || 0) + " partida(s) incorporadas al histórico. Sin duplicados.";
+      // OK_SIN_DUPLICADOS: el backend siempre respondió en modo PRELIMINAR
+      // (nada se modificó todavía). El cierre nunca se infiere solo.
+      if (window.confirm("AUDITORÍA DE ASIGNACIONES: sin duplicados pendientes (vista previa).\n\n¿Confirma el CIERRE definitivo? Esto actualizará el histórico institucional y no se puede deshacer.")) {
+        ejecutarAccionMensual(ENDPOINTS.control1, "CIERRE de Auditoría de Asignaciones", function (r2) {
+          if (r2.estado === "OK_SIN_DUPLICADOS" && r2.historico_actualizado) {
+            return "CIERRE de Auditoría de Asignaciones: " + (r2.filas_incorporadas_historico || 0) + " partida(s) incorporadas al histórico institucional.";
+          }
+          return { texto: "CIERRE de Auditoría de Asignaciones: no se pudo completar (" + (r2.estado || "ERROR") + ").", tipo: "error" };
+        }, { confirmacion_cierre: true }, { sinCaja: true });
+        return { texto: "AUDITORÍA DE ASIGNACIONES: sin duplicados. Aplicando el cierre…", tipo: "cargando" };
+      }
+      return { texto: "AUDITORÍA DE ASIGNACIONES: sin duplicados (vista previa). No se modificó nada; el cierre quedó pendiente de confirmación.", tipo: "ok" };
     }, {}, { sinCaja: true });
   }
 
   // AUDITORÍA CxC / CxP (CONTROL 3): institucional -- combina TIQ+AME por
   // CUENTA+ASIGNACION (una CxP en AME se compensa con la CxC de la misma
-  // llave en TIQ). Nunca modifica ningún GLOBAL. Idempotente por el PAR
+  // llave en TIQ). Nunca modifica ningún GLOBAL. SIEMPRE corre primero en
+  // modo PRELIMINAR (nunca sella el periodo por pulsar este botón); el
+  // CIERRE (sella el periodo: actualiza HISTORICO_CXC_CXP.csv + su libro de
+  // periodos) es una acción CONTEXTUAL con confirmación humana explícita,
+  // igual criterio que AUDITORÍA DE ASIGNACIONES. Idempotente por el PAR
   // (sha256 TIQ, sha256 AME).
   function ejecutarControl3Mensual() {
     ejecutarAccionMensual(ENDPOINTS.control3, "AUDITORÍA CxC / CxP", function (r) {
@@ -920,10 +940,21 @@
       if (r.estado === "ERROR_TECNICO") {
         return { texto: "AUDITORÍA CxC / CxP: no se pudo completar (" + ((r.problemas || []).join(", ") || r.estado) + ").", tipo: "error" };
       }
-      var texto = "Auditoría CxC / CxP institucional actualizada: " + (r.abiertas || 0) + " abierta(s), "
-        + (r.cerradas || 0) + " cerrada(s), " + (r.revisar || 0) + " a revisar.";
-      if (r.asignaciones_faltantes) texto += " " + r.asignaciones_faltantes + " partida(s) sin asignación.";
-      return texto;
+      var resumenPreliminar = "abierta(s): " + (r.abiertas || 0) + ", cerrada(s): " + (r.cerradas || 0) + ", a revisar: " + (r.revisar || 0)
+        + (r.asignaciones_faltantes ? "; " + r.asignaciones_faltantes + " partida(s) sin asignación" : "");
+      if (window.confirm("AUDITORÍA CxC / CxP (vista previa): " + resumenPreliminar + ".\n\n¿Confirma el CIERRE definitivo? Esto sellará el periodo (actualiza el histórico y el libro de periodos maestros) y no se puede deshacer.")) {
+        ejecutarAccionMensual(ENDPOINTS.control3, "CIERRE de Auditoría CxC / CxP", function (r2) {
+          if (r2.estado === "ERROR_TECNICO" || r2.estado === "GLOBAL_MODIFICADO_REQUIERE_REVISION") {
+            return { texto: "CIERRE de Auditoría CxC / CxP: no se pudo completar (" + (r2.estado || "ERROR") + ").", tipo: "error" };
+          }
+          var texto = "CIERRE de Auditoría CxC / CxP: " + (r2.abiertas || 0) + " abierta(s), "
+            + (r2.cerradas || 0) + " cerrada(s), " + (r2.revisar || 0) + " a revisar. Periodo sellado.";
+          if (r2.asignaciones_faltantes) texto += " " + r2.asignaciones_faltantes + " partida(s) sin asignación.";
+          return texto;
+        }, { confirmacion_cierre: true }, { sinCaja: true });
+        return { texto: "AUDITORÍA CxC / CxP: " + resumenPreliminar + ". Aplicando el cierre…", tipo: "cargando" };
+      }
+      return { texto: "AUDITORÍA CxC / CxP (vista previa): " + resumenPreliminar + ". No se modificó nada; el cierre quedó pendiente de confirmación.", tipo: "ok" };
     }, {}, { sinCaja: true });
   }
 
