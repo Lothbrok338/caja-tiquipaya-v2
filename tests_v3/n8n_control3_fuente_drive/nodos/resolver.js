@@ -39,6 +39,13 @@ return [{
     nombre_global_ame: 'SAP_GLOBAL_AME_' + mesNombre + '_' + anio + '.xlsx',
     nombre_historico: 'HISTORICO_CXC_CXP.csv',
     nombre_periodos: 'HISTORICO_CXC_CXP_PERIODOS.json',
+    // Reporte institucional del periodo (ver
+    // v3/control3_institucional.nombre_reporte_institucional/
+    // nombre_detalle_institucional): los nombres que EJECUTAR control3
+    // (Python) usa para escribir archivo_control_xlsx/archivo_control_json
+    // en ESTA corrida.
+    nombre_reporte: 'CONTROL_CXC_CXP_INSTITUCIONAL_' + periodo + '.xlsx',
+    nombre_reporte_json: 'CONTROL_CXC_CXP_INSTITUCIONAL_' + periodo + '.json',
     // Drive: 05_CONTROLES (historicos MAESTROS, ya institucionales/compartidos), 05_CONTROLES/GLOBAL (ambos SAP_GLOBAL_TIQ/AME).
     carpeta_controles_id: resolverDestino('controles'),
     carpeta_global_id: resolverDestino('global'),

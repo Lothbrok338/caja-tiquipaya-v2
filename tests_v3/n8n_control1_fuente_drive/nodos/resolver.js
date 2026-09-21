@@ -38,6 +38,11 @@ return [{
     nombre_global_tiq: 'SAP_GLOBAL_TIQ_' + mesNombre + '_' + anio + '.xlsx',
     nombre_global_ame: 'SAP_GLOBAL_AME_' + mesNombre + '_' + anio + '.xlsx',
     nombre_historico: 'HISTORICO_ASIGNACIONES_INSTITUCIONAL.csv',
+    // Detalle/revision institucional del periodo (ver
+    // v3/control1_institucional.nombre_reporte_institucional): el mismo
+    // nombre que EJECUTAR control1 (Python) usa para escribir
+    // ruta_detalle_json en ESTA corrida.
+    nombre_detalle: 'CONTROL_ASIGNACIONES_INSTITUCIONAL_' + periodo + '.json',
     // Drive: 05_CONTROLES (historico institucional unico), 05_CONTROLES/GLOBAL (ambos SAP_GLOBAL_TIQ/AME).
     carpeta_controles_id: resolverDestino('controles'),
     carpeta_global_id: resolverDestino('global'),

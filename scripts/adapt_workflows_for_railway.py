@@ -174,9 +174,10 @@ BACKEND_JSCODE_PATCHES = {
     ],
     "DECIDIR - Publicar CONTROL1 oficial": [
         (
-            "const r = $json.data || {};\nif (modo !== 'official') {",
-            "const r = $json.data || {};\n"
+            "const vacio = { debe_publicar: false, hay_detalle: false, hay_historico: false, publicar_global_tiq: false, publicar_global_ame: false };\n"
+            "if (modo !== 'official') {",
             f"{_GUARD_JS_DECL}\n"
+            "const vacio = { debe_publicar: false, hay_detalle: false, hay_historico: false, publicar_global_tiq: false, publicar_global_ame: false };\n"
             "// SHADOW: con el guard activo, debe_publicar=false aunque el request diga modo='official'.\n"
             "if (guardActivo || modo !== 'official') {",
         ),
@@ -184,11 +185,11 @@ BACKEND_JSCODE_PATCHES = {
     "DECIDIR - Publicar CONTROL3 oficial": [
         (
             "const vacio = { debe_publicar: false, hay_reporte: false, hay_reporte_json: false, hay_snapshots: false, hay_historico: false, hay_periodos: false };\n"
-            "if (modo !== 'official' || r.resultado === 'ERROR' || r.estado === 'ERROR_TECNICO' || r.dry_run === true) {",
+            "if (modo !== 'official') {",
             f"{_GUARD_JS_DECL}\n"
             "const vacio = { debe_publicar: false, hay_reporte: false, hay_reporte_json: false, hay_snapshots: false, hay_historico: false, hay_periodos: false };\n"
             "// SHADOW: con el guard activo, debe_publicar=false aunque el request diga modo='official'.\n"
-            "if (guardActivo || modo !== 'official' || r.resultado === 'ERROR' || r.estado === 'ERROR_TECNICO' || r.dry_run === true) {",
+            "if (guardActivo || modo !== 'official') {",
         ),
     ],
 }

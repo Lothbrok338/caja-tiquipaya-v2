@@ -217,13 +217,17 @@ def ejecutar_control3_institucional(ruta_global_tiq, ruta_global_ame, ruta_histo
         ctrl3._guardar_libro_periodos(ruta_historico_institucional, libro_periodos)
         resumen["historico_actualizado"] = True
 
-        if ruta_salida_xlsx:
-            filas_excel = ctrl3._construir_filas_excel(nuevo_historico, grupos_mes, periodo, faltantes)
-            ctrl3.guardar_control_xlsx(ruta_salida_xlsx, filas_excel)
-            resumen["archivo_control_xlsx"] = ruta_salida_xlsx
-        if ruta_salida_json:
-            resumen["archivo_control_json"] = ruta_salida_json
-            with open(ruta_salida_json, "w", encoding="utf-8") as f:
-                json.dump(resumen, f, ensure_ascii=False, indent=2, default=str)
+    # El reporte (xlsx/json) del periodo es SIEMPRE una vista de lectura sobre `nuevo_historico`
+    # (ya calculado en memoria arriba): se escribe tanto en PRELIMINAR (dry_run=True, para que el
+    # auditor revise antes de cerrar) como en CIERRE. Nunca depende de si el histórico MAESTRO se
+    # persistió: PRELIMINAR nunca toca el histórico pero sí necesita su propio reporte del periodo.
+    if ruta_salida_xlsx:
+        filas_excel = ctrl3._construir_filas_excel(nuevo_historico, grupos_mes, periodo, faltantes)
+        ctrl3.guardar_control_xlsx(ruta_salida_xlsx, filas_excel)
+        resumen["archivo_control_xlsx"] = ruta_salida_xlsx
+    if ruta_salida_json:
+        resumen["archivo_control_json"] = ruta_salida_json
+        with open(ruta_salida_json, "w", encoding="utf-8") as f:
+            json.dump(resumen, f, ensure_ascii=False, indent=2, default=str)
 
     return resumen

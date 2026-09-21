@@ -123,7 +123,8 @@ test('el codigo desplegado en el snapshot de BACKEND DEV coincide con estos arch
   if (!fs.existsSync(snapshot)) { console.log('       (snapshot ausente: omitido)'); return; }
   const wf = JSON.parse(fs.readFileSync(snapshot, 'utf8')); const nodos = (wf.workflow || wf).nodes;
   const mapa = { 'RESOLVER control3 (periodo y carpetas)': 'resolver', 'CLASIFICAR - Artefactos de CONTROL 3 en Drive': 'clasificar',
-    'RESTAURAR - Item del webhook control3': 'restaurar', 'CONSTRUIR payload control3': 'construir_payload' };
+    'RESTAURAR - Item del webhook control3': 'restaurar', 'CONSTRUIR payload control3': 'construir_payload',
+    'DECIDIR - Publicar CONTROL3 oficial': 'decidir_publicar', 'CONSTRUIR - Lista publicaciones CONTROL3': 'lista_publicaciones' };
   Object.keys(mapa).forEach(function (nombre) {
     const nodo = nodos.find(function (n) { return n.name === nombre; });
     assert.ok(nodo, 'falta nodo ' + nombre);
@@ -140,10 +141,61 @@ test('conexiones: PREPARAR -> BUSCAR GLOBAL TIQ -> BUSCAR GLOBAL AME -> BUSCAR h
   assert.strictEqual(next('BUSCAR GLOBAL AME oficial CONTROL3 (Drive)'), 'BUSCAR historico CxC/CxP maestro (Drive)');
   assert.strictEqual(next('BUSCAR periodos CxC/CxP maestro (Drive)'), 'CLASIFICAR - Artefactos de CONTROL 3 en Drive');
 });
-test('conexiones: INTERPRETAR resultado control3 responde directo (el publish-oficial legacy queda desconectado, no aplica al shape institucional)', function () {
+test('conexiones: INTERPRETAR resultado control3 -> DECIDIR - Publicar CONTROL3 oficial (reconectado al shape institucional, FASE 12G)', function () {
   if (!fs.existsSync(snapshot)) { console.log('       (snapshot ausente: omitido)'); return; }
   const wf = JSON.parse(fs.readFileSync(snapshot, 'utf8'));
-  assert.strictEqual(wf.connections['INTERPRETAR resultado control3'].main[0][0].node, 'RESPONDER control3');
+  assert.strictEqual(wf.connections['INTERPRETAR resultado control3'].main[0][0].node, 'DECIDIR - Publicar CONTROL3 oficial');
+});
+
+// ---------------------------------------------------------------------
+// FASE 12G -- DECIDIR/CONSTRUIR reconectados al shape institucional
+// (nunca modifica GLOBAL; solo lectura).
+// ---------------------------------------------------------------------
+const decidir3 = function (body, data) {
+  return ejecutar(cargar('decidir_publicar'), {
+    'WEBHOOK control3': [{ json: { body: body } }],
+    'RESOLVER control3 (periodo y carpetas)': [{ json: RC }],
+  }, [], { data: data })[0].json;
+};
+const listaPub3 = function (d) {
+  return ejecutar(cargar('lista_publicaciones'), {
+    'DECIDIR - Publicar CONTROL3 oficial': [{ json: d }],
+    'RESOLVER control3 (periodo y carpetas)': [{ json: RC }],
+    'EJECUTAR 07E carpeta del periodo CONTROL3': [{ json: { carpeta_id: 'PERIODO_DIR' } }],
+  }, []).map(function (i) { return i.json; });
+};
+
+test('PRELIMINAR CONTROL3 no publica maestros: solo el reporte xlsx/json del periodo', function () {
+  const d = decidir3({ modo: 'official' }, {
+    modo: 'preliminar', dry_run: true, historico_actualizado: false,
+    archivo_control_xlsx: '/entrada/' + RC.nombre_reporte, archivo_control_json: '/entrada/' + RC.nombre_reporte_json,
+  });
+  assert.deepStrictEqual(d, { debe_publicar: true, hay_reporte: true, hay_reporte_json: true, hay_snapshots: false, hay_historico: false, hay_periodos: false });
+  const items = listaPub3(d);
+  assert.deepStrictEqual(items.map(function (i) { return i.nombre_archivo; }), [RC.nombre_reporte, RC.nombre_reporte_json]);
+});
+
+test('CIERRE CONTROL3 publica historico + libro de periodos MAESTROS', function () {
+  const d = decidir3(
+    { modo: 'official', confirmacion_cierre: true },
+    { modo: 'cierre', dry_run: false, historico_actualizado: true, archivo_control_xlsx: '/entrada/' + RC.nombre_reporte, archivo_control_json: '/entrada/' + RC.nombre_reporte_json },
+  );
+  assert.strictEqual(d.hay_historico, true);
+  assert.strictEqual(d.hay_periodos, true);
+  const items = listaPub3(d);
+  assert.ok(items.some(function (i) { return i.nombre_archivo === RC.nombre_historico && i.carpeta_id === RC.carpeta_controles_id; }));
+  assert.ok(items.some(function (i) { return i.nombre_archivo === RC.nombre_periodos && i.carpeta_id === RC.carpeta_controles_id; }));
+});
+
+test('CONTROL3: el libro de PERIODOS MAESTRO es SIEMPRE el ultimo en el orden de publicacion', function () {
+  const d = decidir3(
+    { modo: 'official', confirmacion_cierre: true },
+    { modo: 'cierre', dry_run: false, historico_actualizado: true, archivo_control_xlsx: '/entrada/' + RC.nombre_reporte, archivo_control_json: '/entrada/' + RC.nombre_reporte_json },
+  );
+  const items = listaPub3(d);
+  const ultimo = items[items.length - 1];
+  assert.strictEqual(ultimo.nombre_archivo, RC.nombre_periodos);
+  assert.strictEqual(ultimo.carpeta_id, RC.carpeta_controles_id);
 });
 
 console.log('\n' + pasados + ' passed, ' + fallidos + ' failed');

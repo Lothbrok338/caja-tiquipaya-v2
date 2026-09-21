@@ -1,29 +1,49 @@
+// FASE 12F -- CONTROL 1 institucional: ya no hay UN GLOBAL por caja ni una
+// REVISION_ASIGNACIONES por-caja (ver clasificar.js). El resultado que llega
+// aqui es el de v3.control1_institucional.ejecutar_control1_institucional
+// (mezclado con {resultado, dir_entrada, modo} por v3/dev_api.py):
+//   estado, periodo, sha_par, archivo_global_tiq, archivo_global_ame,
+//   candidatas_tiq/ame, alertas, dry_run, historico_actualizado,
+//   ruta_detalle_json (solo si CONTROL1 lo escribio en esta corrida), modo.
+// Las correcciones autorizadas (si las hubo) se aplican ANTES de este paso
+// (ver construir_payload.js) y tocan CADA GLOBAL de su caja de origen por
+// separado: nunca existe un tercer GLOBAL combinado que publicar.
 const modo = (($('WEBHOOK control1').first().json.body) || {}).modo || 'dev';
-const r = $json.data || {};
+const vacio = { debe_publicar: false, hay_detalle: false, hay_historico: false, publicar_global_tiq: false, publicar_global_ame: false };
 if (modo !== 'official') {
-  return [{ json: { debe_publicar: false, hay_revision: false, hay_detalle: false, hay_historico: false, publicar_global: false, ruta_revision: null } }];
+  return [{ json: vacio }];
+}
+const body = ($('WEBHOOK control1').first().json.body) || {};
+const r = $json.data || {};
+if (r.resultado === 'ERROR' || r.estado === 'ERROR_TECNICO') {
+  return [{ json: vacio }];
 }
 const rc = $('RESOLVER control1 (periodo y carpetas)').first().json;
 
-// Revision, detalle e historico: solo cuando la logica de CONTROL 1 los escribio en ESTA corrida.
-const hayRevision = r.revision_actualizada === true && typeof r.ruta_revision === 'string' && r.ruta_revision.split('/').pop() === rc.nombre_revision;
-const hayDetalle = typeof r.detalle_json === 'string' && r.detalle_json.split('/').pop() === rc.nombre_detalle;
-// PRELIMINAR (mes abierto): solo artefactos del periodo (revision + detalle). El historico maestro y el
-// GLOBAL solo se publican tras un CIERRE DEFINITIVO explicito.
-const esCierre = r.modo_control1 === 'cerrar';
-const hayHistorico = esCierre && r.historico_actualizado === true;
+// Detalle/revision institucional del periodo: solo si CONTROL1 lo escribio en ESTA corrida
+// (mismo nombre canonico del periodo pedido).
+const hayDetalle = typeof r.ruta_detalle_json === 'string' && r.ruta_detalle_json.split('/').pop() === rc.nombre_detalle;
 
-// GLOBAL corregido: solo si CONTROL 1 realmente lo modifico como resultado autorizado
-// (validacion del auditor cerrada), es el MISMO GLOBAL oficial descargado en esta corrida
-// (mismo nombre/periodo, SHA original distinto del final) y no es simulacro.
-const publicarGlobal = esCierre
-  && r.global_modificado === true
-  && r.estado_validacion === 'CERRADO_CON_VALIDACION_AUDITOR'
-  && Number(r.correcciones_aplicadas) > 0
-  && r.dry_run !== true
-  && r.archivo_global === rc.nombre_global
-  && r.periodo === (rc.mes_nombre + '_' + rc.anio)
-  && typeof r.sha256_global_original === 'string' && typeof r.sha256_global_final === 'string'
-  && r.sha256_global_original !== r.sha256_global_final;
+// CIERRE DEFINITIVO explicito (confirmacion_cierre=true) Y exitoso (persistio el historico
+// institucional en ESTA corrida, sin duplicados pendientes). PRELIMINAR (mes abierto) nunca
+// llega aqui con historico_actualizado=true: dev_api fuerza dry_run=True sin confirmacion_cierre.
+const esCierre = r.modo === 'cierre' && r.historico_actualizado === true;
+const hayHistorico = esCierre;
 
-return [{ json: { debe_publicar: hayRevision || hayDetalle || hayHistorico || publicarGlobal, hay_revision: hayRevision, hay_detalle: hayDetalle, hay_historico: hayHistorico, publicar_global: publicarGlobal, ruta_revision: hayRevision ? r.ruta_revision : null } }];
+// GLOBAL corregido: solo si hubo correcciones autorizadas para ESA caja Y el cierre fue exitoso.
+// Cada caja se publica de forma independiente (si solo cambio AME, TIQ nunca se publica). Nunca
+// se fusionan en un tercer GLOBAL: son dos archivos, dos decisiones.
+const correccionesTiq = Array.isArray(body.correcciones_tiq) ? body.correcciones_tiq : [];
+const correccionesAme = Array.isArray(body.correcciones_ame) ? body.correcciones_ame : [];
+const publicarGlobalTiq = esCierre && correccionesTiq.length > 0;
+const publicarGlobalAme = esCierre && correccionesAme.length > 0;
+
+return [{
+  json: {
+    debe_publicar: hayDetalle || hayHistorico || publicarGlobalTiq || publicarGlobalAme,
+    hay_detalle: hayDetalle,
+    hay_historico: hayHistorico,
+    publicar_global_tiq: publicarGlobalTiq,
+    publicar_global_ame: publicarGlobalAme,
+  },
+}];

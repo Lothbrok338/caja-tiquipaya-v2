@@ -167,7 +167,8 @@ test('el codigo desplegado en el snapshot de BACKEND DEV coincide con estos arch
   if (!fs.existsSync(snapshot)) { console.log('       (snapshot ausente: omitido)'); return; }
   const wf = JSON.parse(fs.readFileSync(snapshot, 'utf8')); const nodos = (wf.workflow || wf).nodes;
   const mapa = { 'RESOLVER control1 (periodo y carpetas)': 'resolver', 'CLASIFICAR - Artefactos de CONTROL 1 en Drive': 'clasificar',
-    'RESTAURAR - Item del webhook control1': 'restaurar', 'CONSTRUIR payload control1': 'construir_payload' };
+    'RESTAURAR - Item del webhook control1': 'restaurar', 'CONSTRUIR payload control1': 'construir_payload',
+    'DECIDIR - Publicar CONTROL1 oficial': 'decidir_publicar', 'CONSTRUIR - Lista publicaciones CONTROL1': 'lista_publicaciones' };
   Object.keys(mapa).forEach(function (nombre) {
     const nodo = nodos.find(function (n) { return n.name === nombre; });
     assert.ok(nodo, 'falta nodo ' + nombre);
@@ -184,10 +185,77 @@ test('conexiones: PREPARAR -> BUSCAR GLOBAL TIQ -> BUSCAR GLOBAL AME -> BUSCAR h
   assert.strictEqual(next('BUSCAR GLOBAL AME oficial (Drive)'), 'BUSCAR historico asignaciones (Drive)');
   assert.strictEqual(next('BUSCAR historico asignaciones (Drive)'), 'CLASIFICAR - Artefactos de CONTROL 1 en Drive');
 });
-test('conexiones: INTERPRETAR resultado control1 responde directo (el publish-oficial legacy queda desconectado, no aplica al shape institucional)', function () {
+test('conexiones: INTERPRETAR resultado control1 -> DECIDIR - Publicar CONTROL1 oficial (reconectado al shape institucional, FASE 12G)', function () {
   if (!fs.existsSync(snapshot)) { console.log('       (snapshot ausente: omitido)'); return; }
   const wf = JSON.parse(fs.readFileSync(snapshot, 'utf8'));
-  assert.strictEqual(wf.connections['INTERPRETAR resultado control1'].main[0][0].node, 'RESPONDER control1');
+  assert.strictEqual(wf.connections['INTERPRETAR resultado control1'].main[0][0].node, 'DECIDIR - Publicar CONTROL1 oficial');
 });
+
+// ---------------------------------------------------------------------
+// FASE 12G -- DECIDIR/CONSTRUIR reconectados al shape institucional
+// (TIQ+AME por separado, nunca un tercer GLOBAL combinado).
+// ---------------------------------------------------------------------
+const RC_PUB = { periodo: '2026-09', nombre_global_tiq: 'SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx', nombre_global_ame: 'SAP_GLOBAL_AME_SEPTIEMBRE_2026.xlsx',
+  nombre_historico: 'HISTORICO_ASIGNACIONES_INSTITUCIONAL.csv', nombre_detalle: 'CONTROL_ASIGNACIONES_INSTITUCIONAL_2026-09.json',
+  carpeta_global_id: 'GLOBAL_DIR', carpeta_controles_id: 'CONTROLES_DIR', dir_entrada: '/entrada' };
+const decidir = function (body, data) {
+  return ejecutar(cargar('decidir_publicar'), {
+    'WEBHOOK control1': [{ json: { body: body } }],
+    'RESOLVER control1 (periodo y carpetas)': [{ json: RC_PUB }],
+  }, [], { data: data })[0].json;
+};
+const listaPub = function (d) {
+  return ejecutar(cargar('lista_publicaciones'), {
+    'DECIDIR - Publicar CONTROL1 oficial': [{ json: d }],
+    'RESOLVER control1 (periodo y carpetas)': [{ json: RC_PUB }],
+    'EJECUTAR 07E carpeta del periodo CONTROL1': [{ json: { carpeta_id: 'PERIODO_DIR' } }],
+  }, []).map(function (i) { return i.json; });
+};
+
+test('PRELIMINAR CONTROL1 no publica maestro ni GLOBAL: solo el detalle/revision del periodo', function () {
+  const d = decidir({ modo: 'official' }, { modo: 'preliminar', dry_run: true, historico_actualizado: false, ruta_detalle_json: '/entrada/CONTROL_ASIGNACIONES_INSTITUCIONAL_2026-09.json' });
+  assert.deepStrictEqual(d, { debe_publicar: true, hay_detalle: true, hay_historico: false, publicar_global_tiq: false, publicar_global_ame: false });
+  const items = listaPub(d);
+  assert.deepStrictEqual(items.map(function (i) { return i.nombre_archivo; }), [RC_PUB.nombre_detalle]);
+});
+
+test('CIERRE CONTROL1 publica TIQ y AME corregidos cuando ambos cambiaron', function () {
+  const d = decidir(
+    { modo: 'official', confirmacion_cierre: true, correcciones_tiq: [[16, 'A', 'B']], correcciones_ame: [[20, 'C', 'D']] },
+    { modo: 'cierre', dry_run: false, historico_actualizado: true, ruta_detalle_json: '/entrada/CONTROL_ASIGNACIONES_INSTITUCIONAL_2026-09.json' },
+  );
+  assert.strictEqual(d.publicar_global_tiq, true);
+  assert.strictEqual(d.publicar_global_ame, true);
+  assert.strictEqual(d.hay_historico, true);
+});
+
+test('CIERRE CONTROL1: si solo cambia AME, TIQ nunca se publica (y viceversa) -- nunca un tercer GLOBAL', function () {
+  const d = decidir(
+    { modo: 'official', confirmacion_cierre: true, correcciones_tiq: [], correcciones_ame: [[20, 'C', 'D']] },
+    { modo: 'cierre', dry_run: false, historico_actualizado: true },
+  );
+  assert.strictEqual(d.publicar_global_tiq, false);
+  assert.strictEqual(d.publicar_global_ame, true);
+  const items = listaPub(d);
+  assert.ok(!items.some(function (i) { return i.nombre_archivo === RC_PUB.nombre_global_tiq; }));
+  assert.ok(items.some(function (i) { return i.nombre_archivo === RC_PUB.nombre_global_ame; }));
+  assert.ok(items.every(function (i) { return i.nombre_archivo !== 'SAP_GLOBAL_INSTITUCIONAL.xlsx'; }));
+});
+
+test('CONTROL1: el historico MAESTRO (raiz de 05_CONTROLES) va SIEMPRE al final del orden de publicacion', function () {
+  const d = decidir(
+    { modo: 'official', confirmacion_cierre: true, correcciones_tiq: [[16, 'A', 'B']], correcciones_ame: [[20, 'C', 'D']] },
+    { modo: 'cierre', dry_run: false, historico_actualizado: true, ruta_detalle_json: '/entrada/CONTROL_ASIGNACIONES_INSTITUCIONAL_2026-09.json' },
+  );
+  const items = listaPub(d);
+  const ultimo = items[items.length - 1];
+  assert.strictEqual(ultimo.nombre_archivo, RC_PUB.nombre_historico);
+  assert.strictEqual(ultimo.carpeta_id, RC_PUB.carpeta_controles_id);
+  // Los GLOBAL (si los hay) siempre antes que el detalle/historico del periodo.
+  const idxTiq = items.findIndex(function (i) { return i.nombre_archivo === RC_PUB.nombre_global_tiq; });
+  const idxDetalle = items.findIndex(function (i) { return i.nombre_archivo === RC_PUB.nombre_detalle; });
+  assert.ok(idxTiq < idxDetalle);
+});
+
 console.log('\n' + pasados + ' passed, ' + fallidos + ' failed');
 process.exit(fallidos ? 1 : 0);

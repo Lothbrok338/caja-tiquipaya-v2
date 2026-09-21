@@ -129,9 +129,9 @@ test('BACKEND: debe_publicar=false en CONTROL1 con SHADOW=true aunque modo=offic
   const codigo = codigoDe('DECIDIR - Publicar CONTROL1 oficial');
   const nodos = {
     'WEBHOOK control1': [{ json: { body: { modo: 'official' } } }],
-    'RESOLVER control1 (periodo y carpetas)': [{ json: { nombre_revision: 'REVISION_X.xlsx', nombre_detalle: 'DETALLE_X.json', nombre_global: 'G.xlsx', mes_nombre: 'SEPTIEMBRE', anio: '2026' } }],
+    'RESOLVER control1 (periodo y carpetas)': [{ json: { nombre_detalle: 'CONTROL_ASIGNACIONES_INSTITUCIONAL_2026-09.json', nombre_global_tiq: 'SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx', nombre_global_ame: 'SAP_GLOBAL_AME_SEPTIEMBRE_2026.xlsx', periodo: '2026-09' } }],
   };
-  const json = { data: { revision_actualizada: true, ruta_revision: '/x/REVISION_X.xlsx', detalle_json: '/x/DETALLE_X.json' } };
+  const json = { data: { ruta_detalle_json: '/x/CONTROL_ASIGNACIONES_INSTITUCIONAL_2026-09.json' } };
   assert.strictEqual(ejecutar(codigo, { nodos: nodos, json: json, env: { TIQ_BLOCK_OFFICIAL_PUBLISH: 'true' } })[0].json.debe_publicar, false);
   assert.strictEqual(ejecutar(codigo, { nodos: nodos, json: json })[0].json.debe_publicar, true);
 });
