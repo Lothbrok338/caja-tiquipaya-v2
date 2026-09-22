@@ -48,7 +48,7 @@ function test(nombre, fn) { try { fn(); pasados++; console.log('PASS - ' + nombr
 // A) Guarda de escritura en 06B / 07D / 07E
 // ---------------------------------------------------------------------
 const SUBWORKFLOWS_CON_GUARDA = [
-  ['wcgxNei3duWfMDp1_06b_publicacion_oficial.json', 'BUSCAR - Marker existente en Drive'],
+  ['wcgxNei3duWfMDp1_06b_publicacion_oficial.json', 'RESOLVER - Destinos Drive por caja'],
   ['HhuQCVP2oCubavzY_07d_publicar_oficial.json', 'BUSCAR - Archivo por nombre en carpeta'],
   ['Lht5xRinJ9nJpHCW_07e_buscar_crear_carpeta.json', 'BUSCAR - Subcarpeta por nombre'],
 ];
@@ -80,6 +80,11 @@ SUBWORKFLOWS_CON_GUARDA.forEach(function (par) {
     assert.deepStrictEqual(ejecutar(codigo, { entradas: [item] }), [item]);
     assert.deepStrictEqual(ejecutar(codigo, { entradas: [item], env: { TIQ_BLOCK_OFFICIAL_PUBLISH: 'false' } }), [item]);
   });
+});
+
+test('06B: resolver destinos Drive por caja está cableado hacia BUSCAR marker existente', function () {
+  const wf = cargarWorkflow('wcgxNei3duWfMDp1_06b_publicacion_oficial.json');
+  assert.strictEqual(wf.connections['RESOLVER - Destinos Drive por caja'].main[0][0].node, 'BUSCAR - Marker existente en Drive');
 });
 
 // ---------------------------------------------------------------------
