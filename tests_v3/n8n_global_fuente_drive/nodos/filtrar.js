@@ -1,7 +1,13 @@
 // Universo de GLOBAL = SAP diarios validos del periodo en la carpeta SAP oficial de Drive.
 // Cada SAP conserva nombre, fileId, fecha inferida e identidad propia (nunca se elige por posicion).
 const r = $('RESOLVER carpeta SAP oficial').first().json;
-const RE_V3 = /^SAP_TIQ_(\d{2})-(\d{2})-(\d{4})\.xlsx$/i;
+const caja = (r.caja || 'tiquipaya').toString().trim().toLowerCase();
+if (caja !== 'tiquipaya' && caja !== 'america') {
+  throw new Error('CAJA_DESCONOCIDA: "' + caja + '". Cajas validas: america, tiquipaya.');
+}
+const RE_V3 = caja === 'america'
+  ? /^SAP_AME_(\d{2})-(\d{2})-(\d{4})\.xlsx$/i
+  : /^SAP_TIQ_(\d{2})-(\d{2})-(\d{4})\.xlsx$/i;
 const RE_LEGACY = /^SAP_(\d{2})-(\d{2})-(\d{4})\.xlsx$/i;
 
 const validos = [];
@@ -13,7 +19,7 @@ for (const it of $input.all()) {
   if (nombre.startsWith('~$') || nombre.startsWith('.') || nombre.toLowerCase().endsWith('.tmp')) continue;
   let m = RE_V3.exec(nombre);
   let origen = 'v3';
-  if (!m) { m = RE_LEGACY.exec(nombre); origen = 'legacy'; }
+  if (!m && caja === 'tiquipaya') { m = RE_LEGACY.exec(nombre); origen = 'legacy'; }
   if (!m) continue;
   const dia = Number(m[1]);
   const mesN = Number(m[2]);

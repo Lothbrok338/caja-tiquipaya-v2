@@ -87,26 +87,27 @@ class TestCompensacionInstitucional(BaseInstitucional):
         self.assertEqual(r["llaves_evaluadas"], 1, "una sola llave institucional CUENTA+ASIGNACION")
 
     def test_obligacion_ame_compensada_por_tiq(self):
-        # AME HABER 100 de una CxP; TIQ DEBE 100 de la misma CUENTA+ASIGNACION
+        # AME HABER 100 en 210103003/POSTG-SEPT; TIQ DEBE 100 de la misma
+        # CUENTA+ASIGNACION
         # -> saldo institucional final = 0 (CERRADO).
         r = self._ejecutar(
-            [_partida(CTA_CXP, "COMPENSA", debe="100.00")],
-            [_partida(CTA_CXP, "COMPENSA", haber="100.00")],
+            [_partida(CTA_CXP, "POSTG-SEPT", debe="100.00")],
+            [_partida(CTA_CXP, "POSTG-SEPT", haber="100.00")],
         )
         self.assertEqual(r["estado"], "OK")
         self.assertEqual(r["cerradas"], 1)
         self.assertEqual(r["abiertas"], 0)
         historico = c3.cargar_historico(self.ruta_historico)
-        fila = historico[(CTA_CXP, "COMPENSA")]
+        fila = historico[(CTA_CXP, "POSTG-SEPT")]
         self.assertEqual(Decimal(fila["saldo"]), Decimal("0.00"))
         self.assertEqual(fila["estado"], c3._ESTADO_CERRADO)
 
     def test_trazabilidad_origen_incluye_ambas_cajas(self):
         r = self._ejecutar(
-            [_partida(CTA_CXP, "COMPENSA", debe="100.00")],
-            [_partida(CTA_CXP, "COMPENSA", haber="100.00")],
+            [_partida(CTA_CXP, "POSTG-SEPT", debe="100.00")],
+            [_partida(CTA_CXP, "POSTG-SEPT", haber="100.00")],
         )
-        origenes = r["trazabilidad_origen"][f"{CTA_CXP}|COMPENSA"]
+        origenes = r["trazabilidad_origen"][f"{CTA_CXP}|POSTG-SEPT"]
         cajas = {o["caja"] for o in origenes}
         self.assertEqual(cajas, {"tiquipaya", "america"})
 

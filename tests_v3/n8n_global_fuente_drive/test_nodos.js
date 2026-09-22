@@ -36,10 +36,13 @@ function test(nombre, fn) {
 }
 
 const webhook = function (anio, mes, caja) { return { 'WEBHOOK global': [{ json: { body: { anio: anio, mes: mes, caja: caja } } }] }; };
-const SEP = { anio: 2026, mes: 9, periodo: '2026-09', dir_entrada: '/base/global_entrada/2026-09' };
+const SEP = { anio: 2026, mes: 9, periodo: '2026-09', caja: 'tiquipaya', dir_entrada: '/base/global_entrada/2026-09' };
 const drive = function (nombres) { return nombres.map(function (n, i) { return { json: { id: 'id' + i + '_' + n, name: n } }; }); };
-const filtrar = function (nombres) {
-  return ejecutar(cargar('filtrar'), { 'RESOLVER carpeta SAP oficial': [{ json: SEP }] }, drive(nombres)).map(function (i) { return i.json; });
+const filtrar = function (nombres, caja) {
+  const resuelto = Object.assign({}, SEP, caja === 'america'
+    ? { caja: 'america', dir_entrada: '/base/global_entrada/america/2026-09' }
+    : { caja: caja || 'tiquipaya' });
+  return ejecutar(cargar('filtrar'), { 'RESOLVER carpeta SAP oficial': [{ json: resuelto }] }, drive(nombres)).map(function (i) { return i.json; });
 };
 const SEPT_REAL = ['SAP_TIQ_10-09-2026.xlsx', 'SAP_09-09-2026.xlsx', 'SAP_08-09-2026.xlsx', 'SAP_07-09-2026.xlsx',
   'SAP_05-09-2026.xlsx', 'SAP_04-09-2026.xlsx', 'SAP_03-09-2026.xlsx', 'SAP_02-09-2026.xlsx', 'SAP_01-09-2026.xlsx'];
@@ -104,6 +107,23 @@ test('filtrar: los 9 SAP reales de septiembre (8 legacy + 1 V3), en orden cronol
   assert.strictEqual(r[0].origen, 'legacy');
   assert.strictEqual(r[8].origen, 'v3');
   assert.ok(r.every(function (x) { return x.hay_sap === true && x.cantidad === 9; }));
+});
+test('filtrar AMERICA: acepta solo SAP_AME y rechaza SAP_TIQ y legacy TIQ', function () {
+  const r = filtrar([
+    'SAP_AME_01-09-2026.xlsx',
+    'SAP_TIQ_02-09-2026.xlsx',
+    'SAP_03-09-2026.xlsx',
+    'SAP_GLOBAL_AME_SEPTIEMBRE_2026.xlsx',
+  ], 'america');
+  assert.deepStrictEqual(r.map(function (x) { return x.name; }), ['SAP_AME_01-09-2026.xlsx']);
+  assert.strictEqual(r[0].ruta_destino, '/base/global_entrada/america/2026-09/SAP_AME_01-09-2026.xlsx');
+});
+test('filtrar TIQUIPAYA: conserva compatibilidad SAP_TIQ y legacy TIQ, rechaza SAP_AME', function () {
+  const r = filtrar(['SAP_TIQ_01-09-2026.xlsx', 'SAP_02-09-2026.xlsx', 'SAP_AME_03-09-2026.xlsx'], 'tiquipaya');
+  assert.deepStrictEqual(r.map(function (x) { return x.name; }), ['SAP_TIQ_01-09-2026.xlsx', 'SAP_02-09-2026.xlsx']);
+});
+test('filtrar: caja desconocida falla cerrado', function () {
+  assert.throws(function () { filtrar(['SAP_TIQ_01-09-2026.xlsx'], 'brasil'); }, /CAJA_DESCONOCIDA/);
 });
 test('filtrar: cada SAP conserva su propio fileId y su ruta de destino', function () {
   const r = filtrar(SEPT_REAL);
