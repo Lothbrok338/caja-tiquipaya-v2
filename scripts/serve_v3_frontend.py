@@ -245,7 +245,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if not self._autenticar():
             return
-        if self.path == "/":
+        if self.path.partition("?")[0] == "/":
             # Evita el listado de directorio ("Directory listing for /") de
             # SimpleHTTPRequestHandler: no hay index.html en n8n_frontend/,
             # asi que la raiz redirige a la interfaz real de CAJAS GABO.

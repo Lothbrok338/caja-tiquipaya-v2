@@ -222,9 +222,10 @@ def test_raiz_credenciales_incorrectas_401(lanzar_proxy):
     assert headers.get("WWW-Authenticate") == 'Basic realm="CAJAS GABO"'
 
 
-def test_raiz_credenciales_correctas_redirige_302_a_v3_control_cierres(lanzar_proxy):
+@pytest.mark.parametrize("ruta", ["/", "/?utm_source=chatgpt.com", "/?foo=bar&x=1"])
+def test_raiz_credenciales_correctas_redirige_302_a_v3_control_cierres(lanzar_proxy, ruta):
     proxy = lanzar_proxy({"TIQ_AUTH_USERNAME": USUARIO, "TIQ_AUTH_PASSWORD": CLAVE})
-    status, headers, _ = proxy.request("GET", "/", headers=_basic_auth_header(USUARIO, CLAVE))
+    status, headers, _ = proxy.request("GET", ruta, headers=_basic_auth_header(USUARIO, CLAVE))
     assert status == 302
     assert headers.get("Location") == "/v3_control_cierres.html"
 
