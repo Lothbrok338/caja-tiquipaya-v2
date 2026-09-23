@@ -41,6 +41,11 @@ def _llenar_resumen(ws, datos):
     ws.append(["COBROS ATC", datos["cobros_atc"]])
     ws.append(["TOTAL COMUNICACIONES INTERNAS", datos.get("total_ci", "0.00")])
     ws.append(["DOLARES", datos.get("dolares", "0.00")])
+    # FACTURAS ANULADAS (BLOQUE 1): opcional, solo se escribe si el fixture
+    # la pide explícitamente (no afecta ningún fixture histórico que no
+    # pase esta clave).
+    if "facturas_anuladas" in datos:
+        ws.append(["FACTURAS ANULADAS", datos["facturas_anuladas"]])
     ws.append([None, None, None, None, None])
     # Encabezado de COMPOSICIÓN DE DEPÓSITOS: las columnas IMPORTE/FECHA/
     # ASIGNACION/BANCO deben ir en la MISMA fila que la etiqueta (así lo
@@ -55,6 +60,17 @@ def _llenar_resumen(ws, datos):
             dep.get("deposito", "DEPOSITO"), dep["importe"], dep.get("fecha"),
             dep.get("asignacion"), dep.get("banco", "BNB"),
         ])
+
+    # Detalle de FACTURAS ANULADAS (BLOQUE 1): tabla opcional, independiente
+    # de la fila resumen de arriba. `facturas_anuladas_detalle`:
+    # [{"numero": ..., "importe": ...}, ...]. Solo se escribe si el fixture
+    # la pide (no afecta ningún fixture histórico).
+    detalle = datos.get("facturas_anuladas_detalle")
+    if detalle is not None:
+        ws.append([None, None])
+        ws.append(["N° FACTURA ANULADA", "IMPORTE"])
+        for f in detalle:
+            ws.append([f["numero"], f["importe"]])
 
 
 def _llenar_ci(ws, filas):

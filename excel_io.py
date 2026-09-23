@@ -163,12 +163,21 @@ _CAMPOS_RESUMEN = [
 # cuadre y para la partida CxP del asiento.
 _CAMPO_POSGRADO_RESERVA = "POSGRADO RESERVA"
 
+# Campo OPCIONAL, para cualquier caja: fila resumen "FACTURAS ANULADAS" con
+# el total de facturas anuladas cobradas en efectivo, que la caja explica
+# mediante una CxP transitoria (ver construir_asiento). Si la fila no
+# existe en la hoja, el total es 0.00 (compatibilidad con cierres
+# anteriores a esta regla, idéntico a como si nunca hubiera existido).
+# NUNCA modifica TOTAL MOVIMIENTO DEL DIA ni el universo del cierre.
+_CAMPO_FACTURAS_ANULADAS = "FACTURAS ANULADAS"
+
 
 def _leer_resumen_sfc(ws, sfc_label, leer_reserva=False):
     rows = list(ws.iter_rows(values_only=True))
 
     campos = {k: None for k in _CAMPOS_RESUMEN}
     reserva = None
+    facturas_anuladas_total = None
     for row in rows:
         if not row:
             continue
@@ -179,6 +188,9 @@ def _leer_resumen_sfc(ws, sfc_label, leer_reserva=False):
         if leer_reserva and etiqueta == _CAMPO_POSGRADO_RESERVA and reserva is None:
             valor = row[1] if len(row) > 1 else None
             reserva = to_decimal(valor)
+        if etiqueta == _CAMPO_FACTURAS_ANULADAS and facturas_anuladas_total is None:
+            valor = row[1] if len(row) > 1 else None
+            facturas_anuladas_total = to_decimal(valor)
 
     faltantes = [k for k, v in campos.items() if v is None]
     if faltantes:
@@ -186,12 +198,39 @@ def _leer_resumen_sfc(ws, sfc_label, leer_reserva=False):
 
     depositos = _leer_composicion_depositos(rows, sfc_label)
 
+    # FACTURAS ANULADAS: opcional. Ausente -> 0.00 (comportamiento
+    # histórico idéntico). Presente pero negativo -> fail closed: nunca se
+    # inventa un 0.00 que oculte un dato inválido de la hoja.
+    if facturas_anuladas_total is None:
+        facturas_anuladas_total = Decimal("0")
+    elif facturas_anuladas_total < 0:
+        raise ValueError(f"{sfc_label}: FACTURAS ANULADAS no puede ser negativo.")
+
+    facturas_anuladas_detalle = _leer_facturas_anuladas_detalle(rows, sfc_label)
+
+    # El total del detalle debe reconstruir EXACTAMENTE el total de
+    # FACTURAS ANULADAS (en ambos sentidos: total>0 sin detalle suficiente,
+    # o detalle sin fila resumen que lo respalde, quedan cubiertos por esta
+    # única igualdad). Nunca se fuerza el cuadre: una diferencia bloquea la
+    # extracción, igual que cualquier otro campo mal formado de la hoja.
+    suma_detalle = sum(
+        (Decimal(f["importe"]) for f in facturas_anuladas_detalle), Decimal("0")
+    )
+    if suma_detalle != facturas_anuladas_total:
+        raise ValueError(
+            f"{sfc_label}: la suma del detalle de FACTURAS ANULADAS "
+            f"({money_str(suma_detalle)}) no coincide con FACTURAS ANULADAS "
+            f"({money_str(facturas_anuladas_total)})."
+        )
+
     resumen = {
         "total_movimiento": money_str(campos["TOTAL MOVIMIENTO DEL DIA"]),
         "cobros_atc": money_str(campos["COBROS ATC"]),
         "total_ci": money_str(campos["TOTAL COMUNICACIONES INTERNAS"]),
         "dolares": money_str(campos["DOLARES"]),
         "depositos": depositos,
+        "facturas_anuladas": money_str(facturas_anuladas_total),
+        "facturas_anuladas_detalle": facturas_anuladas_detalle,
     }
 
     if leer_reserva:
@@ -287,6 +326,88 @@ def _leer_composicion_depositos(rows, sfc_label):
         })
 
     return depositos
+
+
+# ---------------------------------------------------------------------------
+# Extracción: detalle de FACTURAS ANULADAS (BLOQUE 1)
+# ---------------------------------------------------------------------------
+#
+# Tabla OPCIONAL, independiente por hoja SFC: "N° FACTURA ANULADA" |
+# "IMPORTE". Puede haber más de una factura anulada en el mismo cierre, por
+# eso la fila resumen "FACTURAS ANULADAS" (un solo importe) no basta para
+# construir el asiento: cada factura necesita su propio número explícito
+# para la ASIGNACION "F-<numero> ANULADA" (ver
+# motor_tiquipaya.construir_asiento). El número de factura NUNCA se
+# inventa, deriva del importe, ni se sustituye por otro identificador
+# (fecha, SFC, "ANULADA"): si la fila no lo trae, es un error de datos, no
+# un valor faltante que se ignore.
+
+def _leer_facturas_anuladas_detalle(rows, sfc_label):
+    # Header = una fila que traiga AMBAS columnas ("N° FACTURA ANULADA" e
+    # "IMPORTE") a la vez. Exigir las dos juntas evita que la fila resumen
+    # "FACTURAS ANULADAS" (un solo importe, sin columna IMPORTE) se
+    # confunda con el encabezado de esta tabla: normalizada, "FACTURAS
+    # ANULADAS" también contiene las subcadenas "FACTURA"/"ANULADA".
+    header_row_idx = None
+    numero_idx = importe_idx = None
+    for i, row in enumerate(rows):
+        fila_numero_idx = fila_importe_idx = None
+        for j, cell in enumerate(row):
+            text = normalize_text(cell)
+            if not text:
+                continue
+            if fila_numero_idx is None and "FACTURA" in text and "ANULADA" in text:
+                fila_numero_idx = j
+            elif fila_importe_idx is None and "IMPORTE" in text:
+                fila_importe_idx = j
+        if fila_numero_idx is not None and fila_importe_idx is not None:
+            header_row_idx = i
+            numero_idx = fila_numero_idx
+            importe_idx = fila_importe_idx
+            break
+
+    if header_row_idx is None:
+        # Sin tabla de detalle: tan opcional como la fila resumen. La
+        # coherencia con FACTURAS ANULADAS (0.00 si tampoco existe la fila
+        # resumen) la exige _leer_resumen_sfc comparando sumas.
+        return []
+
+    detalle = []
+    vistos = set()
+    for row in rows[header_row_idx + 1:]:
+        numero_val = row[numero_idx] if numero_idx < len(row) else None
+        importe_val = row[importe_idx] if importe_idx < len(row) else None
+        if numero_val is None and importe_val is None:
+            # Fin determinístico del bloque: estructura fija, sin filas
+            # separadoras intermedias (a diferencia de COMPOSICIÓN DE
+            # DEPÓSITOS, esta tabla es nueva y no necesita tolerarlas).
+            break
+
+        numero_factura = _texto_o_none(numero_val)
+        if not numero_factura:
+            raise ValueError(
+                f"{sfc_label}: fila de detalle de FACTURAS ANULADAS sin número de factura."
+            )
+
+        importe_dec = to_decimal(importe_val)
+        if importe_val is None or importe_dec <= 0:
+            raise ValueError(
+                f"{sfc_label}: FACTURA ANULADA {numero_factura} con importe inválido "
+                "(debe ser mayor a 0.00)."
+            )
+
+        if numero_factura in vistos:
+            raise ValueError(
+                f"{sfc_label}: FACTURA ANULADA {numero_factura} está duplicada en el detalle."
+            )
+        vistos.add(numero_factura)
+
+        detalle.append({
+            "numero_factura": numero_factura,
+            "importe": money_str(importe_dec),
+        })
+
+    return detalle
 
 
 # ---------------------------------------------------------------------------

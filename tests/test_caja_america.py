@@ -536,8 +536,10 @@ class TestTiquipayaIntacta(_TmpMixin, unittest.TestCase):
 
     def test_G_cierre_de_tiquipaya_no_gana_claves_nuevas(self):
         """El dict de Tiquipaya conserva EXACTAMENTE su forma histórica
-        (salvo la identidad "caja", que no se publica en ningún artefacto):
-        sin posgrado_reserva en las hojas SFC."""
+        (salvo la identidad "caja", que no se publica en ningún artefacto,
+        y "facturas_anuladas"/"facturas_anuladas_detalle" del BLOQUE 1,
+        universales y en 0.00/[] cuando el cierre no las trae): sin
+        posgrado_reserva en las hojas SFC."""
         ruta = os.path.join(self.tmpdir, NOMBRE_CIERRE)
         crear_cierre(
             ruta,
@@ -553,8 +555,11 @@ class TestTiquipayaIntacta(_TmpMixin, unittest.TestCase):
         for clave in ("sfc101", "sfc102"):
             self.assertEqual(
                 set(cierre[clave]),
-                {"total_movimiento", "cobros_atc", "total_ci", "dolares", "depositos"},
+                {"total_movimiento", "cobros_atc", "total_ci", "dolares",
+                 "depositos", "facturas_anuladas", "facturas_anuladas_detalle"},
             )
+            self.assertEqual(cierre[clave]["facturas_anuladas"], "0.00")
+            self.assertEqual(cierre[clave]["facturas_anuladas_detalle"], [])
 
     def test_G_componentes_de_tiquipaya_sin_claves_de_reserva(self):
         ruta_cierre = os.path.join(self.tmpdir, NOMBRE_CIERRE)
@@ -570,8 +575,9 @@ class TestTiquipayaIntacta(_TmpMixin, unittest.TestCase):
 
         self.assertEqual(
             set(resultado["componentes"]),
-            {"vouchers", "ci_operativas", "atc_bruto", "dolares"},
+            {"vouchers", "ci_operativas", "atc_bruto", "dolares", "facturas_anuladas"},
         )
+        self.assertEqual(resultado["componentes"]["facturas_anuladas"], "0.00")
         self.assertNotIn("reserva_posgrado", resultado["detalle"])
         # Las claves por SFC del detalle siguen siendo las históricas.
         for clave in ("sfc101_total", "sfc102_total", "sfc101_haber",

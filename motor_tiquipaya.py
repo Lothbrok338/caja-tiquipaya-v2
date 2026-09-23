@@ -64,6 +64,30 @@ def _reserva_posgrado_total(cierre, caja=None):
     )
 
 
+def _facturas_anuladas_total(cierre, caja=None):
+    """Suma de FACTURAS ANULADAS de las hojas SFC de la caja. Campo
+    universal y OPCIONAL (a diferencia de POSGRADO RESERVA): 0.00 en
+    cualquier caja/cierre que no lo traiga, sin excepción."""
+    caja = caja or _caja_de(cierre)
+    return sum(
+        (Decimal(cierre[clave]["facturas_anuladas"]) for clave in caja.claves_sfc),
+        Decimal("0"),
+    )
+
+
+def _facturas_anuladas_detalle(cierre, caja=None):
+    """Detalle combinado (todas las hojas SFC de la caja) de facturas
+    anuladas: una entrada por factura, cada una con su propio número
+    explícito. Nunca se colapsa a un único importe: cada factura es una
+    partida independiente en el asiento (ver construir_asiento)."""
+    caja = caja or _caja_de(cierre)
+    return [
+        f
+        for clave in caja.claves_sfc
+        for f in cierre[clave]["facturas_anuladas_detalle"]
+    ]
+
+
 _BANCOS_ALFANUMERICOS = {"BNB", "BMSC"}
 _BANCOS_NUMERICOS = {
     "BCP", "BISA", "BANCO UNION", "BUSA", "BANECO", "BANCO ECONOMICO",
@@ -805,6 +829,12 @@ def calcular_componentes(cierre, cruces):
         "ci_operativas": io.money_str(ci_operativas),
         "atc_bruto": io.money_str(atc_bruto),
         "dolares": io.money_str(dolares_activo),
+        # FACTURAS ANULADAS: recaudación física/financiera del día ya
+        # cobrada en efectivo pero que corresponde a una factura anulada
+        # (transitoria vía CxP, ver construir_asiento). NUNCA toca
+        # universo_original/universo_ajustado (BLOQUE 1, ver
+        # calcular_universo): solo explica recaudación adicional.
+        "facturas_anuladas": io.money_str(_facturas_anuladas_total(cierre, caja)),
     }
 
     if caja.reserva_posgrado:
@@ -846,11 +876,20 @@ def _ejecutar_v2_sobre_cierre(cierre, macros_idx, atc_idx):
         # viene neto de reserva.
         atc_para_cuadre = componentes.get("atc_computable", componentes["atc_bruto"])
 
+        # FACTURAS ANULADAS SE RESTA aquí, no se suma: vouchers/ci/atc/
+        # dolares son la recaudación física REAL del día (ya incluyen el
+        # efectivo cobrado por la factura anulada, como cualquier otro
+        # depósito/CI/cobro real). Ese efectivo no es ingreso reconocido
+        # (universo_ajustado no lo trae, ver calcular_universo/rule 3): es
+        # una CxP transitoria. Restarlo aquí es lo que permite que
+        # recaudacion_explicada vuelva a igualar universo_ajustado sin
+        # tocar el universo ni forzar la diferencia a 0 artificialmente.
         recaudacion_explicada = io.money_str(
             Decimal(componentes["vouchers"])
             + Decimal(componentes["ci_operativas"])
             + Decimal(atc_para_cuadre)
             + Decimal(componentes["dolares"])
+            - Decimal(componentes["facturas_anuladas"])
         )
 
         diferencia = io.money_str(Decimal(universo_ajustado) - Decimal(recaudacion_explicada))
@@ -1042,6 +1081,10 @@ def _detalle_para_asiento(cierre, cruces, componentes):
         "atc_estado": atc["estado_validacion"],
         "atc_advertencias": atc_advertencias,
         "dolares": componentes["dolares"],
+        # Detalle combinado (todas las hojas SFC de la caja), una entrada
+        # por factura anulada: construir_asiento genera una partida CxP
+        # independiente por cada una (nunca colapsada al total).
+        "facturas_anuladas_detalle": _facturas_anuladas_detalle(cierre, caja),
     }
 
     if caja.reserva_posgrado:
@@ -1077,6 +1120,21 @@ _CUENTA_ATC_COMISION = "110201008"
 # real 05-08-2026. USD nunca se concilia contra banco/MACROS.
 _CUENTA_USD = "110101010"
 _TEXTO_USD = "RECAUDACION DOLARES"
+
+# FACTURAS ANULADAS (BLOQUE 1): cuenta CxP EMPRESAS universal (misma que
+# CONTROL 3 ya controla por CUENTA+ASIGNACION, ver control_cxc_cxp.py),
+# fija para cualquier caja — no viaja por config_cajas.CajaConfig porque no
+# depende de la caja, depende del plan de cuentas de CxP EMPRESAS. La
+# ASIGNACION nunca se inventa ni deriva del importe/fecha/SFC: siempre
+# "F-<numero de factura> ANULADA" con el número tal como lo trae la hoja
+# (ver excel_io._leer_facturas_anuladas_detalle).
+_CUENTA_FACTURA_ANULADA = "210103003"
+_ORIGEN_FACTURA_ANULADA = "FACTURA_ANULADA"
+_TEXTO_FACTURA_ANULADA = "FACTURA ANULADA"
+
+
+def _asignacion_factura_anulada(numero_factura):
+    return f"F-{numero_factura} ANULADA"
 
 _MESES_ABREV = {
     1: "ENE", 2: "FEB", 3: "MAR", 4: "ABR", 5: "MAY", 6: "JUN",
@@ -1175,6 +1233,11 @@ def _validar_partidas(partidas, total_cargo, total_haber, diferencia, caja=None)
             problemas.append("ATC_COMISION_CUENTA_INVALIDA")
         if p["origen"] == "DOLARES" and p["cuenta_mayor"] != _CUENTA_USD:
             problemas.append("DOLARES_CUENTA_INVALIDA")
+        if p["origen"] == _ORIGEN_FACTURA_ANULADA:
+            if p["cuenta_mayor"] != _CUENTA_FACTURA_ANULADA:
+                problemas.append("FACTURA_ANULADA_CUENTA_INVALIDA")
+            if not p["asignacion"]:
+                problemas.append("FACTURA_ANULADA_SIN_ASIGNACION")
 
     return problemas
 
@@ -1305,6 +1368,20 @@ def construir_asiento(resultado_v2):
             asignacion=cfg.asignacion_reserva_posgrado(fecha_cierre),
             origen=cfg.ORIGEN_RESERVA_POSGRADO, sfc_origen=None,
             texto_posicion=cfg.TEXTO_RESERVA_POSGRADO,
+        ))
+
+    # FACTURAS ANULADAS (BLOQUE 1): una partida CxP independiente por cada
+    # factura del detalle (nunca colapsada al total): cada una necesita su
+    # propia ASIGNACION "F-<numero> ANULADA" para que CONTROL 3 la
+    # identifique como una llave CUENTA+ASIGNACION distinta. Lista vacía en
+    # el caso histórico (campo ausente o en 0.00): no agrega partidas.
+    for f in detalle.get("facturas_anuladas_detalle") or []:
+        partidas.append(_partida(
+            cuenta_mayor=_CUENTA_FACTURA_ANULADA,
+            cargo="0.00", haber=f["importe"],
+            asignacion=_asignacion_factura_anulada(f["numero_factura"]),
+            origen=_ORIGEN_FACTURA_ANULADA, sfc_origen=None,
+            texto_posicion=_TEXTO_FACTURA_ANULADA,
         ))
 
     for v in detalle["vouchers_confirmados"]:
