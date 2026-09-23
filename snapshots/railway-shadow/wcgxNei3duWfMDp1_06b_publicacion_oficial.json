@@ -14,7 +14,7 @@
   },
   "tags": [],
   "parentFolderId": null,
-  "description": "FASE 11A.1 — version reentrante: busca por nombre exacto antes de crear SAP/resultado, usa el fileId de ingesta como identificador primario del cierre (verificado, nunca redescubierto por nombre), detecta si el cierre ya fue movido en un retry previo. Marker sigue siendo el ultimo paso, sin excepcion.",
+  "description": "FASE 11A.1 + BLOQUE 2 (RECTIFICAR CIERRE PUBLICADO) -- version reentrante: busca por nombre exacto antes de crear SAP/resultado, usa el fileId de ingesta como identificador primario del cierre (verificado, nunca redescubierto por nombre), detecta si el cierre ya fue movido en un retry previo. Marker sigue siendo el ultimo paso, sin excepcion. Rectificacion (SAP oficial existe + rectificacion=true): valida que exista exactamente UN SAP/RESULTADO/PROCESADOS previo y un CIERRE nuevo en 00_ENTRADA_CIERRES cuyo fileId coincida con INGESTA; identifica el marker anterior sin adivinar su SHA (matching por ArchivoSAP+ArchivoOrigen+FechaCierre sobre los campos reales de construir_marcador_procesado); reemplaza SAP/RESULTADO/PROCESADOS por file_id (conservando los file_id oficiales) y solo al final invalida el marker anterior y sube PROCESADO_<sha_nuevo>.json. Cualquier ambiguedad o identidad faltante -> fail closed (ERROR_RECTIFICACION_*/ERROR_MARKER_ANTERIOR_*), sin tocar nada.",
   "connections": {
     "ENTRADA (Execute Workflow Trigger)": {
       "main": [
@@ -82,25 +82,14 @@
       "main": [
         [
           {
-            "node": "USAR - SAP ya existente (no duplicar)",
+            "node": "IF - Rectificacion solicitada (SAP existe)",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "LEER - SAP oficial local",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "USAR - SAP ya existente (no duplicar)": {
-      "main": [
-        [
-          {
-            "node": "CONSOLIDAR - SAP resuelto",
+            "node": "IF - Rectificacion solicitada (SAP no existe)",
             "type": "main",
             "index": 0
           }
@@ -370,6 +359,229 @@
         ]
       ]
     },
+    "IF - Rectificacion solicitada (SAP existe)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Resultado anterior en carpeta oficial (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CONSTRUIR - Salida REQUIERE_RECTIFICACION",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Rectificacion solicitada (SAP no existe)": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Salida RECTIFICACION_SIN_PUBLICACION_PREVIA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LEER - SAP oficial local",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Resultado anterior en carpeta oficial (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Cierre previo en 03_PROCESADOS (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Cierre previo en 03_PROCESADOS (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - Cierre nuevo en 00_ENTRADA_CIERRES (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - Cierre nuevo en 00_ENTRADA_CIERRES (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "VALIDAR - Identidades previas unicas (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VALIDAR - Identidades previas unicas (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "LISTAR - Markers PROCESADO en carpeta marker (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LISTAR - Markers PROCESADO en carpeta marker (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "DESCARGAR - Contenido de markers candidatos (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - Contenido de markers candidatos (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "RESOLVER - Marker anterior unico (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RESOLVER - Marker anterior unico (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "LEER - SAP oficial local (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER - SAP oficial local (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "ACTUALIZAR - SAP anterior en Drive (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ACTUALIZAR - SAP anterior en Drive (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "LEER - Resultado oficial local (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER - Resultado oficial local (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "ACTUALIZAR - Resultado anterior en Drive (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ACTUALIZAR - Resultado anterior en Drive (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "DESCARGAR - Cierre nuevo desde ENTRADA (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR - Cierre nuevo desde ENTRADA (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "ACTUALIZAR - Cierre previo en PROCESADOS (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ACTUALIZAR - Cierre previo en PROCESADOS (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "ELIMINAR - Cierre residual en 00_ENTRADA (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ELIMINAR - Cierre residual en 00_ENTRADA (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "ELIMINAR - Marker anterior (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ELIMINAR - Marker anterior (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "LEER - Marker oficial local (rectificacion)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER - Marker oficial local (rectificacion)": {
+      "main": [
+        [
+          {
+            "node": "SUBIR - Marker nuevo a Drive (rectificacion, ultimo paso)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SUBIR - Marker nuevo a Drive (rectificacion, ultimo paso)": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR - Salida RECTIFICADO_OFICIAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "GUARDIA SHADOW (bloquea si TIQ_BLOCK_OFFICIAL_PUBLISH)": {
       "main": [
         [
@@ -431,6 +643,10 @@
             {
               "name": "caja",
               "type": "string"
+            },
+            {
+              "name": "rectificacion",
+              "type": "boolean"
             }
           ]
         }
@@ -605,21 +821,6 @@
           ],
           "combinator": "and"
         }
-      }
-    },
-    {
-      "id": "652426df-b05d-45db-83b2-ebcf510c009d",
-      "name": "USAR - SAP ya existente (no duplicar)",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1568,
-        96
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "return [{ json: { id: $json.sap_file_id } }];"
       }
     },
     {
@@ -1132,6 +1333,536 @@
       "parameters": {
         "content": "## TIQ V3 · 06B PUBLICACION OFICIAL · DRIVE -- FASE 11A.1 (REENTRANTE)\nSube a Drive lo que v3.publicacion ya publico localmente. Invocado UNA VEZ POR CIERRE (Execute Workflow, mode=each) desde el backend DEV, rama /publicar.\n\nREENTRANTE: antes de crear cualquier artefacto se BUSCA por nombre oficial exacto en su carpeta destino -- 0 coincidencias sube, 1 coincidencia reutiliza (nunca duplica), >1 coincidencias lanza ERROR_AMBIGUO y detiene la ejecucion sin tocar nada mas. Mismo criterio para SAP, RESULTADO y (via 00_ENTRADA_CIERRES/03_PROCESADOS) el CIERRE original. Un retry tras un fallo parcial retoma exactamente donde se corto, sin duplicar nada ya creado.\n\nFILE ID DEL CIERRE: se usa PRIORITARIAMENTE el drive_file_id que V3 ya detecto en INGESTA (Modulo 01, ver v3/ingesta.py::ejecutar_ingesta -- ahora propagado correctamente por v3/materializacion.py, FASE 11A.1). La busqueda por nombre exacto en 00_ENTRADA_CIERRES/03_PROCESADOS es una VERIFICACION/reconciliacion (cruza el id contra el nombre actual, detecta si ya fue movido en un retry previo), nunca el mecanismo principal de identificacion. Si el fileId de ingesta no coincide con el archivo actual -> ERROR_FILEID_INGESTA_NO_COINCIDE, se detiene sin mover nada.\n\nMARKER: sigue siendo el ultimo paso, sin excepcion -- si existe al inicio, YA_PUBLICADO inmediato sin tocar nada mas.\n\nReutiliza la credencial 'Google Drive account' (aoEcEAFQQ38XcwZg). No toca V2. FASE 11A.1: implementado y validado estructuralmente; SIN ejecutar contra Drive real ni carpetas productivas en esta fase.",
         "color": 4
+      }
+    },
+    {
+      "id": "71ee46f4-05e4-43b5-aee2-2c882ed28501",
+      "name": "IF - Rectificacion solicitada (SAP existe)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        132
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('ENTRADA (Execute Workflow Trigger)').item.json.rectificacion }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "a9df96cb-80eb-451f-9a5e-9cd8b9ae215b",
+      "name": "IF - Rectificacion solicitada (SAP no existe)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        332
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('ENTRADA (Execute Workflow Trigger)').item.json.rectificacion }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "1cacce0b-e214-4c31-b438-8d9e4633b436",
+      "name": "CONSTRUIR - Salida REQUIERE_RECTIFICACION",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        72
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst caja = $('RESOLVER - Destinos Drive por caja').first().json.caja;\nreturn [{ json: {\n  fecha: t.fecha, sha256: t.sha256, caja: caja,\n  estado_publicacion: 'CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION', publicado: false,\n  mensaje: 'Ya existe un SAP oficial publicado para \"' + t.fecha + '\" con un cierre distinto (SHA distinto al recibido). PUBLICAR normal no puede sobrescribir una publicacion oficial existente. Use RECTIFICAR CIERRE PUBLICADO (rectificacion=true) si desea reemplazar oficialmente la version anterior.',\n} }];"
+      }
+    },
+    {
+      "id": "e3cf5da1-dd31-477b-b410-52f93707a233",
+      "name": "CONSTRUIR - Salida RECTIFICACION_SIN_PUBLICACION_PREVIA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        372
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst caja = $('RESOLVER - Destinos Drive por caja').first().json.caja;\nreturn [{ json: {\n  fecha: t.fecha, sha256: t.sha256, caja: caja,\n  estado_publicacion: 'ERROR_PUBLICACION_OFICIAL', publicado: false,\n  mensaje: 'RECTIFICACION_SIN_PUBLICACION_PREVIA: no existe una publicacion oficial previa (SAP) para \"' + t.fecha + '\" en Drive; no hay nada que rectificar. Use PUBLICAR normal.',\n} }];"
+      }
+    },
+    {
+      "id": "r1-buscar-resultado-anterior",
+      "name": "BUSCAR - Resultado anterior en carpeta oficial (rectificacion)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1640,
+        500
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "queryString": "={{ $('ENTRADA (Execute Workflow Trigger)').item.json.ruta_resultado_publicado.split('/').pop() }}",
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_resultado }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "r2-buscar-cierre-procesados-anterior",
+      "name": "BUSCAR - Cierre previo en 03_PROCESADOS (rectificacion)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1864,
+        500
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "queryString": "={{ $('ENTRADA (Execute Workflow Trigger)').item.json.archivo_esperado }}",
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_procesados }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "r3-buscar-cierre-nuevo-entrada",
+      "name": "BUSCAR - Cierre nuevo en 00_ENTRADA_CIERRES (rectificacion)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2088,
+        500
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "queryString": "={{ $('ENTRADA (Execute Workflow Trigger)').item.json.archivo_esperado }}",
+        "limit": 10,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_entrada }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "r4-validar-identidades-previas",
+      "name": "VALIDAR - Identidades previas unicas (rectificacion)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2312,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').item.json;\n\nconst sapFileIdAnterior = $('VERIFICAR - SAP existente (idempotencia)').item.json.sap_file_id;\nif (!sapFileIdAnterior) {\n  throw new Error('ERROR_RECTIFICACION_SAP_NO_ENCONTRADO: no hay un SAP oficial previo para \"' + t.fecha + '\"; no hay nada que rectificar.');\n}\n\nfunction unico(items, nombreEsperado, etiqueta) {\n  const exactos = items.filter(function (it) { return it.json && it.json.name === nombreEsperado && it.json.id; });\n  if (exactos.length === 0) {\n    throw new Error('ERROR_RECTIFICACION_' + etiqueta + '_NO_ENCONTRADO: no se encontro exactamente un \"' + nombreEsperado + '\" oficial previo. No se modifica nada.');\n  }\n  if (exactos.length > 1) {\n    throw new Error('ERROR_RECTIFICACION_' + etiqueta + '_AMBIGUO: se encontraron ' + exactos.length + ' archivos llamados \"' + nombreEsperado + '\". No se modifica nada hasta resolver el duplicado manualmente.');\n  }\n  return exactos[0].json.id;\n}\n\nconst nombreResultado = t.ruta_resultado_publicado.split('/').pop();\nconst resultadoFileIdAnterior = unico($('BUSCAR - Resultado anterior en carpeta oficial (rectificacion)').all(), nombreResultado, 'RESULTADO');\n\nconst cierreProcesadoFileIdAnterior = unico($('BUSCAR - Cierre previo en 03_PROCESADOS (rectificacion)').all(), t.archivo_esperado, 'CIERRE_PROCESADOS');\n\nconst candidatosEntrada = $('BUSCAR - Cierre nuevo en 00_ENTRADA_CIERRES (rectificacion)').all()\n  .filter(function (it) { return it.json && it.json.name === t.archivo_esperado && it.json.id; });\nif (candidatosEntrada.length === 0) {\n  throw new Error('ERROR_RECTIFICACION_CIERRE_NUEVO_NO_ENCONTRADO: no se encontro el cierre corregido \"' + t.archivo_esperado + '\" en 00_ENTRADA_CIERRES. No hay nada que rectificar sin el cierre nuevo.');\n}\nif (candidatosEntrada.length > 1) {\n  throw new Error('ERROR_RECTIFICACION_CIERRE_NUEVO_AMBIGUO: se encontraron ' + candidatosEntrada.length + ' archivos llamados \"' + t.archivo_esperado + '\" en 00_ENTRADA_CIERRES.');\n}\nconst cierreNuevoEncontrado = candidatosEntrada[0].json;\nif (t.drive_file_id && cierreNuevoEncontrado.id !== t.drive_file_id) {\n  throw new Error('ERROR_RECTIFICACION_FILEID_INGESTA_NO_COINCIDE: el fileId detectado en INGESTA (' + t.drive_file_id + ') no coincide con el fileId actual de \"' + t.archivo_esperado + '\" en 00_ENTRADA_CIERRES (' + cierreNuevoEncontrado.id + '). No se modifica nada.');\n}\n\nreturn [{ json: {\n  sap_file_id_anterior: sapFileIdAnterior,\n  resultado_file_id_anterior: resultadoFileIdAnterior,\n  cierre_procesado_file_id_anterior: cierreProcesadoFileIdAnterior,\n  cierre_nuevo_file_id_entrada: cierreNuevoEncontrado.id,\n} }];"
+      }
+    },
+    {
+      "id": "r5-listar-markers-candidatos",
+      "name": "LISTAR - Markers PROCESADO en carpeta marker (rectificacion)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2536,
+        500
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "queryString": "PROCESADO_",
+        "limit": 200,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_marker }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "r6-descargar-markers-candidatos",
+      "name": "DESCARGAR - Contenido de markers candidatos (rectificacion)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2760,
+        500
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "r7-resolver-marker-anterior",
+      "name": "RESOLVER - Marker anterior unico (rectificacion)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2984,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const items = $input.all();\nconst t = $('ENTRADA (Execute Workflow Trigger)').item.json;\nconst nombreSapOficial = t.ruta_sap_publicado.split('/').pop();\nconst shaNuevo = t.sha256;\n\nconst candidatos = [];\nfor (const it of items) {\n  if (!it.binary || !it.binary.data) continue;\n  let contenido;\n  try {\n    contenido = JSON.parse(Buffer.from(it.binary.data.data, 'base64').toString('utf-8'));\n  } catch (e) {\n    continue; // marcador no parseable: nunca se usa como candidato valido\n  }\n  if (contenido && contenido.ArchivoSAP === nombreSapOficial &&\n      contenido.ArchivoOrigen === t.archivo_esperado &&\n      contenido.FechaCierre === t.fecha) {\n    candidatos.push({ id: it.json.id, contenido: contenido });\n  }\n}\n\nif (candidatos.length === 0) {\n  throw new Error('ERROR_MARKER_ANTERIOR_NO_ENCONTRADO: no se pudo identificar de forma determinista el marcador de la publicacion oficial anterior para \"' + t.fecha + '\" (ArchivoSAP=' + nombreSapOficial + ', ArchivoOrigen=' + t.archivo_esperado + '). FAIL CLOSED: no se modifica nada.');\n}\nif (candidatos.length > 1) {\n  throw new Error('ERROR_AMBIGUO_MARKER_ANTERIOR: se encontraron ' + candidatos.length + ' marcadores PROCESADO_*.json cuya metadata coincide con esta publicacion anterior. FAIL CLOSED: no se modifica nada hasta resolver manualmente.');\n}\n\nconst markerAnterior = candidatos[0];\nconst shaAnterior = markerAnterior.contenido.HashOrigen || null;\nif (!shaAnterior) {\n  throw new Error('ERROR_MARKER_ANTERIOR_SIN_HASH: el marcador anterior identificado no trae HashOrigen; no se puede verificar que sea distinto al SHA nuevo. FAIL CLOSED.');\n}\nif (shaAnterior === shaNuevo) {\n  throw new Error('ERROR_RECTIFICACION_SHA_IGUAL: el SHA256 nuevo coincide con el anterior (' + shaNuevo + '); esto es idempotencia (mismo cierre), no una rectificacion. Use PUBLICAR normal.');\n}\n\nconst identidades = $('VALIDAR - Identidades previas unicas (rectificacion)').item.json;\nreturn [{ json: Object.assign({}, identidades, {\n  marker_file_id_anterior: markerAnterior.id,\n  sha_anterior: shaAnterior,\n  sha_nuevo: shaNuevo,\n}) }];"
+      }
+    },
+    {
+      "id": "r8-leer-sap-local",
+      "name": "LEER - SAP oficial local (rectificacion)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        3208,
+        500
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('ENTRADA (Execute Workflow Trigger)').item.json.ruta_sap_publicado }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "r9-actualizar-sap-anterior",
+      "name": "ACTUALIZAR - SAP anterior en Drive (rectificacion)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3432,
+        500
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "update",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('RESOLVER - Marker anterior unico (rectificacion)').item.json.sap_file_id_anterior }}"
+        },
+        "changeFileContent": true,
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "r10-leer-resultado-local",
+      "name": "LEER - Resultado oficial local (rectificacion)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        3656,
+        500
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('ENTRADA (Execute Workflow Trigger)').item.json.ruta_resultado_publicado }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "r11-actualizar-resultado-anterior",
+      "name": "ACTUALIZAR - Resultado anterior en Drive (rectificacion)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3880,
+        500
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "update",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('RESOLVER - Marker anterior unico (rectificacion)').item.json.resultado_file_id_anterior }}"
+        },
+        "changeFileContent": true,
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "r12-descargar-cierre-nuevo",
+      "name": "DESCARGAR - Cierre nuevo desde ENTRADA (rectificacion)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4104,
+        500
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('RESOLVER - Marker anterior unico (rectificacion)').item.json.cierre_nuevo_file_id_entrada }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "r13-actualizar-procesados",
+      "name": "ACTUALIZAR - Cierre previo en PROCESADOS (rectificacion)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4328,
+        500
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "update",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('RESOLVER - Marker anterior unico (rectificacion)').item.json.cierre_procesado_file_id_anterior }}"
+        },
+        "changeFileContent": true,
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "r14-eliminar-cierre-residual",
+      "name": "ELIMINAR - Cierre residual en 00_ENTRADA (rectificacion)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4552,
+        500
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "delete",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('RESOLVER - Marker anterior unico (rectificacion)').item.json.cierre_nuevo_file_id_entrada }}"
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "r15-eliminar-marker-anterior",
+      "name": "ELIMINAR - Marker anterior (rectificacion)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4776,
+        500
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "delete",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('RESOLVER - Marker anterior unico (rectificacion)').item.json.marker_file_id_anterior }}"
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "r16-leer-marker-local",
+      "name": "LEER - Marker oficial local (rectificacion)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        5000,
+        500
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('ENTRADA (Execute Workflow Trigger)').item.json.ruta_marker }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "r17-subir-marker-nuevo",
+      "name": "SUBIR - Marker nuevo a Drive (rectificacion, ultimo paso)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        5224,
+        500
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "name": "={{ 'PROCESADO_' + $('ENTRADA (Execute Workflow Trigger)').item.json.sha256 + '.json' }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('RESOLVER - Destinos Drive por caja').item.json.folder_marker }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "r18-construir-salida-rectificado",
+      "name": "CONSTRUIR - Salida RECTIFICADO_OFICIAL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5448,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const t = $('ENTRADA (Execute Workflow Trigger)').first().json;\nconst caja = $('RESOLVER - Destinos Drive por caja').first().json.caja;\nconst ident = $('RESOLVER - Marker anterior unico (rectificacion)').first().json;\nreturn [{ json: {\n  fecha: t.fecha, sha256: t.sha256, caja: caja,\n  estado_publicacion: 'RECTIFICADO_OFICIAL', publicado: true,\n  sha256_anterior: ident.sha_anterior,\n  drive_sap_file_id: ident.sap_file_id_anterior,\n  drive_resultado_file_id: ident.resultado_file_id_anterior,\n  drive_entrada_file_id: ident.cierre_procesado_file_id_anterior,\n  drive_marker_file_id: $json.id,\n  drive_marker_file_id_anterior_invalidado: ident.marker_file_id_anterior,\n  mensaje: 'Cierre rectificado oficialmente en Drive: SAP + RESULTADO + PROCESADOS reemplazados (mismos file_id oficiales) y marcador anterior (' + ident.marker_file_id_anterior + ') sustituido por PROCESADO_' + t.sha256 + '.json.',\n} }];"
       }
     },
     {
