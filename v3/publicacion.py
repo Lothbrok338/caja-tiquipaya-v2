@@ -127,7 +127,7 @@ def _salida(item, estado_publicacion, publicado, mensaje, usuario_auditor=None, 
     return base
 
 
-def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=False, caja=None):
+def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=False, caja=None, rectificacion=False):
     """`item`: registro combinado (01-05) para UN cierre. Debe traer
     `estado_final` (del Módulo 04) o, si vino de una corrección aplicada
     en el Módulo 05, `resultado_reproceso` — ambos usan los MISMOS 5
@@ -151,6 +151,16 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=F
     corta el flujo: los archivos se preparan de nuevo y la idempotencia real la
     decide 06B contra el marcador de Drive. El resultado nunca es PUBLICADO
     sino PUBLICACION_LOCAL_PREPARADA (publicado=False).
+
+    `rectificacion=True`: SOLO tiene efecto junto con `modo_oficial=True` —
+    marca que este ítem corresponde a un reemplazo explícito de una
+    publicación oficial ya existente para esa fecha (RECTIFICAR CIERRE
+    PUBLICADO), y se propaga sin más en el resultado (campo `rectificacion`)
+    para que el orquestador de n8n lo reenvíe a 06B (única capa que decide,
+    contra Drive, si corresponde CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION,
+    RECTIFICACION_SIN_PUBLICACION_PREVIA o el reemplazo real). La
+    preparación LOCAL (SAP/resultado/procesado/marcador nuevo por SHA) es
+    idéntica a un modo_oficial normal: no hay nada que decidir aquí.
 
     Nunca lanza: cualquier problema se refleja en el resultado de ESTE
     cierre (ver publicar_lote() para el aislamiento de lote)."""
@@ -228,8 +238,11 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=F
             sap_publicado_por_usuario=True, sap_verificado_en_drive=True,
             resultado_publicado=True, cierre_movido_a_procesados=True,
             archivo_sap=os.path.basename(ruta_sap_dest),
-            observaciones=(f"Publicación oficial V3 (Drive) solicitada por {usuario_auditor or 'auditor'}" if modo_oficial
-                           else f"Publicado en DEV (V3) por {usuario_auditor or 'auditor.dev'}"),
+            observaciones=(
+                f"Rectificación de cierre oficial V3 (Drive) solicitada por {usuario_auditor or 'auditor'}" if (modo_oficial and rectificacion)
+                else f"Publicación oficial V3 (Drive) solicitada por {usuario_auditor or 'auditor'}" if modo_oficial
+                else f"Publicado en DEV (V3) por {usuario_auditor or 'auditor.dev'}"
+            ),
         )
         with open(ruta_marker, "w", encoding="utf-8") as f:
             json.dump(contenido_marker, f, ensure_ascii=False, indent=2)
@@ -241,6 +254,7 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=F
                 usuario_auditor, caja=caja,
                 sha256=sha256, ruta_sap_publicado=ruta_sap_dest, ruta_resultado_publicado=ruta_resultado_dest,
                 ruta_cierre_procesado=ruta_cierre_dest, ruta_marker=ruta_marker,
+                rectificacion=bool(rectificacion),
             )
         return _salida(
             item, PUBLICADO, True,
@@ -256,18 +270,21 @@ def publicar_cierre_dev(item, base_dir_dev, usuario_auditor=None, modo_oficial=F
         return _salida(item, ERROR_PUBLICACION, False, f"{type(exc).__name__}: {exc}", usuario_auditor, caja=caja)
 
 
-def publicar_lote(cierres, base_dir_dev, usuario_auditor=None, modo_oficial=False, caja=None):
+def publicar_lote(cierres, base_dir_dev, usuario_auditor=None, modo_oficial=False, caja=None, rectificacion=False):
     """Aplica publicar_cierre_dev() a cada cierre de la lista — LA MISMA
     función que se usa para publicar un único cierre (ver docstring del
     módulo: no existen dos caminos de lógica). Un error en UNO nunca
     detiene la publicación de los demás.
 
     `caja`: default de lote (ver publicar_cierre_dev/REGLA DE DEFENSA en
-    _salida: un item que ya trae su propia `"caja"` nunca la pierde)."""
+    _salida: un item que ya trae su propia `"caja"` nunca la pierde).
+
+    `rectificacion`: default de lote, propagado tal cual a cada
+    publicar_cierre_dev() (ver su docstring)."""
     resultados = []
     for item in cierres:
         try:
-            resultados.append(publicar_cierre_dev(item, base_dir_dev, usuario_auditor, modo_oficial, caja))
+            resultados.append(publicar_cierre_dev(item, base_dir_dev, usuario_auditor, modo_oficial, caja, rectificacion))
         except Exception as exc:  # red de seguridad adicional a nivel de lote
             resultados.append(_salida(item, ERROR_PUBLICACION, False, f"{type(exc).__name__}: {exc}", usuario_auditor, caja=caja))
     return resultados

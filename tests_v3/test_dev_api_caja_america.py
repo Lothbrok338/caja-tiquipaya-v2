@@ -221,7 +221,7 @@ def test_publicar_seleccionados_usa_caja_del_lote_no_la_del_item_tampereado(tmp_
 
     llamadas = []
 
-    def _publicar_lote_falso(elegibles, base_dir, usuario_auditor=None, modo_oficial=False, caja=None):
+    def _publicar_lote_falso(elegibles, base_dir, usuario_auditor=None, modo_oficial=False, caja=None, rectificacion=False):
         llamadas.append((elegibles[0].get("caja"), caja))
         return [dict(e, publicado=True) for e in elegibles]
 

@@ -477,6 +477,12 @@
   button.cerrar-auditoria:hover { filter: none; background: #8C1D18; border-color: #8C1D18; }
   button.publicar { background: var(--green); border-color: var(--green); color: #fff; }
   button.publicar:hover { filter: none; background: #17603A; border-color: #17603A; }
+  /* RECTIFICAR CIERRE PUBLICADO: peligro controlado -- SIEMPRE secundario
+     visualmente frente a Publicar (ambar, nunca el color de accion principal),
+     y deshabilitado hasta que 06B soporte el reemplazo real en Drive. */
+  button.rectificar { background: #fff; border-color: #B45309; color: #B45309; }
+  button.rectificar:hover:not(:disabled) { filter: none; background: #FFFBEB; }
+  button.rectificar:disabled { opacity: .55; cursor: not-allowed; }
   .badge-publicado {
     display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px;
     background: rgba(30,125,76,0.12); color: var(--green); border: 1px solid rgba(30,125,76,0.35);
@@ -1049,6 +1055,23 @@
     return estadoEfectivo === "LISTO_PARA_PUBLICAR" && !estaPublicado(cierre);
   }
 
+  // RECTIFICAR CIERRE PUBLICADO: el backend (06B, vía consolidar_publicacion_oficial)
+  // es quien decide esto -- CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION solo puede
+  // salir de PUBLICAR normal detectando, contra Drive, un SAP oficial con SHA
+  // distinto para esta fecha. El frontend NUNCA infiere esto por su cuenta.
+  //
+  // RECTIFICACION_HABILITADA: el reemplazo real en Drive (actualizar SAP/RESULTADO/
+  // PROCESADOS por file_id + invalidar el marcador anterior) todavía no está
+  // implementado en 06B (ver v3/dev_api.py::RECTIFICADO_OFICIAL) -- el botón se
+  // muestra para que el auditor entienda que existe la vía, pero queda
+  // deshabilitado hasta que esa pieza esté lista y validada contra n8n real.
+  var RECTIFICACION_HABILITADA = false;
+
+  function esRectificable(cierre) {
+    var raw = cierre._raw || {};
+    return raw.estado_publicacion === "CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION";
+  }
+
   function accionesFuturas(cierre) {
     var wrap = el("div", { class: "row-actions" });
     var btnVer = el("button", { class: "small ghost", text: "Ver" });
@@ -1280,7 +1303,22 @@
         secPub.appendChild(el("div", { class: "placeholder-note", text: "Ya existía un marcador para este SHA256 (de esta u otra corrida DEV): no se duplicó SAP, resultado, cierre procesado ni marcador." }));
       }
     } else if (esPublicable(c)) {
-      if (raw.estado_publicacion === "ERROR_PUBLICACION_OFICIAL") {
+      if (esRectificable(c)) {
+        secPub.appendChild(el("div", { class: "kv" }, [
+          el("span", { class: "k", text: "Estado" }),
+          el("span", { class: "v", text: "⚠ YA EXISTE UN CIERRE OFICIAL DISTINTO PARA ESTA FECHA" }),
+        ]));
+        secPub.appendChild(el("div", { class: "placeholder-note", text: raw.mensaje ||
+          "Ya existe una publicación oficial con otro SHA256 para esta fecha. PUBLICAR normal no la sobrescribe." }));
+        var btnRectificar = el("button", {
+          class: "small rectificar", text: "RECTIFICAR CIERRE PUBLICADO",
+          title: RECTIFICACION_HABILITADA ? "Reemplaza oficialmente el SAP/RESULTADO/estado de esta fecha por esta versión corregida."
+                                          : "Pendiente: el reemplazo oficial en Drive aún no está implementado en 06B.",
+        });
+        if (!RECTIFICACION_HABILITADA) btnRectificar.disabled = true;
+        btnRectificar.addEventListener("click", function (ev) { ev.stopPropagation(); rectificarCierre(c); });
+        secPub.appendChild(btnRectificar);
+      } else if (raw.estado_publicacion === "ERROR_PUBLICACION_OFICIAL") {
         secPub.appendChild(el("div", { class: "kv" }, [
           el("span", { class: "k", text: "Estado" }),
           el("span", { class: "v", text: "✗ PUBLICACIÓN OFICIAL NO COMPLETADA" }),
@@ -1498,6 +1536,41 @@
         "No se escribe nada en Drive en este modo.\n" +
         "¿Continuar?";
     return window.confirm(mensaje);
+  }
+
+  // Confirmación fuerte y distinta de confirmarPublicacion(): rectificar
+  // reemplaza el SAP/RESULTADO/estado oficial YA vigente de esa fecha, así
+  // que el texto lo dice explícitamente (nunca el mismo mensaje de "publicar
+  // por primera vez"). Cero llamadas al backend hasta confirmar.
+  function confirmarRectificacion(fecha) {
+    var mensaje =
+      "Ya existe un cierre oficial para " + fmtFecha(fecha) + ".\n" +
+      "Esta acción reemplazará el SAP, RESULTADO y estado oficial de esta fecha por la nueva versión procesada.\n\n" +
+      "¿Confirmar RECTIFICACIÓN?";
+    return window.confirm(mensaje);
+  }
+
+  function rectificarCierre(cierre) {
+    if (!RECTIFICACION_HABILITADA || !esRectificable(cierre)) return;
+    if (!confirmarRectificacion(cierre.fecha)) return;
+    var usuarioAuditor = qs("#in-usuario-auditor").value || "auditor.dev";
+    apiPost(ENDPOINTS.publicar, {
+      lote_id: state.loteId, fechas: [cierre.fecha], usuario_auditor: usuarioAuditor, rectificacion: true,
+    }).then(function (resp) {
+      (resp.publicados || []).forEach(function (p) {
+        if (p.estado_publicacion === "RECTIFICADO_OFICIAL" && p.publicado === true) {
+          window.alert("✓ CIERRE RECTIFICADO OFICIALMENTE\n" + fmtFecha(p.fecha) +
+            (resp.requiere_regenerar_global ? "\nGLOBAL DEL PERIODO REQUIERE REGENERACIÓN (use GENERAR GLOBAL)." : ""));
+        } else if (p.estado_publicacion === "ERROR_PUBLICACION_OFICIAL") {
+          mostrarErrorBackend(fmtFecha(p.fecha) + ": la rectificación NO se completó.\n" + (p.mensaje || "Sin confirmación de Drive."));
+        }
+        var actualizado = actualizarCierreEnEstado(p);
+        if (state.seleccion && state.seleccion.fecha === p.fecha) state.seleccion = actualizado;
+      });
+      renderIndicadores(state.cierres);
+      renderTabla(state.cierres);
+      renderDetalle();
+    }).catch(function (err) { mostrarErrorBackend(err.message || String(err)); });
   }
 
   function publicarCierre(cierre) {

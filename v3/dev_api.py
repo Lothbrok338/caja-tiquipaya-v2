@@ -466,12 +466,25 @@ def aplicar_correccion(lote_id, fecha, correccion_parcial, base_dir_dev):
 # se publica sin que el Módulo 04/05 ya lo haya habilitado).
 # ---------------------------------------------------------------------------
 
-def publicar_seleccionados(lote_id, fechas, base_dir_dev, usuario_auditor, modo_oficial=False):
+def publicar_seleccionados(lote_id, fechas, base_dir_dev, usuario_auditor, modo_oficial=False, rectificacion=False):
+    """`rectificacion=True`: SOLO válido junto con `modo_oficial=True` (RECTIFICAR
+    CIERRE PUBLICADO es una vía oficial explícita, nunca del flujo DEV). Antes de
+    preparar nada localmente, exige que el periodo (mes/año de CADA fecha
+    solicitada) siga abierto para CONTROL 1 de esa caja — MISMO guard que ya usa
+    generar_global()/`_verificar_periodo_no_cerrado()`, nunca un criterio nuevo:
+    si el periodo ya cerró definitivamente, rectificar volvería a exigir
+    regenerar GLOBAL sobre un mes que la Auditoría de Asignaciones ya selló, así
+    que se rechaza cerrado (sin tocar nada) en vez de reabrir el periodo."""
+    if rectificacion and not modo_oficial:
+        raise ValueError("RECTIFICACION_REQUIERE_MODO_OFICIAL: rectificacion=true solo es válido junto con modo_oficial=true.")
     if modo_oficial:
         exigir_no_bloqueo_para_publicacion_oficial()
     lote = _leer_lote(lote_id, base_dir_dev)
     caja_lote = _caja_lote(lote)  # identidad INMUTABLE del lote, nunca del request
     fechas = set(fechas)
+    if rectificacion:
+        for fecha in fechas:
+            _verificar_periodo_no_cerrado_para_fecha(fecha, base_dir_dev, caja_lote)
     elegibles, omitidos, indices = [], [], {}
 
     for i, c in enumerate(lote["cierres"]):
@@ -485,13 +498,13 @@ def publicar_seleccionados(lote_id, fechas, base_dir_dev, usuario_auditor, modo_
         else:
             omitidos.append({"fecha": c.get("fecha"), "motivo": f"Estado '{estado}' no habilita publicación (CONTRACT-011)."})
 
-    publicados = publicar_lote(elegibles, base_dir_dev, usuario_auditor, modo_oficial, caja=caja_lote.codigo) if elegibles else []
+    publicados = publicar_lote(elegibles, base_dir_dev, usuario_auditor, modo_oficial, caja=caja_lote.codigo, rectificacion=rectificacion) if elegibles else []
     for p in publicados:
         lote["cierres"][indices[p["fecha"]]] = p
 
     auditoria = consolidar_auditoria_lote(lote["cierres"], base_dir_dev, usuario_auditor)
     _escribir_lote(lote, base_dir_dev)
-    return {"publicados": publicados, "omitidos": omitidos, "ruta_auditoria_lote": auditoria["ruta_lote"]}
+    return {"publicados": publicados, "omitidos": omitidos, "ruta_auditoria_lote": auditoria["ruta_lote"], "rectificacion": bool(rectificacion)}
 
 
 # ---------------------------------------------------------------------------
@@ -501,6 +514,15 @@ def publicar_seleccionados(lote_id, fechas, base_dir_dev, usuario_auditor, modo_
 PUBLICADO_OFICIAL = "PUBLICADO_OFICIAL"
 YA_PUBLICADO_OFICIAL = "YA_PUBLICADO_OFICIAL"
 ERROR_PUBLICACION_OFICIAL = "ERROR_PUBLICACION_OFICIAL"
+# RECTIFICAR CIERRE PUBLICADO (ver v3/publicacion.py `rectificacion` y 06B):
+# CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION es lo que 06B devuelve en modo
+# PUBLICAR normal (rectificacion=false) cuando la fecha ya tiene un SAP oficial
+# con un SHA distinto — REGLA CRÍTICA: PUBLICAR normal nunca sobrescribe, solo
+# informa que existe una vía de rectificación. RECTIFICADO_OFICIAL es el éxito
+# de una rectificación real contra Drive (06B, pendiente de implementar el
+# reemplazo en sí — hoy 06B responde RECTIFICACION_NO_IMPLEMENTADA_06B).
+CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION = "CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION"
+RECTIFICADO_OFICIAL = "RECTIFICADO_OFICIAL"
 _ESTADOS_LOCALES_NO_OFICIALES = ("PUBLICADO", "YA_PUBLICADO", "PUBLICACION_LOCAL_PREPARADA")
 
 
@@ -541,12 +563,34 @@ def consolidar_publicacion_oficial(respuesta, lote_id, base_dir_dev):
                       "drive_sap_file_id": d.get("drive_sap_file_id"), "drive_resultado_file_id": d.get("drive_resultado_file_id"),
                       "drive_marker_file_id": d.get("drive_marker_file_id"), "drive_entrada_file_id": d.get("drive_entrada_file_id")})
             confirmadas.append(fecha)
+        elif d and d.get("estado_publicacion") == RECTIFICADO_OFICIAL and d.get("publicado") is True:
+            # Rectificación oficial confirmada por 06B: el SAP/RESULTADO/PROCESADOS
+            # y el marcador vigentes de esta fecha ya corresponden al SHA nuevo.
+            # requiere_regenerar_global (fuera de este loop) se activa por esto.
+            p.update({"estado_publicacion": RECTIFICADO_OFICIAL, "publicado": True,
+                      "mensaje": d.get("mensaje") or "Cierre publicado oficialmente rectificado en Drive.",
+                      "drive_sap_file_id": d.get("drive_sap_file_id"), "drive_resultado_file_id": d.get("drive_resultado_file_id"),
+                      "drive_marker_file_id": d.get("drive_marker_file_id"), "drive_entrada_file_id": d.get("drive_entrada_file_id")})
+            confirmadas.append(fecha)
         elif d and d.get("estado_publicacion") == "YA_PUBLICADO":
             p.update({"estado_publicacion": YA_PUBLICADO_OFICIAL, "publicado": False,
                       "mensaje": d.get("mensaje") or "El marcador ya existe en Drive: el cierre ya fue publicado oficialmente."})
             confirmadas.append(fecha)
+        elif d and d.get("estado_publicacion") == CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION:
+            # PUBLICAR normal detectó (contra Drive, en 06B) que esta fecha ya
+            # tiene un SAP oficial con SHA distinto: NUNCA se sobrescribe desde
+            # aquí — se informa la vía explícita de rectificación. Nada se tocó.
+            p.update({"estado_publicacion": CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION, "publicado": False,
+                      "mensaje": d.get("mensaje") or ("Ya existe una publicación oficial distinta para esta fecha; use "
+                                                       "RECTIFICAR CIERRE PUBLICADO si desea reemplazarla.")})
         elif local in ("ERROR_PUBLICACION", "NO_PUBLICABLE"):
             pass  # el motivo real ya viene en `mensaje`; no es una publicación
+        elif d and d.get("estado_publicacion") == ERROR_PUBLICACION_OFICIAL:
+            # 06B ya devolvió un motivo específico (p.ej. RECTIFICACION_NO_IMPLEMENTADA_06B,
+            # RECTIFICACION_SIN_PUBLICACION_PREVIA): se preserva tal cual en vez del
+            # mensaje genérico de "sin confirmación de Drive".
+            p.update({"estado_publicacion": ERROR_PUBLICACION_OFICIAL, "publicado": False,
+                      "mensaje": d.get("mensaje") or "La publicación oficial no se completó."})
         else:
             p.update({"estado_publicacion": ERROR_PUBLICACION_OFICIAL, "publicado": False,
                       "mensaje": ("La publicación oficial no se completó: no hay confirmación de Drive (06B) para este cierre "
@@ -559,6 +603,10 @@ def consolidar_publicacion_oficial(respuesta, lote_id, base_dir_dev):
         if fecha in indices:
             lote["cierres"][indices[fecha]] = dict(p)
     _escribir_lote(lote, base_dir_dev)
+    respuesta["requiere_regenerar_global"] = any(
+        c.get("estado_publicacion") == RECTIFICADO_OFICIAL and c.get("publicado") is True
+        for c in (respuesta.get("publicados") or [])
+    )
     respuesta["publicacion_oficial_confirmada"] = confirmadas
     return respuesta
 
@@ -719,6 +767,31 @@ def _verificar_periodo_no_cerrado(entrada_dir, anio, mes, caja=None):
             f"definitivamente; GENERAR GLOBAL queda bloqueado para no perder correcciones autorizadas. "
             f"La reapertura del periodo no está implementada."
         )
+
+
+def _verificar_periodo_no_cerrado_para_fecha(fecha, base_dir_dev, caja=None):
+    """RECTIFICAR CIERRE PUBLICADO — reutiliza `_verificar_periodo_no_cerrado()`
+    tal cual (MISMO guard que generar_global(), nunca un criterio paralelo),
+    resuelto a partir del año/mes de `fecha` ('YYYY-MM-DD'). A diferencia de
+    generar_global() (que materializa `global_entrada/<periodo>/` como parte
+    de su propio flujo), rectificar es una acción puntual sobre UNA fecha: si
+    esa carpeta no fue materializada por el llamador (snapshot fresco del
+    histórico CONTROL 1 de Drive) ANTES de pedir la rectificación, no hay
+    forma de demostrar que el periodo sigue abierto — FAIL CLOSED (no se
+    asume "abierto" por ausencia de evidencia, al revés que dentro de
+    _verificar_periodo_no_cerrado() donde la carpeta ya fue materializada por
+    el propio llamador en esa misma corrida)."""
+    anio, mes = int(fecha[0:4]), int(fecha[5:7])
+    _validar_anio_mes(anio, mes)
+    caja_resuelta = cfg.resolver_caja(caja)
+    entrada_dir = global_entrada_dir(base_dir_dev, anio, mes, caja_resuelta)
+    if not os.path.isdir(entrada_dir):
+        raise RuntimeError(
+            f"RECTIFICACION_PERIODO_NO_VERIFICABLE: no se materializó el histórico de CONTROL 1 "
+            f"({entrada_dir}) para poder confirmar que {anio:04d}-{mes:02d} sigue abierto; el backend "
+            f"debe materializarlo desde Drive antes de autorizar RECTIFICAR CIERRE PUBLICADO."
+        )
+    _verificar_periodo_no_cerrado(entrada_dir, anio, mes, caja_resuelta)
 
 
 def generar_global(anio, mes, base_dir_dev, ruta_plantilla_origen, sap_dir=None, caja=None):
@@ -1097,7 +1170,7 @@ def main(argv=None):
         elif args.accion == "publicar":
             salida = {"resultado": "OK", **publicar_seleccionados(
                 datos["lote_id"], datos["fechas"], datos["base_dir_dev"], datos.get("usuario_auditor"),
-                datos.get("modo_oficial", False))}
+                datos.get("modo_oficial", False), datos.get("rectificacion", False))}
         elif args.accion == "consolidar_publicacion_oficial":
             salida = consolidar_publicacion_oficial(datos["respuesta"], datos["lote_id"], datos["base_dir_dev"])
             salida.setdefault("resultado", "OK")

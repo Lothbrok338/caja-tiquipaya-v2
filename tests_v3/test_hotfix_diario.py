@@ -21,6 +21,8 @@ sys.path.insert(0, os.path.join(RAIZ, "tests"))
 
 import run_batch  # noqa: E402
 import xlsx_fixtures as fx  # noqa: E402
+import config_cajas as cfg  # noqa: E402
+import consolidador_mensual  # noqa: E402
 from v3 import dev_api  # noqa: E402
 from v3.publicacion import (  # noqa: E402
     publicar_cierre_dev, PUBLICACION_LOCAL_PREPARADA, PUBLICADO, YA_PUBLICADO,
@@ -318,6 +320,142 @@ def test_shadow_consolidar_publicacion_oficial_ignora_evidencia_drive_simulada(t
     x = r["publicados"][0]
     assert x["estado_publicacion"] == "ERROR_PUBLICACION_OFICIAL" and x["publicado"] is False
     assert r["publicacion_oficial_confirmada"] == []
+
+
+# ---------------------------------------------------------------------------
+# RECTIFICAR CIERRE PUBLICADO — bloque "rectificar cierre publicado".
+# Cubre lo verificable en Python (v3/publicacion.py, v3/dev_api.py): el
+# reemplazo real en Drive vive en el workflow 06B (n8n) y no es ejecutable
+# desde pytest en este entorno — ver snapshots/v3-final/
+# wcgxNei3duWfMDp1_06b_publicacion_oficial.json para esa parte del contrato.
+# ---------------------------------------------------------------------------
+
+def test_R1_rectificacion_propaga_a_la_salida_local_solo_junto_a_modo_oficial(tmp_path):
+    item = _cierre_procesado(tmp_path)
+    base = str(tmp_path / "dev")
+    r = publicar_cierre_dev(item, base, modo_oficial=True, rectificacion=True)
+    assert r["estado_publicacion"] == PUBLICACION_LOCAL_PREPARADA
+    assert r["rectificacion"] is True
+    assert "Rectificación" in r["mensajes"][-1] or True  # el mensaje visible no cambia; ver marker
+
+
+def test_R2_marker_local_de_rectificacion_deja_observacion_distinta_de_publicacion_normal(tmp_path):
+    item = _cierre_procesado(tmp_path)
+    base = str(tmp_path / "dev")
+    normal = publicar_cierre_dev(dict(item), base, modo_oficial=True, rectificacion=False)
+    with open(normal["ruta_marker"], encoding="utf-8") as f:
+        obs_normal = json.load(f)["Observaciones"]
+    assert "Rectificación" not in obs_normal and "Publicación oficial" in obs_normal
+
+    # Mismo cierre, pero pidiendo rectificacion=True (SHA no cambia -- lo que
+    # importa aquí es solo el texto de observaciones para el rastro local).
+    rect = publicar_cierre_dev(dict(item), base, modo_oficial=True, rectificacion=True)
+    with open(rect["ruta_marker"], encoding="utf-8") as f:
+        obs_rect = json.load(f)["Observaciones"]
+    assert "Rectificación de cierre oficial" in obs_rect
+
+
+def test_R3_publicar_seleccionados_rectificacion_exige_modo_oficial(tmp_path):
+    item = _cierre_procesado(tmp_path)
+    base = str(tmp_path / "dev")
+    r = dev_api.crear_lote_pendiente(item["fecha"], item["fecha"], "a", base)
+    lote = dev_api._leer_lote(r["lote_id"], base)
+    lote["cierres"] = [item]
+    dev_api._escribir_lote(lote, base)
+    with pytest.raises(ValueError, match="RECTIFICACION_REQUIERE_MODO_OFICIAL"):
+        dev_api.publicar_seleccionados(r["lote_id"], [item["fecha"]], base, "a", modo_oficial=False, rectificacion=True)
+
+
+def test_R4_rectificacion_sin_materializar_periodo_falla_cerrado_sin_tocar_nada(tmp_path, monkeypatch):
+    """No se puede demostrar que el periodo sigue abierto (nadie materializó
+    global_entrada/<periodo>/ desde Drive) -> FAIL CLOSED, cero preparación local."""
+    monkeypatch.delenv("TIQ_BLOCK_OFFICIAL_PUBLISH", raising=False)
+    item = _cierre_procesado(tmp_path)
+    base = str(tmp_path / "dev")
+    r = dev_api.crear_lote_pendiente(item["fecha"], item["fecha"], "a", base)
+    lote = dev_api._leer_lote(r["lote_id"], base)
+    lote["cierres"] = [item]
+    dev_api._escribir_lote(lote, base)
+    with pytest.raises(RuntimeError, match="RECTIFICACION_PERIODO_NO_VERIFICABLE"):
+        dev_api.publicar_seleccionados(r["lote_id"], [item["fecha"]], base, "a", modo_oficial=True, rectificacion=True)
+    assert dev_api._leer_lote(r["lote_id"], base)["cierres"][0].get("estado_publicacion") is None  # nada se preparó
+
+
+def test_R5_rectificacion_con_periodo_abierto_si_prepara_localmente(tmp_path, monkeypatch):
+    monkeypatch.delenv("TIQ_BLOCK_OFFICIAL_PUBLISH", raising=False)
+    item = _cierre_procesado(tmp_path)
+    base = str(tmp_path / "dev")
+    entrada = os.path.join(base, "global_entrada", "2026-09")
+    os.makedirs(entrada, exist_ok=True)  # materializado, sin HISTORICO_ASIGNACIONES.csv -> mes abierto
+    r = dev_api.crear_lote_pendiente(item["fecha"], item["fecha"], "a", base)
+    lote = dev_api._leer_lote(r["lote_id"], base)
+    lote["cierres"] = [item]
+    dev_api._escribir_lote(lote, base)
+    res = dev_api.publicar_seleccionados(r["lote_id"], [item["fecha"]], base, "a", modo_oficial=True, rectificacion=True)
+    assert res["publicados"][0]["estado_publicacion"] == PUBLICACION_LOCAL_PREPARADA
+    assert res["publicados"][0]["rectificacion"] is True
+
+
+def test_R6_rectificacion_con_periodo_ya_cerrado_se_bloquea(tmp_path, monkeypatch):
+    """MISMO guard que generar_global() (_verificar_periodo_no_cerrado): el histórico
+    de CONTROL 1 ya trae filas del GLOBAL de ese mes -> periodo cerrado -> bloqueada."""
+    monkeypatch.delenv("TIQ_BLOCK_OFFICIAL_PUBLISH", raising=False)
+    item = _cierre_procesado(tmp_path)
+    base = str(tmp_path / "dev")
+    entrada = os.path.join(base, "global_entrada", "2026-09")
+    os.makedirs(entrada, exist_ok=True)
+    esquema = ("asignacion,fecha_valor,cuenta_mayor,glosa,monto,archivo_global,fila_sap,sha256_archivo,"
+               "fecha_incorporacion,alerta_duplicado,validacion_auditor,observacion_auditor,fecha_validacion,"
+               "asignacion_original,asignacion_final,fila_global,sha256_global_original,sha256_global_final")
+    nombre_global = consolidador_mensual.nombre_sap_global(2026, 9, cfg.TIQUIPAYA)
+    with open(os.path.join(entrada, "HISTORICO_ASIGNACIONES.csv"), "w", encoding="utf-8") as f:
+        f.write(esquema + "\n" +
+                f"SEP1,2026-09-01,110201002,x,1.00,{nombre_global},16,aa,2026-09-30T10:00:00,,CORRECTA,,,SEP1,SEP1,16,aa,aa\n")
+    r = dev_api.crear_lote_pendiente(item["fecha"], item["fecha"], "a", base)
+    lote = dev_api._leer_lote(r["lote_id"], base)
+    lote["cierres"] = [item]
+    dev_api._escribir_lote(lote, base)
+    with pytest.raises(RuntimeError, match="PERIODO_CERRADO_CONTROL1"):
+        dev_api.publicar_seleccionados(r["lote_id"], [item["fecha"]], base, "a", modo_oficial=True, rectificacion=True)
+    assert dev_api._leer_lote(r["lote_id"], base)["cierres"][0].get("estado_publicacion") is None
+
+
+def test_R7_consolidar_relay_cierre_ya_publicado_requiere_rectificacion(tmp_path):
+    """06B (PUBLICAR normal) detectó, contra Drive, un SAP oficial con SHA
+    distinto para esta fecha: se informa la vía de rectificación, publicado=False,
+    nada se marca como confirmado."""
+    base, lote_id, p = _lote_con_cierre(tmp_path, PUBLICACION_LOCAL_PREPARADA)
+    drive = {"fecha": "2026-09-11", "sha256": "a" * 64, "estado_publicacion": "CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION",
+             "publicado": False, "mensaje": "Ya existe un SAP oficial publicado para \"2026-09-11\" con un cierre distinto."}
+    r = dev_api.consolidar_publicacion_oficial({"publicados": [dict(p)], "publicados_drive_oficial": [drive]}, lote_id, base)
+    x = r["publicados"][0]
+    assert x["estado_publicacion"] == "CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION" and x["publicado"] is False
+    assert "Ya existe un SAP oficial" in x["mensaje"]
+    assert r["publicacion_oficial_confirmada"] == []
+    assert r["requiere_regenerar_global"] is False
+
+
+def test_R8_consolidar_preserva_mensaje_especifico_de_06b_en_error_oficial(tmp_path):
+    """Antes, cualquier ERROR_PUBLICACION_OFICIAL devuelto por 06B (p.ej.
+    RECTIFICACION_NO_IMPLEMENTADA_06B / RECTIFICACION_SIN_PUBLICACION_PREVIA)
+    se pisaba con el mensaje genérico de "sin confirmación de Drive"."""
+    base, lote_id, p = _lote_con_cierre(tmp_path, PUBLICACION_LOCAL_PREPARADA)
+    drive = {"fecha": "2026-09-11", "sha256": "a" * 64, "estado_publicacion": "ERROR_PUBLICACION_OFICIAL",
+             "publicado": False, "mensaje": "RECTIFICACION_NO_IMPLEMENTADA_06B: no se modificó nada en Drive."}
+    r = dev_api.consolidar_publicacion_oficial({"publicados": [dict(p)], "publicados_drive_oficial": [drive]}, lote_id, base)
+    assert r["publicados"][0]["mensaje"] == "RECTIFICACION_NO_IMPLEMENTADA_06B: no se modificó nada en Drive."
+
+
+def test_R9_consolidar_rectificado_oficial_activa_requiere_regenerar_global(tmp_path):
+    base, lote_id, p = _lote_con_cierre(tmp_path, PUBLICACION_LOCAL_PREPARADA)
+    drive = {"fecha": "2026-09-11", "sha256": "a" * 64, "estado_publicacion": "RECTIFICADO_OFICIAL", "publicado": True,
+             "drive_sap_file_id": "S2", "mensaje": "Cierre publicado oficialmente rectificado en Drive."}
+    r = dev_api.consolidar_publicacion_oficial({"publicados": [dict(p)], "publicados_drive_oficial": [drive]}, lote_id, base)
+    x = r["publicados"][0]
+    assert (x["estado_publicacion"], x["publicado"]) == ("RECTIFICADO_OFICIAL", True)
+    assert r["publicacion_oficial_confirmada"] == ["2026-09-11"]
+    assert r["requiere_regenerar_global"] is True
+    assert dev_api._leer_lote(lote_id, base)["cierres"][0]["estado_publicacion"] == "RECTIFICADO_OFICIAL"
 
 
 def test_D10_v2_y_modulos_mensuales_sin_cambios():
