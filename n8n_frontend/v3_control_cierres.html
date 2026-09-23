@@ -1061,11 +1061,11 @@
   // distinto para esta fecha. El frontend NUNCA infiere esto por su cuenta.
   //
   // RECTIFICACION_HABILITADA: el reemplazo real en Drive (actualizar SAP/RESULTADO/
-  // PROCESADOS por file_id + invalidar el marcador anterior) todavía no está
-  // implementado en 06B (ver v3/dev_api.py::RECTIFICADO_OFICIAL) -- el botón se
-  // muestra para que el auditor entienda que existe la vía, pero queda
-  // deshabilitado hasta que esa pieza esté lista y validada contra n8n real.
-  var RECTIFICACION_HABILITADA = false;
+  // PROCESADOS por file_id + invalidar el marcador anterior) ya está implementado
+  // en 06B (BLOQUE 2, ver snapshots/v3-final/wcgxNei3duWfMDp1_06b_publicacion_oficial.json
+  // y v3/dev_api.py::RECTIFICADO_OFICIAL) -- estructuralmente validado, SIN ejecutar
+  // aún contra Drive real ni n8n real.
+  var RECTIFICACION_HABILITADA = true;
 
   function esRectificable(cierre) {
     var raw = cierre._raw || {};

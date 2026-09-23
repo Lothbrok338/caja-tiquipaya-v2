@@ -25,6 +25,11 @@
  *   - VERIFICAR - Cierre en ENTRADA (fileId primario + reconciliacion)
  *   - VERIFICAR - Cierre en PROCESADOS (retry)
  * del workflow n8n wcgxNei3duWfMDp1 (reemplaza a PQocEfOB00Bxvy0p, FASE 11A).
+ *
+ * BLOQUE 2 (RECTIFICAR CIERRE PUBLICADO) agrega, mantenidos sincronizados con:
+ *   - VALIDAR - Identidades previas unicas (rectificacion)
+ *   - RESOLVER - Marker anterior unico (rectificacion)
+ *   - CONSTRUIR - Salida RECTIFICADO_OFICIAL
  */
 'use strict';
 
@@ -158,6 +163,90 @@ function resolverDestinosDrive(cajaCruda, env) {
   };
 }
 
+// ---------------------------------------------------------------------
+// BLOQUE 2 -- RECTIFICAR CIERRE PUBLICADO (sustitucion oficial de una
+// publicacion previa). Copia de referencia EXACTA de la logica de los
+// nodos Code nuevos del workflow n8n 06B PUBLICACION OFICIAL (rama
+// SAP existe + rectificacion=true):
+//   - VALIDAR - Identidades previas unicas (rectificacion)
+//   - RESOLVER - Marker anterior unico (rectificacion)
+//   - CONSTRUIR - Salida RECTIFICADO_OFICIAL
+// PASO C: exactamente UN SAP, UN RESULTADO, UN cierre en 03_PROCESADOS y
+// UN cierre nuevo en 00_ENTRADA_CIERRES (cuyo fileId coincida con
+// INGESTA) -- 0 o >1 en cualquiera de los cuatro -> fail closed, nada se
+// escribe. PASO B: el marker anterior se resuelve por metadata real
+// (ArchivoSAP + ArchivoOrigen + FechaCierre, campos que ya produce
+// pipeline_tiquipaya.construir_registro_control()/construir_marcador_procesado()),
+// nunca adivinando el SHA en el nombre del archivo.
+// ---------------------------------------------------------------------
+
+function validarIdentidadesPreviasRectificacion(sapFileIdAnterior, resultadoItems, nombreResultado,
+                                                 procesadosItems, archivoEsperado,
+                                                 entradaItems, driveFileIdIngesta) {
+  if (!sapFileIdAnterior) {
+    throw new Error('ERROR_RECTIFICACION_SAP_NO_ENCONTRADO: no hay un SAP oficial previo; no hay nada que rectificar.');
+  }
+
+  function unico(items, nombreBuscado, etiqueta) {
+    const exactos = items.filter(function (it) { return it && it.name === nombreBuscado && it.id; });
+    if (exactos.length === 0) {
+      throw new Error('ERROR_RECTIFICACION_' + etiqueta + '_NO_ENCONTRADO: no se encontro exactamente un "' + nombreBuscado + '" oficial previo. No se modifica nada.');
+    }
+    if (exactos.length > 1) {
+      throw new Error('ERROR_RECTIFICACION_' + etiqueta + '_AMBIGUO: se encontraron ' + exactos.length + ' archivos llamados "' + nombreBuscado + '". No se modifica nada hasta resolver el duplicado manualmente.');
+    }
+    return exactos[0].id;
+  }
+
+  const resultadoFileIdAnterior = unico(resultadoItems, nombreResultado, 'RESULTADO');
+  const cierreProcesadoFileIdAnterior = unico(procesadosItems, archivoEsperado, 'CIERRE_PROCESADOS');
+
+  const candidatosEntrada = entradaItems.filter(function (it) { return it && it.name === archivoEsperado && it.id; });
+  if (candidatosEntrada.length === 0) {
+    throw new Error('ERROR_RECTIFICACION_CIERRE_NUEVO_NO_ENCONTRADO: no se encontro el cierre corregido "' + archivoEsperado + '" en 00_ENTRADA_CIERRES. No hay nada que rectificar sin el cierre nuevo.');
+  }
+  if (candidatosEntrada.length > 1) {
+    throw new Error('ERROR_RECTIFICACION_CIERRE_NUEVO_AMBIGUO: se encontraron ' + candidatosEntrada.length + ' archivos llamados "' + archivoEsperado + '" en 00_ENTRADA_CIERRES.');
+  }
+  const cierreNuevoEncontrado = candidatosEntrada[0];
+  if (driveFileIdIngesta && cierreNuevoEncontrado.id !== driveFileIdIngesta) {
+    throw new Error('ERROR_RECTIFICACION_FILEID_INGESTA_NO_COINCIDE: el fileId detectado en INGESTA (' + driveFileIdIngesta + ') no coincide con el fileId actual de "' + archivoEsperado + '" en 00_ENTRADA_CIERRES (' + cierreNuevoEncontrado.id + '). No se modifica nada.');
+  }
+
+  return {
+    sap_file_id_anterior: sapFileIdAnterior,
+    resultado_file_id_anterior: resultadoFileIdAnterior,
+    cierre_procesado_file_id_anterior: cierreProcesadoFileIdAnterior,
+    cierre_nuevo_file_id_entrada: cierreNuevoEncontrado.id,
+  };
+}
+
+function resolverMarkerAnteriorRectificacion(markersConContenido, nombreSapOficial, archivoEsperado, fecha, shaNuevo) {
+  const candidatos = markersConContenido.filter(function (m) {
+    if (!m || !m.contenido) return false;
+    const c = m.contenido;
+    return c.ArchivoSAP === nombreSapOficial && c.ArchivoOrigen === archivoEsperado && c.FechaCierre === fecha;
+  });
+
+  if (candidatos.length === 0) {
+    throw new Error('ERROR_MARKER_ANTERIOR_NO_ENCONTRADO: no se pudo identificar de forma determinista el marcador de la publicacion oficial anterior. FAIL CLOSED: no se modifica nada.');
+  }
+  if (candidatos.length > 1) {
+    throw new Error('ERROR_AMBIGUO_MARKER_ANTERIOR: se encontraron ' + candidatos.length + ' marcadores cuya metadata coincide con esta publicacion anterior. FAIL CLOSED: no se modifica nada hasta resolver manualmente.');
+  }
+
+  const markerAnterior = candidatos[0];
+  const shaAnterior = markerAnterior.contenido.HashOrigen || null;
+  if (!shaAnterior) {
+    throw new Error('ERROR_MARKER_ANTERIOR_SIN_HASH: el marcador anterior identificado no trae HashOrigen. FAIL CLOSED.');
+  }
+  if (shaAnterior === shaNuevo) {
+    throw new Error('ERROR_RECTIFICACION_SHA_IGUAL: el SHA256 nuevo coincide con el anterior; esto es idempotencia (mismo cierre), no una rectificacion. Use PUBLICAR normal.');
+  }
+
+  return { marker_file_id_anterior: markerAnterior.id, sha_anterior: shaAnterior, sha_nuevo: shaNuevo };
+}
+
 module.exports = {
   verificarArtefactoExistente,
   verificarCierreEnEntrada,
@@ -165,4 +254,6 @@ module.exports = {
   markerYaExiste,
   validarPrefijoArchivo,
   resolverDestinosDrive,
+  validarIdentidadesPreviasRectificacion,
+  resolverMarkerAnteriorRectificacion,
 };

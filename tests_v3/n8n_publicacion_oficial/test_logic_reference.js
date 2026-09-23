@@ -19,6 +19,8 @@ const {
   markerYaExiste,
   validarPrefijoArchivo,
   resolverDestinosDrive,
+  validarIdentidadesPreviasRectificacion,
+  resolverMarkerAnteriorRectificacion,
 } = require('./logic_reference');
 
 let pasados = 0;
@@ -287,6 +289,290 @@ test('prefijo propio: TIQ con nombre TIQ y AME con nombre AME no lanzan nada', (
 test('nombre sin prefijo reconocido (p. ej. el cierre original) no es responsabilidad de este validador', () => {
   validarPrefijoArchivo('tiquipaya', 'CIERRE 10-09-2026.xlsm');
   validarPrefijoArchivo('america', 'CIERRE 10-09-2026.xlsm');
+});
+
+// =========================================================================
+// BLOQUE 2 -- RECTIFICAR CIERRE PUBLICADO (26 casos del requerimiento).
+// Fixtures sinteticos in-memory; ningun test toca Drive real ni n8n real.
+// =========================================================================
+
+const FECHA = '2026-09-10';
+const CAJA = 'tiquipaya';
+const ARCHIVO_ESPERADO = 'CIERRE 10-09-2026.xlsm';
+const NOMBRE_SAP = 'SAP_TIQ_10-09-2026.xlsx';
+const NOMBRE_RESULTADO = 'RESULTADO_TIQ_10-09-2026.json';
+const SHA_ANTERIOR = 'sha-anterior-aaa';
+const SHA_NUEVO = 'sha-nuevo-bbb';
+
+function markerFixture(id, overrides) {
+  return {
+    id: id,
+    contenido: Object.assign({
+      FechaCierre: FECHA,
+      ArchivoOrigen: ARCHIVO_ESPERADO,
+      HashOrigen: SHA_ANTERIOR,
+      Estado: 'PROCESADO',
+      ArchivoSAP: NOMBRE_SAP,
+    }, overrides || {}),
+  };
+}
+
+// Caso 1 (marker YA_PUBLICADO, cero escrituras) -- cubierto arriba por
+// 'marker existente en Drive => YA_PUBLICADO'.
+
+// Caso 2 (same date/distinto SHA + PUBLICAR normal -> requiere
+// rectificacion, cero escrituras) -- decision de las IF "IF - SAP ya
+// existe en Drive" / "IF - Rectificacion solicitada (SAP existe)" en el
+// workflow: con SAP existente y rectificacion=false, la rama construye
+// CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION sin ejecutar ningun nodo de
+// escritura (SUBIR/ACTUALIZAR) -- verificado por inspeccion del grafo
+// (test_sync_workflows-style) en test_workflow_json_sanity() mas abajo.
+
+// Caso 3: rectificacion sin SAP previo -> fail closed.
+test('rectificacion sin SAP previo (sap_file_id_anterior null) => ERROR_RECTIFICACION_SAP_NO_ENCONTRADO', () => {
+  assertLanza(
+    () => validarIdentidadesPreviasRectificacion(null, [], NOMBRE_RESULTADO, [], ARCHIVO_ESPERADO, [], null),
+    'ERROR_RECTIFICACION_SAP_NO_ENCONTRADO'
+  );
+});
+
+// Caso 4: SAP ambiguo -- se resuelve ANTES de esta rama (VERIFICAR - SAP
+// existente ya lanza ERROR_AMBIGUO_SAP para 2+ SAP con el mismo nombre,
+// ver test 'dos archivos SAP...' arriba); nunca llega a construir
+// sap_file_id_anterior con mas de un candidato.
+
+// Caso 5: RESULTADO faltante -> fail closed.
+test('rectificacion sin RESULTADO previo => ERROR_RECTIFICACION_RESULTADO_NO_ENCONTRADO', () => {
+  assertLanza(
+    () => validarIdentidadesPreviasRectificacion('sap-1', [], NOMBRE_RESULTADO, [], ARCHIVO_ESPERADO, [], null),
+    'ERROR_RECTIFICACION_RESULTADO_NO_ENCONTRADO'
+  );
+});
+
+// Caso 5b: RESULTADO ambiguo -> fail closed.
+test('rectificacion con 2 RESULTADO del mismo nombre => ERROR_RECTIFICACION_RESULTADO_AMBIGUO', () => {
+  assertLanza(
+    () => validarIdentidadesPreviasRectificacion(
+      'sap-1',
+      [{ id: 'res-1', name: NOMBRE_RESULTADO }, { id: 'res-2', name: NOMBRE_RESULTADO }],
+      NOMBRE_RESULTADO, [], ARCHIVO_ESPERADO, [], null
+    ),
+    'ERROR_RECTIFICACION_RESULTADO_AMBIGUO'
+  );
+});
+
+// Caso 6: PROCESADOS faltante -> fail closed.
+test('rectificacion sin cierre previo en 03_PROCESADOS => ERROR_RECTIFICACION_CIERRE_PROCESADOS_NO_ENCONTRADO', () => {
+  assertLanza(
+    () => validarIdentidadesPreviasRectificacion(
+      'sap-1', [{ id: 'res-1', name: NOMBRE_RESULTADO }], NOMBRE_RESULTADO,
+      [], ARCHIVO_ESPERADO, [], null
+    ),
+    'ERROR_RECTIFICACION_CIERRE_PROCESADOS_NO_ENCONTRADO'
+  );
+});
+
+// Caso 6b: PROCESADOS ambiguo -> fail closed.
+test('rectificacion con 2 cierres del mismo nombre en 03_PROCESADOS => ERROR_RECTIFICACION_CIERRE_PROCESADOS_AMBIGUO', () => {
+  assertLanza(
+    () => validarIdentidadesPreviasRectificacion(
+      'sap-1', [{ id: 'res-1', name: NOMBRE_RESULTADO }], NOMBRE_RESULTADO,
+      [{ id: 'proc-1', name: ARCHIVO_ESPERADO }, { id: 'proc-2', name: ARCHIVO_ESPERADO }],
+      ARCHIVO_ESPERADO, [], null
+    ),
+    'ERROR_RECTIFICACION_CIERRE_PROCESADOS_AMBIGUO'
+  );
+});
+
+// Caso 9: cierre nuevo drive_file_id no coincide con INGESTA -> fail closed.
+test('rectificacion: cierre nuevo en ENTRADA con fileId distinto al de INGESTA => ERROR_RECTIFICACION_FILEID_INGESTA_NO_COINCIDE', () => {
+  assertLanza(
+    () => validarIdentidadesPreviasRectificacion(
+      'sap-1', [{ id: 'res-1', name: NOMBRE_RESULTADO }], NOMBRE_RESULTADO,
+      [{ id: 'proc-1', name: ARCHIVO_ESPERADO }], ARCHIVO_ESPERADO,
+      [{ id: 'entrada-DIFERENTE', name: ARCHIVO_ESPERADO }], 'entrada-esperado-de-ingesta'
+    ),
+    'ERROR_RECTIFICACION_FILEID_INGESTA_NO_COINCIDE'
+  );
+});
+
+test('rectificacion: cierre nuevo ausente en 00_ENTRADA_CIERRES => ERROR_RECTIFICACION_CIERRE_NUEVO_NO_ENCONTRADO (no hay nada que sustituir)', () => {
+  assertLanza(
+    () => validarIdentidadesPreviasRectificacion(
+      'sap-1', [{ id: 'res-1', name: NOMBRE_RESULTADO }], NOMBRE_RESULTADO,
+      [{ id: 'proc-1', name: ARCHIVO_ESPERADO }], ARCHIVO_ESPERADO, [], null
+    ),
+    'ERROR_RECTIFICACION_CIERRE_NUEVO_NO_ENCONTRADO'
+  );
+});
+
+test('rectificacion: 2 cierres nuevos con el mismo nombre en ENTRADA => ERROR_RECTIFICACION_CIERRE_NUEVO_AMBIGUO', () => {
+  assertLanza(
+    () => validarIdentidadesPreviasRectificacion(
+      'sap-1', [{ id: 'res-1', name: NOMBRE_RESULTADO }], NOMBRE_RESULTADO,
+      [{ id: 'proc-1', name: ARCHIVO_ESPERADO }], ARCHIVO_ESPERADO,
+      [{ id: 'entrada-1', name: ARCHIVO_ESPERADO }, { id: 'entrada-2', name: ARCHIVO_ESPERADO }], null
+    ),
+    'ERROR_RECTIFICACION_CIERRE_NUEVO_AMBIGUO'
+  );
+});
+
+// Caso 12-14: rectificacion completa -- conserva los 3 file_id oficiales.
+test('rectificacion completa: conserva file_id SAP/RESULTADO/PROCESADOS anteriores tal cual', () => {
+  const r = validarIdentidadesPreviasRectificacion(
+    'sap-oficial-1',
+    [{ id: 'resultado-oficial-1', name: NOMBRE_RESULTADO }],
+    NOMBRE_RESULTADO,
+    [{ id: 'procesados-oficial-1', name: ARCHIVO_ESPERADO }],
+    ARCHIVO_ESPERADO,
+    [{ id: 'entrada-nuevo-1', name: ARCHIVO_ESPERADO }],
+    'entrada-nuevo-1'
+  );
+  assert.strictEqual(r.sap_file_id_anterior, 'sap-oficial-1');
+  assert.strictEqual(r.resultado_file_id_anterior, 'resultado-oficial-1');
+  assert.strictEqual(r.cierre_procesado_file_id_anterior, 'procesados-oficial-1');
+  assert.strictEqual(r.cierre_nuevo_file_id_entrada, 'entrada-nuevo-1');
+});
+
+// Caso 7: 0 markers candidatos -> ERROR_MARKER_ANTERIOR_NO_ENCONTRADO.
+test('resolver marker anterior: 0 candidatos cuya metadata coincide => ERROR_MARKER_ANTERIOR_NO_ENCONTRADO', () => {
+  assertLanza(
+    () => resolverMarkerAnteriorRectificacion([], NOMBRE_SAP, ARCHIVO_ESPERADO, FECHA, SHA_NUEVO),
+    'ERROR_MARKER_ANTERIOR_NO_ENCONTRADO'
+  );
+});
+
+test('resolver marker anterior: ningun candidato coincide en ArchivoSAP/ArchivoOrigen/FechaCierre => ERROR_MARKER_ANTERIOR_NO_ENCONTRADO', () => {
+  const markers = [
+    markerFixture('marker-otra-fecha', { FechaCierre: '2026-09-11' }),
+    markerFixture('marker-otro-sap', { ArchivoSAP: 'SAP_TIQ_11-09-2026.xlsx' }),
+  ];
+  assertLanza(
+    () => resolverMarkerAnteriorRectificacion(markers, NOMBRE_SAP, ARCHIVO_ESPERADO, FECHA, SHA_NUEVO),
+    'ERROR_MARKER_ANTERIOR_NO_ENCONTRADO'
+  );
+});
+
+// Caso 8: 2+ markers candidatos -> ERROR_AMBIGUO_MARKER_ANTERIOR.
+test('resolver marker anterior: 2 candidatos con la misma metadata => ERROR_AMBIGUO_MARKER_ANTERIOR (nunca adivina cual)', () => {
+  const markers = [markerFixture('marker-1'), markerFixture('marker-2')];
+  assertLanza(
+    () => resolverMarkerAnteriorRectificacion(markers, NOMBRE_SAP, ARCHIVO_ESPERADO, FECHA, SHA_NUEVO),
+    'ERROR_AMBIGUO_MARKER_ANTERIOR'
+  );
+});
+
+// Caso 15-17: marker anterior unico se resuelve por metadata real (nunca
+// por SHA adivinado), el sha anterior se extrae de HashOrigen, y el nuevo
+// (subido en el ultimo paso, ver CONSTRUIR - Salida RECTIFICADO_OFICIAL
+// del workflow) corresponde al sha_nuevo recibido en ENTRADA.
+test('resolver marker anterior: 1 candidato exacto => se identifica sin adivinar el SHA por el nombre del archivo', () => {
+  const markers = [
+    markerFixture('marker-anterior-real'),
+    markerFixture('marker-de-otro-cierre', { ArchivoOrigen: 'CIERRE 11-09-2026.xlsm', FechaCierre: '2026-09-11' }),
+  ];
+  const r = resolverMarkerAnteriorRectificacion(markers, NOMBRE_SAP, ARCHIVO_ESPERADO, FECHA, SHA_NUEVO);
+  assert.strictEqual(r.marker_file_id_anterior, 'marker-anterior-real');
+  assert.strictEqual(r.sha_anterior, SHA_ANTERIOR);
+  assert.strictEqual(r.sha_nuevo, SHA_NUEVO);
+  assert.notStrictEqual(r.sha_anterior, r.sha_nuevo);
+});
+
+// Caso "sha_anterior == sha_nuevo" (PASO C): tratar como idempotencia, no
+// como rectificacion -- fail closed explicito en vez de reemplazar.
+test('marker anterior con el MISMO sha256 que el nuevo => ERROR_RECTIFICACION_SHA_IGUAL (es idempotencia, no rectificacion)', () => {
+  const markers = [markerFixture('marker-1', { HashOrigen: SHA_NUEVO })];
+  assertLanza(
+    () => resolverMarkerAnteriorRectificacion(markers, NOMBRE_SAP, ARCHIVO_ESPERADO, FECHA, SHA_NUEVO),
+    'ERROR_RECTIFICACION_SHA_IGUAL'
+  );
+});
+
+test('marker anterior sin HashOrigen (metadata incompleta) => ERROR_MARKER_ANTERIOR_SIN_HASH, fail closed', () => {
+  const markers = [markerFixture('marker-1', { HashOrigen: undefined })];
+  assertLanza(
+    () => resolverMarkerAnteriorRectificacion(markers, NOMBRE_SAP, ARCHIVO_ESPERADO, FECHA, SHA_NUEVO),
+    'ERROR_MARKER_ANTERIOR_SIN_HASH'
+  );
+});
+
+// Caso 10/11: aislamiento TIQ/AME tambien en la rama de rectificacion --
+// la rama reutiliza RESOLVER - Destinos Drive por caja (mismos folder_*
+// por caja) para las 3 busquedas nuevas (RESULTADO/PROCESADOS/ENTRADA) y
+// el listado de markers: mismas garantias ya probadas arriba para
+// resolverDestinosDrive/validarPrefijoArchivo se aplican sin cambios.
+test('rectificacion: los folder_* resueltos por caja siguen aislados TIQ/AME (misma funcion que el flujo normal)', () => {
+  const tiq = resolverDestinosDrive('tiquipaya', {});
+  const ame = resolverDestinosDrive('america', {
+    DRIVE_ENTRADA_AME: 'ame-entrada-1', DRIVE_SAP_AME: 'ame-sap-1', DRIVE_RESULTADO_AME: 'ame-resultado-1',
+    DRIVE_PROCESADOS_AME: 'ame-procesados-1', DRIVE_MARKER_AME: 'ame-marker-1',
+  });
+  assert.notStrictEqual(tiq.folder_marker, ame.folder_marker);
+  assert.notStrictEqual(tiq.folder_procesados, ame.folder_procesados);
+});
+
+// Caso 19: fallo RESULTADO/PROCESADOS + retry -- al reintentar, las
+// busquedas por nombre exacto (mismo mecanismo que "VERIFICAR - SAP
+// existente") vuelven a resolver el MISMO file_id ya actualizado, nunca
+// crean un duplicado.
+test('retry de rectificacion tras fallo en PROCESADOS: SAP y RESULTADO anteriores se re-resuelven al mismo file_id (idempotente)', () => {
+  const items = [{ id: 'resultado-oficial-1', name: NOMBRE_RESULTADO }];
+  const primero = validarIdentidadesPreviasRectificacion(
+    'sap-oficial-1', items, NOMBRE_RESULTADO,
+    [{ id: 'procesados-oficial-1', name: ARCHIVO_ESPERADO }], ARCHIVO_ESPERADO,
+    [{ id: 'entrada-nuevo-1', name: ARCHIVO_ESPERADO }], 'entrada-nuevo-1'
+  );
+  const retry = validarIdentidadesPreviasRectificacion(
+    'sap-oficial-1', items, NOMBRE_RESULTADO,
+    [{ id: 'procesados-oficial-1', name: ARCHIVO_ESPERADO }], ARCHIVO_ESPERADO,
+    [{ id: 'entrada-nuevo-1', name: ARCHIVO_ESPERADO }], 'entrada-nuevo-1'
+  );
+  assert.deepStrictEqual(primero, retry);
+});
+
+// Caso 20/21/7-8: fallo antes del marker nuevo / estado inesperado ->
+// retry seguro o fail closed. Si el marker anterior ya fue eliminado en
+// un intento previo (SUBIR del marker nuevo fallo despues), el retry NO
+// encuentra candidatos (0 coincidencias de metadata) y FALLA CERRADO en
+// vez de declarar exito o reemplazar el marker equivocado -- exactamente
+// el mismo camino que el caso "0 candidatos" de arriba: no se necesita
+// una rama de codigo distinta, ya es fail-closed por construccion.
+test('retry tras eliminar el marker anterior sin llegar a subir el nuevo: 0 candidatos => FAIL CLOSED (nunca declara exito falso)', () => {
+  assertLanza(
+    () => resolverMarkerAnteriorRectificacion([], NOMBRE_SAP, ARCHIVO_ESPERADO, FECHA, SHA_NUEVO),
+    'ERROR_MARKER_ANTERIOR_NO_ENCONTRADO'
+  );
+});
+
+// Caso 22 / 17: exito completo -> RECTIFICADO_OFICIAL con marker nuevo
+// como ultimo paso logico (replica CONSTRUIR - Salida RECTIFICADO_OFICIAL).
+test('exito de rectificacion: arma la salida RECTIFICADO_OFICIAL con file_id conservados + marker anterior invalidado', () => {
+  const ident = validarIdentidadesPreviasRectificacion(
+    'sap-oficial-1', [{ id: 'resultado-oficial-1', name: NOMBRE_RESULTADO }], NOMBRE_RESULTADO,
+    [{ id: 'procesados-oficial-1', name: ARCHIVO_ESPERADO }], ARCHIVO_ESPERADO,
+    [{ id: 'entrada-nuevo-1', name: ARCHIVO_ESPERADO }], 'entrada-nuevo-1'
+  );
+  const marker = resolverMarkerAnteriorRectificacion(
+    [markerFixture('marker-anterior-1')], NOMBRE_SAP, ARCHIVO_ESPERADO, FECHA, SHA_NUEVO
+  );
+  const salida = {
+    fecha: FECHA, sha256: SHA_NUEVO, caja: CAJA,
+    estado_publicacion: 'RECTIFICADO_OFICIAL', publicado: true,
+    sha256_anterior: marker.sha_anterior,
+    drive_sap_file_id: ident.sap_file_id_anterior,
+    drive_resultado_file_id: ident.resultado_file_id_anterior,
+    drive_entrada_file_id: ident.cierre_procesado_file_id_anterior,
+    drive_marker_file_id: 'marker-nuevo-subido-1',
+    drive_marker_file_id_anterior_invalidado: marker.marker_file_id_anterior,
+  };
+  assert.strictEqual(salida.estado_publicacion, 'RECTIFICADO_OFICIAL');
+  assert.strictEqual(salida.publicado, true);
+  assert.strictEqual(salida.sha256_anterior, SHA_ANTERIOR);
+  assert.strictEqual(salida.drive_sap_file_id, 'sap-oficial-1');
+  assert.strictEqual(salida.drive_resultado_file_id, 'resultado-oficial-1');
+  assert.strictEqual(salida.drive_entrada_file_id, 'procesados-oficial-1');
+  assert.strictEqual(salida.drive_marker_file_id_anterior_invalidado, 'marker-anterior-1');
+  assert.notStrictEqual(salida.drive_marker_file_id, salida.drive_marker_file_id_anterior_invalidado);
 });
 
 // -----------------------------------------------------------------------
