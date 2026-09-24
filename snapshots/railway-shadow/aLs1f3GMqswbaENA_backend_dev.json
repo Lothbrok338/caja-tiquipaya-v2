@@ -2425,7 +2425,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const t = $input.first().json;\n// SHADOW (migracion Railway): modo_oficial se deriva del mismo guard que\n// publication_mode -- inactivo por defecto (mismo modo_oficial=true de siempre).\nconst guardActivo = ['true', '1', 'yes'].includes(String($env.TIQ_BLOCK_OFFICIAL_PUBLISH || '').trim().toLowerCase());\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (publicar) -- Python es la unica autoridad.\n// FASE 10D: base_dir_dev apunta al workdir REAL (mismo que procesar_lote).\n// HOTFIX 2026-09-19: modo_oficial=true -- el paso local solo PREPARA los archivos que 06B sube a Drive (un marcador local\n// residual no corta el flujo ni cuenta como publicacion). El estado PUBLICADO solo lo fija la consolidacion posterior,\n// con la confirmacion real de 06B/Drive.\nconst payload = { lote_id: t.body.lote_id, fechas: t.body.fechas, usuario_auditor: t.body.usuario_auditor || null, base_dir_dev: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_real_readonly_dev/dev_workdir', modo_oficial: !guardActivo };\n\nconst rutaInputTmp = '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_publicar_input_' + executionId + '.json';\nconst rutaOutputTmp = '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_publicar_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+        "jsCode": "const t = $input.first().json;\n// SHADOW (migracion Railway): modo_oficial se deriva del mismo guard que\n// publication_mode -- inactivo por defecto (mismo modo_oficial=true de siempre).\nconst guardActivo = ['true', '1', 'yes'].includes(String($env.TIQ_BLOCK_OFFICIAL_PUBLISH || '').trim().toLowerCase());\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\n// Payload para v3.dev_api (publicar) -- Python es la unica autoridad.\n// FASE 10D: base_dir_dev apunta al workdir REAL (mismo que procesar_lote).\n// HOTFIX 2026-09-19: modo_oficial=true -- el paso local solo PREPARA los archivos que 06B sube a Drive (un marcador local\n// residual no corta el flujo ni cuenta como publicacion). El estado PUBLICADO solo lo fija la consolidacion posterior,\n// con la confirmacion real de 06B/Drive.\nconst payload = { lote_id: t.body.lote_id, fechas: t.body.fechas, usuario_auditor: t.body.usuario_auditor || null, base_dir_dev: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_real_readonly_dev/dev_workdir', modo_oficial: !guardActivo, rectificacion: t.body.rectificacion === true };\n\nconst rutaInputTmp = '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_publicar_input_' + executionId + '.json';\nconst rutaOutputTmp = '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_publicar_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
       }
     },
     {
@@ -2602,7 +2602,9 @@
             "ruta_sap_publicado": "={{ $json.ruta_sap_publicado }}",
             "ruta_resultado_publicado": "={{ $json.ruta_resultado_publicado }}",
             "ruta_marker": "={{ $json.ruta_marker }}",
-            "usuario_auditor": "={{ $json.usuario_auditor }}"
+            "usuario_auditor": "={{ $json.usuario_auditor }}",
+            "rectificacion": "={{ $('WEBHOOK publicar').first().json.body.rectificacion === true }}",
+            "caja": "={{ $json.caja }}"
           },
           "matchingColumns": [],
           "schema": [
@@ -2672,6 +2674,24 @@
             {
               "id": "usuario_auditor",
               "displayName": "usuario_auditor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "rectificacion",
+              "displayName": "rectificacion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "caja",
+              "displayName": "caja",
               "required": false,
               "defaultMatch": false,
               "display": true,
