@@ -1764,7 +1764,7 @@
       ],
       "parameters": {
         "resource": "file",
-        "operation": "delete",
+        "operation": "deleteFile",
         "fileId": {
           "__rl": true,
           "mode": "id",
@@ -1789,7 +1789,7 @@
       ],
       "parameters": {
         "resource": "file",
-        "operation": "delete",
+        "operation": "deleteFile",
         "fileId": {
           "__rl": true,
           "mode": "id",
