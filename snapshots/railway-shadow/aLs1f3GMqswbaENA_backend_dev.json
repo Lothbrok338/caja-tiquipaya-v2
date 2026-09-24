@@ -387,6 +387,269 @@
       "main": [
         [
           {
+            "node": "IF - Rectificacion requiere materializar periodo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Rectificacion requiere materializar periodo": {
+      "main": [
+        [
+          {
+            "node": "RECT - CONSTRUIR periodo y payload estado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CONSTRUIR payload publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - CONSTRUIR periodo y payload estado": {
+      "main": [
+        [
+          {
+            "node": "RECT - ESCRIBIR input estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - ESCRIBIR input estado": {
+      "main": [
+        [
+          {
+            "node": "RECT - EJECUTAR estado (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - EJECUTAR estado (Python)": {
+      "main": [
+        [
+          {
+            "node": "RECT - LEER resultado estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - LEER resultado estado": {
+      "main": [
+        [
+          {
+            "node": "RECT - INTERPRETAR resultado estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - INTERPRETAR resultado estado": {
+      "main": [
+        [
+          {
+            "node": "RECT - RESOLVER carpeta controles y periodo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - RESOLVER carpeta controles y periodo": {
+      "main": [
+        [
+          {
+            "node": "RECT - ESCRIBIR input preparar_global_entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - ESCRIBIR input preparar_global_entrada": {
+      "main": [
+        [
+          {
+            "node": "RECT - EJECUTAR preparar_global_entrada (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - EJECUTAR preparar_global_entrada (Python)": {
+      "main": [
+        [
+          {
+            "node": "RECT - LEER resultado preparar_global_entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - LEER resultado preparar_global_entrada": {
+      "main": [
+        [
+          {
+            "node": "RECT - INTERPRETAR resultado preparar_global_entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - INTERPRETAR resultado preparar_global_entrada": {
+      "main": [
+        [
+          {
+            "node": "RECT - BUSCAR historico INSTITUCIONAL (guardia)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - BUSCAR historico INSTITUCIONAL (guardia)": {
+      "main": [
+        [
+          {
+            "node": "RECT - VERIFICAR historico INSTITUCIONAL (guardia)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - VERIFICAR historico INSTITUCIONAL (guardia)": {
+      "main": [
+        [
+          {
+            "node": "RECT - IF - Hay historico INSTITUCIONAL (guardia)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - IF - Hay historico INSTITUCIONAL (guardia)": {
+      "main": [
+        [
+          {
+            "node": "RECT - DESCARGAR historico INSTITUCIONAL (guardia)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RECT - BUSCAR historico LEGACY (guardia)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - DESCARGAR historico INSTITUCIONAL (guardia)": {
+      "main": [
+        [
+          {
+            "node": "RECT - ESCRIBIR historico INSTITUCIONAL a global_entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - ESCRIBIR historico INSTITUCIONAL a global_entrada": {
+      "main": [
+        [
+          {
+            "node": "RECT - BUSCAR historico LEGACY (guardia)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - BUSCAR historico LEGACY (guardia)": {
+      "main": [
+        [
+          {
+            "node": "RECT - VERIFICAR historico LEGACY (guardia)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - VERIFICAR historico LEGACY (guardia)": {
+      "main": [
+        [
+          {
+            "node": "RECT - IF - Hay historico LEGACY (guardia)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - IF - Hay historico LEGACY (guardia)": {
+      "main": [
+        [
+          {
+            "node": "RECT - DESCARGAR historico LEGACY (guardia)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RECT - RESTAURAR item del webhook publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - DESCARGAR historico LEGACY (guardia)": {
+      "main": [
+        [
+          {
+            "node": "RECT - ESCRIBIR historico LEGACY a global_entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - ESCRIBIR historico LEGACY a global_entrada": {
+      "main": [
+        [
+          {
+            "node": "RECT - RESTAURAR item del webhook publicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECT - RESTAURAR item del webhook publicar": {
+      "main": [
+        [
+          {
             "node": "CONSTRUIR payload publicar",
             "type": "main",
             "index": 0
@@ -1276,6 +1539,68 @@
       ]
     },
     "RESTAURAR - Item del webhook global": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR historico INSTITUCIONAL (guardia de cierre)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR historico INSTITUCIONAL (guardia de cierre)": {
+      "main": [
+        [
+          {
+            "node": "VERIFICAR historico INSTITUCIONAL (guardia de cierre)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VERIFICAR historico INSTITUCIONAL (guardia de cierre)": {
+      "main": [
+        [
+          {
+            "node": "IF - Hay historico INSTITUCIONAL (guardia)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Hay historico INSTITUCIONAL (guardia)": {
+      "main": [
+        [
+          {
+            "node": "DESCARGAR historico INSTITUCIONAL (guardia)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "BUSCAR historico CONTROL1 (guardia de cierre)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DESCARGAR historico INSTITUCIONAL (guardia)": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR historico INSTITUCIONAL a global_entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR historico INSTITUCIONAL a global_entrada": {
       "main": [
         [
           {
@@ -5105,6 +5430,557 @@
           "id": "aoEcEAFQQ38XcwZg",
           "name": "Google Drive account"
         }
+      }
+    },
+    {
+      "id": "8997946d-2497-44ac-a866-6556792c9dc3",
+      "name": "IF - Rectificacion requiere materializar periodo",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        220,
+        4600
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.body.rectificacion === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "889c7662-eed4-4331-878b-63adfc8d259a",
+      "name": "RECT - CONSTRUIR periodo y payload estado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        4500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// RECTIFICAR CIERRE PUBLICADO -- antes de pedirle a Python --accion publicar\n// que rectifique, hace falta demostrar que el periodo (anio/mes de la fecha\n// solicitada) sigue abierto para CONTROL 1 de esta caja. Python\n// (_verificar_periodo_no_cerrado_para_fecha) exige que global_entrada/<periodo>/\n// ya este materializado -- nunca lo crea el mismo. Esta rama SOLO corre cuando\n// rectificacion===true (ver IF - Rectificacion requiere materializar periodo);\n// PUBLICAR normal no pasa por aqui. El frontend siempre manda UNA fecha para\n// rectificar (v3_control_cierres.html), pero se valida el mismo periodo para\n// no asumir nada si algun dia llegara mas de una.\nconst t = $('WEBHOOK publicar').first().json;\nconst body = t.body || {};\nconst fechas = Array.isArray(body.fechas) ? body.fechas : [];\nif (fechas.length === 0) {\n  throw new Error('RECTIFICACION_SIN_FECHA: rectificacion=true requiere al menos una fecha en \"fechas\".');\n}\nconst periodos = Array.from(new Set(fechas.map(function (f) { return String(f).slice(0, 7); })));\nif (periodos.length !== 1) {\n  throw new Error('RECTIFICACION_PERIODOS_MULTIPLES: rectificar exige fechas del MISMO periodo (recibido: ' + periodos.join(', ') + ').');\n}\nconst partes = periodos[0].split('-');\nconst anio = parseInt(partes[0], 10);\nconst mes = parseInt(partes[1], 10);\nif (!Number.isInteger(anio) || anio < 2000 || anio > 2100 || !Number.isInteger(mes) || mes < 1 || mes > 12) {\n  throw new Error('PERIODO_INVALIDO: no se pudo derivar anio/mes validos de fechas=' + JSON.stringify(fechas));\n}\n\nconst baseDirDev = '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_real_readonly_dev/dev_workdir';\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst payloadEstado = { lote_id: body.lote_id, base_dir_dev: baseDirDev };\n\nreturn [{\n  json: {\n    lote_id: body.lote_id, anio: anio, mes: mes, base_dir_dev: baseDirDev,\n    input_b64: Buffer.from(JSON.stringify(payloadEstado), 'utf8').toString('base64'),\n    ruta_input_tmp: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_rect_estado_input_' + executionId + '.json',\n    ruta_output_tmp: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_rect_estado_output_' + executionId + '.json',\n  },\n}];"
+      }
+    },
+    {
+      "id": "1a534d86-686e-4060-9882-95a3dce623b7",
+      "name": "RECT - ESCRIBIR input estado",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        660,
+        4500
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\""
+      }
+    },
+    {
+      "id": "65419f64-b156-46bc-a434-8550d4756b8e",
+      "name": "RECT - EJECUTAR estado (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        880,
+        4500
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=cd {{ $env.TIQ_REPO_ROOT || '/workspaces/caja-tiquipaya-v2' }} && {{ $env.TIQ_PYTHON_BIN || '/workspaces/.venv-caja/bin/python3' }} -m v3.dev_api --accion estado --input \"{{ $('RECT - CONSTRUIR periodo y payload estado').item.json.ruta_input_tmp }}\" --output \"{{ $('RECT - CONSTRUIR periodo y payload estado').item.json.ruta_output_tmp }}\" ; true"
+      }
+    },
+    {
+      "id": "cf3db96e-ddc2-4fdb-ac6c-939c091881dc",
+      "name": "RECT - LEER resultado estado",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        4500
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('RECT - CONSTRUIR periodo y payload estado').item.json.ruta_output_tmp }}"
+      }
+    },
+    {
+      "id": "0e3ab8ba-673c-4ffa-8102-7ef909bd8ff8",
+      "name": "RECT - INTERPRETAR resultado estado",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        4500
+      ],
+      "parameters": {
+        "operation": "fromJson"
+      }
+    },
+    {
+      "id": "160fe798-d5f7-4bce-9502-40781294b580",
+      "name": "RECT - RESOLVER carpeta controles y periodo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        4500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Combina anio/mes/periodo (RECT - CONSTRUIR periodo y payload estado) con la\n// caja RESUELTA POR EL BACKEND (obtener_estado -> lote[\"caja\"], NUNCA el\n// navegador -- ver v3.dev_api._caja_lote) para construir el MISMO\n// global_entrada/<periodo>/ que preparar_global_entrada()/generar_global()\n// usan (v3.dev_api.global_entrada_dir), y localizar 05_CONTROLES\n// (INSTITUCIONAL: la MISMA carpeta para las dos cajas, ver\n// config_drive_oficial._MENSUAL_INSTITUCIONAL['controles']).\nconst base = $('RECT - CONSTRUIR periodo y payload estado').first().json;\nconst estado = $('RECT - INTERPRETAR resultado estado').first().json.data || {};\nconst caja = String(estado.caja || '').trim().toLowerCase();\nif (caja !== 'tiquipaya' && caja !== 'america') {\n  throw new Error('RECTIFICACION_CAJA_NO_RESUELTA: el backend no pudo determinar la caja del lote ' + base.lote_id + ' (recibido: \"' + caja + '\").');\n}\nconst periodo = base.anio + '-' + String(base.mes).padStart(2, '0');\nconst dirEntrada = base.base_dir_dev + '/global_entrada/' + (caja === 'america' ? 'america/' : '') + periodo;\nconst CARPETA_CONTROLES_INSTITUCIONAL = '1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB';\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\nconst payloadPrep = { anio: base.anio, mes: base.mes, base_dir_dev: base.base_dir_dev, caja: caja };\n\nreturn [{\n  json: {\n    anio: base.anio, mes: base.mes, periodo: periodo, caja: caja,\n    base_dir_dev: base.base_dir_dev, dir_entrada: dirEntrada,\n    carpeta_controles_id: CARPETA_CONTROLES_INSTITUCIONAL,\n    nombre_historico_institucional: 'HISTORICO_ASIGNACIONES_INSTITUCIONAL.csv',\n    nombre_historico_legacy: 'HISTORICO_ASIGNACIONES.csv',\n    input_b64: Buffer.from(JSON.stringify(payloadPrep), 'utf8').toString('base64'),\n    ruta_input_tmp: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_rect_prep_input_' + executionId + '.json',\n    ruta_output_tmp: '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_rect_prep_output_' + executionId + '.json',\n  },\n}];"
+      }
+    },
+    {
+      "id": "828550bf-2806-4f66-ae4f-eeedea7885e6",
+      "name": "RECT - ESCRIBIR input preparar_global_entrada",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        4500
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\""
+      }
+    },
+    {
+      "id": "f3dbd3a8-4366-428e-9a2a-d3182eabde6f",
+      "name": "RECT - EJECUTAR preparar_global_entrada (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1980,
+        4500
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=cd {{ $env.TIQ_REPO_ROOT || '/workspaces/caja-tiquipaya-v2' }} && {{ $env.TIQ_PYTHON_BIN || '/workspaces/.venv-caja/bin/python3' }} -m v3.dev_api --accion preparar_global_entrada --input \"{{ $('RECT - RESOLVER carpeta controles y periodo').item.json.ruta_input_tmp }}\" --output \"{{ $('RECT - RESOLVER carpeta controles y periodo').item.json.ruta_output_tmp }}\" ; true"
+      }
+    },
+    {
+      "id": "5f8e7689-a499-4a15-8f4b-52670a096a01",
+      "name": "RECT - LEER resultado preparar_global_entrada",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        2200,
+        4500
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('RECT - RESOLVER carpeta controles y periodo').item.json.ruta_output_tmp }}"
+      }
+    },
+    {
+      "id": "8b2806bb-9552-4030-87d6-3894a6b2f1dc",
+      "name": "RECT - INTERPRETAR resultado preparar_global_entrada",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        2420,
+        4500
+      ],
+      "parameters": {
+        "operation": "fromJson"
+      }
+    },
+    {
+      "id": "eade5a1f-c7dd-4d65-b1e6-b9d04c1b4585",
+      "name": "RECT - BUSCAR historico INSTITUCIONAL (guardia)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2640,
+        4400
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "={{ $('RECT - RESOLVER carpeta controles y periodo').first().json.nombre_historico_institucional }}",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RECT - RESOLVER carpeta controles y periodo').first().json.carpeta_controles_id }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "4b87b2c8-1356-4546-94e0-1c964afd97f0",
+      "name": "RECT - VERIFICAR historico INSTITUCIONAL (guardia)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        4400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Mismo criterio que la guardia de GENERAR GLOBAL: 0 = valido, no descargar;\n// 1 = se descarga para que Python decida si el periodo esta cerrado; >1 =\n// ambiguo, FAIL CLOSED (nunca se elige ninguno).\nconst r = $('RECT - RESOLVER carpeta controles y periodo').first().json;\nconst hist = $('RECT - BUSCAR historico INSTITUCIONAL (guardia)').all()\n  .map(function (i) { return i.json; })\n  .filter(function (j) { return j && j.id && j.name === r.nombre_historico_institucional; });\nif (hist.length > 1) {\n  throw new Error('ERROR_AMBIGUO_HISTORICO: hay ' + hist.length + ' archivos \"' + r.nombre_historico_institucional + '\" en 05_CONTROLES. No se elige ninguno.');\n}\nreturn [{ json: { hay_historico: hist.length === 1, historico_id: hist.length === 1 ? String(hist[0].id) : null } }];"
+      }
+    },
+    {
+      "id": "5b2cff00-2252-41d3-af1b-b07dfeaf69ab",
+      "name": "RECT - IF - Hay historico INSTITUCIONAL (guardia)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3080,
+        4400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hay_historico }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "d9cce4d3-5644-492b-bfbd-00747b413a26",
+      "name": "RECT - DESCARGAR historico INSTITUCIONAL (guardia)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3300,
+        4300
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.historico_id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "659e61be-10e8-4b24-a37c-7fdafbe0965d",
+      "name": "RECT - ESCRIBIR historico INSTITUCIONAL a global_entrada",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        3520,
+        4300
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('RECT - RESOLVER carpeta controles y periodo').first().json.dir_entrada + '/' + $('RECT - RESOLVER carpeta controles y periodo').first().json.nombre_historico_institucional }}",
+        "dataPropertyName": "data",
+        "options": {}
+      }
+    },
+    {
+      "id": "d84fb249-ef5e-4a9e-b977-81fd550cfaa9",
+      "name": "RECT - BUSCAR historico LEGACY (guardia)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3740,
+        4500
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "={{ $('RECT - RESOLVER carpeta controles y periodo').first().json.nombre_historico_legacy }}",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RECT - RESOLVER carpeta controles y periodo').first().json.carpeta_controles_id }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "fc10ba18-034a-4cde-b3c4-210759bb5de8",
+      "name": "RECT - VERIFICAR historico LEGACY (guardia)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3960,
+        4500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Compatibilidad legado: mismo criterio 0/1/>1 que el historico institucional,\n// ahora sobre HISTORICO_ASIGNACIONES.csv (nombre legado en 05_CONTROLES).\nconst r = $('RECT - RESOLVER carpeta controles y periodo').first().json;\nconst hist = $('RECT - BUSCAR historico LEGACY (guardia)').all()\n  .map(function (i) { return i.json; })\n  .filter(function (j) { return j && j.id && j.name === r.nombre_historico_legacy; });\nif (hist.length > 1) {\n  throw new Error('ERROR_AMBIGUO_HISTORICO: hay ' + hist.length + ' archivos \"' + r.nombre_historico_legacy + '\" en 05_CONTROLES. No se elige ninguno.');\n}\nreturn [{ json: { hay_historico: hist.length === 1, historico_id: hist.length === 1 ? String(hist[0].id) : null } }];"
+      }
+    },
+    {
+      "id": "3fb4a996-6e53-484a-83cd-f22e30749c57",
+      "name": "RECT - IF - Hay historico LEGACY (guardia)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4180,
+        4500
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hay_historico }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "ec93344d-2df0-4a0d-9039-aa958657692b",
+      "name": "RECT - DESCARGAR historico LEGACY (guardia)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4400,
+        4400
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.historico_id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "91a8a778-1ca9-468b-b79a-9e0772277bcf",
+      "name": "RECT - ESCRIBIR historico LEGACY a global_entrada",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        4620,
+        4400
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('RECT - RESOLVER carpeta controles y periodo').first().json.dir_entrada + '/' + $('RECT - RESOLVER carpeta controles y periodo').first().json.nombre_historico_legacy }}",
+        "dataPropertyName": "data",
+        "options": {}
+      }
+    },
+    {
+      "id": "f0b9588a-2b08-438c-b838-4b9fc0fa2da1",
+      "name": "RECT - RESTAURAR item del webhook publicar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4840,
+        4500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Devuelve el item original del webhook: CONSTRUIR payload publicar sigue leyendo t.body.* sin cambios.\nreturn [{ json: $('WEBHOOK publicar').first().json }];\n"
+      }
+    },
+    {
+      "id": "243e06a3-e48f-4787-a0bf-f735701c3dbd",
+      "name": "BUSCAR historico INSTITUCIONAL (guardia de cierre)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1980,
+        3150
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "HISTORICO_ASIGNACIONES_INSTITUCIONAL.csv",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER carpeta SAP oficial').first().json.carpeta_controles_id }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "d42356e0-198d-4098-a0cb-f036965a8192",
+      "name": "VERIFICAR historico INSTITUCIONAL (guardia de cierre)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        3150
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Guardia de cierre institucional: mismo criterio que la guardia legado (0 =\n// nunca se ha cerrado nada; 1 = se descarga para que Python decida si ESTE\n// periodo ya esta cerrado; >1 = ambiguo, FAIL CLOSED).\nconst NOMBRE = 'HISTORICO_ASIGNACIONES_INSTITUCIONAL.csv';\nconst hist = $('BUSCAR historico INSTITUCIONAL (guardia de cierre)').all()\n  .map(function (i) { return i.json; })\n  .filter(function (j) { return j && j.id && j.name === NOMBRE; });\nif (hist.length > 1) {\n  throw new Error('ERROR_AMBIGUO_HISTORICO: hay ' + hist.length + ' archivos \"' + NOMBRE + '\" en 05_CONTROLES. No se elige ninguno.');\n}\nreturn [{ json: { hay_historico: hist.length === 1, historico_id: hist.length === 1 ? String(hist[0].id) : null } }];"
+      }
+    },
+    {
+      "id": "2bcd1f86-5acf-4d0e-91c6-4694aec4bc80",
+      "name": "IF - Hay historico INSTITUCIONAL (guardia)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2420,
+        3150
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hay_historico }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "abe50410-3d95-4d6f-a7ba-1576c1ae550e",
+      "name": "DESCARGAR historico INSTITUCIONAL (guardia)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2640,
+        3050
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.historico_id }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "e841eed9-5062-417e-ad8a-5173d3c154b3",
+      "name": "ESCRIBIR historico INSTITUCIONAL a global_entrada",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        2860,
+        3050
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('RESOLVER carpeta SAP oficial').first().json.dir_entrada + '/HISTORICO_ASIGNACIONES_INSTITUCIONAL.csv' }}",
+        "dataPropertyName": "data",
+        "options": {}
       }
     }
   ],

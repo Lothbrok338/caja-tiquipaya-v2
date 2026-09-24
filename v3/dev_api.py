@@ -266,6 +266,12 @@ def obtener_estado(lote_id, base_dir_dev):
         "publicados": sum(1 for c in cierres if c.get("publicado")),
         "en_revision": sum(1 for c in cierres if c.get("estado_final") == ERROR_REVISAR and c.get("resultado_reproceso") != LISTO_PARA_PUBLICAR),
         "mensaje_error": lote.get("mensaje_error"),
+        # Identidad INMUTABLE del lote (_caja_lote), nunca del request: la
+        # materialización previa a RECTIFICAR CIERRE PUBLICADO (n8n, cadena
+        # /publicar) la necesita para resolver el mismo global_entrada/<periodo>/
+        # que generar_global()/_verificar_periodo_no_cerrado_para_fecha() usan,
+        # sin confiar en la caja que mande el navegador.
+        "caja": _caja_lote(lote).codigo,
     }
 
 
@@ -750,23 +756,39 @@ def preparar_control1_entrada(anio, mes, base_dir_dev, caja=None):
 
 def _verificar_periodo_no_cerrado(entrada_dir, anio, mes, caja=None):
     """Protección de GLOBAL tras el CIERRE DEFINITIVO de la Auditoría de
-    Asignaciones. El backend descarga el histórico maestro (raíz de
-    05_CONTROLES) a `global_entrada/<periodo>/HISTORICO_ASIGNACIONES.csv`
-    justo antes de generar; si ese histórico ya contiene filas de
-    `SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx`, CONTROL 1 cerró el periodo y
-    regenerar GLOBAL podría borrar correcciones autorizadas: se BLOQUEA (no
-    hay reapertura implementada). Mientras el mes está abierto no hay filas
-    de ese GLOBAL en el histórico y GLOBAL sigue siendo regenerable."""
-    ruta = os.path.join(entrada_dir, "HISTORICO_ASIGNACIONES.csv")
-    if not os.path.isfile(ruta):
-        return
+    Asignaciones. El backend descarga el histórico (raíz de 05_CONTROLES) a
+    `global_entrada/<periodo>/` justo antes de generar; si ESE histórico ya
+    contiene filas de `SAP_GLOBAL_TIQ_<MES>_<AÑO>.xlsx` (o `_AME_`), CONTROL 1
+    cerró el periodo y regenerar GLOBAL podría borrar correcciones
+    autorizadas: se BLOQUEA (no hay reapertura implementada). Mientras el mes
+    está abierto no hay filas de ese GLOBAL en el histórico y GLOBAL sigue
+    siendo regenerable.
+
+    CONTROL 1 institucional (v3.control1_institucional) reemplazó al V2 de
+    una sola caja como fuente de cierre real, pero el histórico legado
+    (`HISTORICO_ASIGNACIONES.csv`, control_asignaciones/V2) puede seguir
+    existiendo de antes de esa migración: se revisan AMBOS nombres posibles
+    -- `HISTORICO_ASIGNACIONES_INSTITUCIONAL.csv` (actual) y
+    `HISTORICO_ASIGNACIONES.csv` (compatibilidad) -- y CUALQUIERA de los dos
+    que ya traiga una fila de este GLOBAL cierra el periodo. Un archivo que
+    no existe en `entrada_dir` simplemente no aporta evidencia de cierre; si
+    NINGUNO de los dos existe, el periodo se considera abierto (mismo
+    criterio histórico, ahora sobre dos nombres posibles)."""
     nombre = consolidador_mensual.nombre_sap_global(anio, mes, caja)
-    if control1_modos.periodo_cerrado(_ctrl1_v2.cargar_historico(ruta), nombre):
-        raise RuntimeError(
-            f"PERIODO_CERRADO_CONTROL1: la Auditoría de Asignaciones de {anio:04d}-{mes:02d} ya fue cerrada "
-            f"definitivamente; GENERAR GLOBAL queda bloqueado para no perder correcciones autorizadas. "
-            f"La reapertura del periodo no está implementada."
-        )
+    historicos = (
+        (control1_institucional.nombre_historico_institucional(), control1_institucional.cargar_historico_institucional),
+        ("HISTORICO_ASIGNACIONES.csv", _ctrl1_v2.cargar_historico),
+    )
+    for nombre_historico, cargar in historicos:
+        ruta = os.path.join(entrada_dir, nombre_historico)
+        if not os.path.isfile(ruta):
+            continue
+        if control1_modos.periodo_cerrado(cargar(ruta), nombre):
+            raise RuntimeError(
+                f"PERIODO_CERRADO_CONTROL1: la Auditoría de Asignaciones de {anio:04d}-{mes:02d} ya fue cerrada "
+                f"definitivamente ({nombre_historico}); GENERAR GLOBAL queda bloqueado para no perder correcciones "
+                f"autorizadas. La reapertura del periodo no está implementada."
+            )
 
 
 def _verificar_periodo_no_cerrado_para_fecha(fecha, base_dir_dev, caja=None):
