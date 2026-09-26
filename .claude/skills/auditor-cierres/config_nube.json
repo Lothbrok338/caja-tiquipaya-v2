@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "descripcion": "Ubicaciones OFICIALES de ENTRADA en Google Drive (fuentes de solo lectura) para el flujo cloud de auditor-cierres. Google Drive NO es destino de nada: la skill no publica ni escribe en Drive. Los IDs son los mismos que usa el motor CAJAS GABO (config_drive_oficial.py). Claude SIEMPRE verifica titulo y carpeta padre con get_file_metadata antes de leer; si no coinciden, se detiene (falla cerrado).",
+  "entradas": {
+    "tiquipaya": {
+      "id": "1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1",
+      "titulo": "00_ENTRADA_CIERRES",
+      "padre_id": "1mAjsBNtGAPnCuHNYuJDxFZCP1Ncg3Xdd",
+      "padre_titulo": "AGENTE TIQUIPAYA",
+      "fuente": "config_drive_oficial._TIQ_DEFAULTS['entrada']"
+    },
+    "america": {
+      "id": "1UtGafpCPaXBKwxWb3Hv53gjf1ErIk1VS",
+      "titulo": "ENTRADA",
+      "padre_id": "1LBUZjxWNmcwPrzrvOBJ0E1FDfOnO1kOx",
+      "padre_titulo": "CAJA AMERICA",
+      "fuente": "carpeta CAJA AMERICA/ENTRADA (hermanas: SAP, RESULTADO, MARKERS, PROCESADOS); equivale a DRIVE_ENTRADA_AME, que en config_drive_oficial.py aun no tiene default"
+    }
+  },
+  "carpetas_prohibidas": {
+    "1yrF6yyPC6vItyiiVMQLiSV3laswKmOMq": "00_ENTRADA_TEST_AME (pruebas; nunca es la entrada oficial)",
+    "1lb36TnmQLd3tnB2CkZfseUQwNhK3QpJj": "Entrada para Claude (no es una entrada de cajas)"
+  },
+  "macros": {
+    "descripcion": "Un MACROS mensual institucional (sirve a TIQUIPAYA y AMERICA). Ruta: 02_MAESTROS / <AAAA> / <AAAA-MM> / MACROS <MES>.xlsm. Nombre EXACTO; 0 coincidencias -> MACROS_OFICIAL_NO_ENCONTRADO; >1 -> ERROR_AMBIGUO_MACROS.",
+    "raiz_id": "1XOlFEKP3nKSvbHCEpk5l8BKWhOMbhMZB",
+    "raiz_titulo": "02_MAESTROS",
+    "raiz_padre_id": "1mAjsBNtGAPnCuHNYuJDxFZCP1Ncg3Xdd",
+    "carpeta_anio_titulo": "{AAAA}",
+    "carpeta_periodo_titulo": "{AAAA}-{MM}",
+    "nombre_archivo": "MACROS {MES}.xlsm",
+    "ids_conocidos": {
+      "2026": "17ErHuUwCkRW750NiSvjjv69778IyEflS",
+      "2026-08": "1Vs0n1LICl6YeB7ZJSc-efPaeNCO4wLKh",
+      "2026-09": "1U0HBoAsiDZy8Dqr3zEHa8_YfS5XcoMab",
+      "2026-10": "1-aFzsjbg0pqAF1SQN1CdOCHN-LYocNf8",
+      "2026-11": "1oEIFba-fx_YKexNFMv-X4mgO7K5CBjE4",
+      "2026-12": "1qMCE5opmtPk1UctJXd0-gqsCK88zi_jn"
+    }
+  },
+  "motor_cajas_gabo": {
+    "descripcion": "Repositorio local del motor CAJAS GABO (solo lectura). Variable de entorno CAJAS_GABO_MOTOR_DIR tiene prioridad. Se usan excel_io.leer_cierre y v3.precheck_maestro.evaluar_cobertura_maestro.",
+    "candidatos": [
+      "C:/Users/PC/Documents/Codex/2026-09-21/repo-lothbrok338-caja-tiquipaya-v2-branch/work/caja-tiquipaya-v2"
+    ]
+  }
+}
