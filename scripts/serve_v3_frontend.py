@@ -15,18 +15,34 @@ en localhost:5678 (ver scripts/start_n8n.sh), asi que TIQ_N8N_ORIGIN no
 hace falta fijarla ahi. Sin ninguna de las dos variables, el
 comportamiento es identico al de antes (8090 / localhost:5678).
 
-Autenticacion (Railway pre-go-live, 2026-09): este proceso es el unico
-punto de entrada publico de CAJAS GABO (frontend + proxy /webhook/* hacia
-n8n), asi que la autenticacion HTTP Basic vive ACA, nunca en n8n. Las
-credenciales salen exclusivamente de TIQ_AUTH_USERNAME/TIQ_AUTH_PASSWORD
-(nunca hardcodeadas, nunca logueadas). Si no estan configuradas (ambas,
-no vacias), el proceso FALLA CERRADO: /healthz sigue respondiendo 200
-para que Railway no mate el contenedor, pero cualquier otra ruta responde
-503 en vez de quedar abierta. Con credenciales configuradas, todo lo que
-no sea /healthz exige Basic auth valido (comparacion en tiempo constante
-via hmac.compare_digest) o responde 401 con WWW-Authenticate. El header
+Autenticacion (Railway pre-go-live, 2026-09; ACOTADA a CAJAS GABO desde
+el fix post-editor de mas abajo): este proceso es el unico punto de
+entrada publico de CAJAS GABO (frontend + proxy /webhook/* hacia n8n),
+asi que la autenticacion HTTP Basic vive ACA, nunca en n8n -- pero SOLO
+para lo que es de CAJAS GABO: `/`, los archivos estaticos de
+n8n_frontend/ y `/webhook/*`. Las credenciales salen exclusivamente de
+TIQ_AUTH_USERNAME/TIQ_AUTH_PASSWORD (nunca hardcodeadas, nunca
+logueadas). Si no estan configuradas (ambas, no vacias), esas rutas
+FALLAN CERRADAS: /healthz sigue respondiendo 200 para que Railway no
+mate el contenedor, pero cualquier otra ruta de CAJAS GABO responde 503
+en vez de quedar abierta. Con credenciales configuradas, esas rutas
+exigen Basic auth valido (comparacion en tiempo constante via
+hmac.compare_digest) o responden 401 con WWW-Authenticate. El header
 Authorization nunca se reenvia hacia n8n (_proxy ya solo reenviaba
 Content-Type; ver seccion correspondiente).
+
+FIX (bug real, post-exposicion del editor n8n): las rutas propias de
+n8n (`/n8n-admin`, `/home*`, `/signin*`, `/rest/*`, `/credentials/*`,
+`/workflow/*`, `/types/*`, assets, el callback OAuth, el WebSocket de
+`/rest/push`, etc. -- ver Handler._proxy_n8n/_proxy_websocket_n8n) NO
+pasan por _autenticar(): la SPA de n8n dispara decenas de llamadas
+internas por segundo, y el Basic Auth del proxy delante de TODAS ellas
+generaba prompts de usuario/clave repetidos (el navegador no
+reautentica esas llamadas de forma consistente). Esas rutas quedan
+protegidas EXCLUSIVAMENTE por el login nativo de n8n (su propia cookie
+de sesion) -- nunca sin autenticacion alguna, solo con otra
+autenticacion (la de n8n), independiente de si TIQ_AUTH_USERNAME/
+TIQ_AUTH_PASSWORD estan configuradas o no.
 
 n8n bajo demanda / Serverless Sleep (Railway, 2026-09): n8n ya NO arranca
 al iniciar el contenedor (scripts/railway_entrypoint.sh ya no lo toca).
@@ -298,10 +314,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def _autenticar(self):
-        """Gate de autenticacion para toda ruta salvo /healthz. Si ya
-        respondio (503 sin credenciales configuradas, o 401 sin
-        Basic auth valido), devuelve False y el llamador debe retornar
-        sin hacer nada mas."""
+        """Gate de autenticacion Basic para las rutas de CAJAS GABO
+        (/, archivos estaticos, /webhook/*) -- NUNCA para las rutas
+        propias del editor n8n, que llaman directo a _proxy_n8n /
+        _proxy_websocket_n8n sin pasar por aca (ver docstring del
+        modulo). Si ya respondio (503 sin credenciales configuradas, o
+        401 sin Basic auth valido), devuelve False y el llamador debe
+        retornar sin hacer nada mas."""
         if not AUTH_CONFIGURED:
             self.send_response(503)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -324,9 +343,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"OK")
             return
-        if not self._autenticar():
-            return
+        # FIX (bug real post-exposicion del editor): el Basic Auth del
+        # proxy publico SOLO gatea lo que es de CAJAS GABO (/,
+        # /webhook/*, archivos estaticos de n8n_frontend/) -- nunca las
+        # rutas propias de n8n. Antes _autenticar() corria para TODO, y
+        # la SPA de n8n dispara decenas de llamadas internas (/rest/*,
+        # /types/*, etc.) que el navegador no siempre reautentica de
+        # forma consistente con Basic Auth -> prompts repetidos de
+        # usuario/clave. La seguridad de /n8n-admin, /home*, /rest/*,
+        # /credentials/*, /workflow/*, /signin*, el callback OAuth, etc.
+        # queda exclusivamente a cargo del login nativo de n8n (su
+        # propia cookie de sesion) -- nunca sin autenticacion alguna,
+        # solo con OTRA autenticacion, la de n8n mismo.
+        if self.path.startswith("/webhook/"):
+            if not self._autenticar():
+                return
+            return self._proxy("GET")
         if self.path.partition("?")[0] == "/":
+            if not self._autenticar():
+                return
             # Evita el listado de directorio ("Directory listing for /") de
             # SimpleHTTPRequestHandler: no hay index.html en n8n_frontend/,
             # asi que la raiz redirige a la interfaz real de CAJAS GABO.
@@ -334,8 +369,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Location", "/v3_control_cierres.html")
             self.end_headers()
             return
-        if self.path.startswith("/webhook/"):
-            return self._proxy("GET")
+        if os.path.isfile(self.translate_path(self.path)):
+            if not self._autenticar():
+                return
+            # Archivo REAL en n8n_frontend/ (v3_control_cierres.html,
+            # revision_correccion.html, o cualquier estatico futuro):
+            # comportamiento identico a hoy, sin pasar por n8n.
+            return super().do_GET()
+        # A partir de aca: SOLO rutas propias del editor n8n. Ningun
+        # _autenticar() -- ver comentario arriba.
         if self.path.partition("?")[0].rstrip("/") == "/n8n-admin":
             # Solo un atajo/redirect -- nunca se proxifica el literal
             # "/n8n-admin" -- ver docstring del modulo. /home SI cae en
@@ -347,38 +389,30 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if self._es_upgrade_websocket():
             return self._proxy_websocket_n8n()
-        if os.path.isfile(self.translate_path(self.path)):
-            # Archivo REAL en n8n_frontend/ (v3_control_cierres.html,
-            # revision_correccion.html, o cualquier estatico futuro):
-            # comportamiento identico a hoy, sin pasar por n8n.
-            return super().do_GET()
         return self._proxy_n8n("GET")
 
     def do_POST(self):
-        if not self._autenticar():
-            return
         if self.path.startswith("/webhook/"):
+            if not self._autenticar():
+                return
             return self._proxy("POST")
+        # Ruta propia de n8n (p.ej. /rest/login, /rest/workflows, el
+        # propio /rest/oauth2-credential/callback si Google llegara a
+        # usar POST): sin Basic Auth del proxy, ver do_GET.
         return self._proxy_n8n("POST")
 
     def do_PUT(self):
-        if not self._autenticar():
-            return
+        # /webhook/* nunca usa PUT (los nodos WEBHOOK del workflow real
+        # solo configuran GET/POST) -- esto es siempre una ruta de n8n.
         return self._proxy_n8n("PUT")
 
     def do_PATCH(self):
-        if not self._autenticar():
-            return
         return self._proxy_n8n("PATCH")
 
     def do_DELETE(self):
-        if not self._autenticar():
-            return
         return self._proxy_n8n("DELETE")
 
     def do_OPTIONS(self):
-        if not self._autenticar():
-            return
         return self._proxy_n8n("OPTIONS")
 
     def _proxy(self, method):

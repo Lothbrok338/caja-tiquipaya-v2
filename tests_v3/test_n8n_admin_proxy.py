@@ -172,6 +172,26 @@ class _FakeN8NHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b'{"ok": true}')
             return
 
+        if self.path == "/rest/workflows-protegido":
+            # Simula una ruta REAL de n8n que exige sesion propia (su
+            # Cookie, nunca el Basic Auth del proxy publico -- ese ya
+            # nunca llega hasta aca, se filtra en Handler._proxy_n8n).
+            # El 401 y el body son deliberadamente DISTINTOS a los del
+            # proxy (que siempre manda WWW-Authenticate: Basic) para
+            # poder distinguir "me rechazo n8n" de "me rechazo el
+            # proxy" desde el lado del test.
+            if self.headers.get("Cookie") != "n8n-auth=sesion-valida":
+                self.send_response(401)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"code": 401, "message": "Unauthorized (n8n)"}).encode("utf-8"))
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"ok": true}')
+            return
+
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -289,25 +309,40 @@ def test_n8n_admin_con_barra_final_tambien_redirige(lanzar_proxy, fake_n8n):
     assert _header(headers, "Location") == ["/home"]
 
 
-def test_n8n_admin_sin_auth_no_llega_a_n8n(lanzar_proxy, fake_n8n):
+def test_n8n_admin_sin_basic_auth_del_proxy_igual_redirige(lanzar_proxy, fake_n8n):
+    """FIX del prompt repetido: /n8n-admin NUNCA exige el Basic Auth del
+    proxy publico (nunca dispara un 401/WWW-Authenticate) -- redirige a
+    /home igual, sea cual sea el header Authorization que traiga (o no
+    traiga) la request."""
     puerto_n8n, recibidas = fake_n8n
     proxy = lanzar_proxy(puerto_n8n)
-    status, _, _ = proxy.request("GET", "/n8n-admin")
-    assert status == 401
+    status, headers, _ = proxy.request("GET", "/n8n-admin")
+    assert status == 302
+    assert _header(headers, "Location") == ["/home"]
+    assert not _header(headers, "WWW-Authenticate")
     assert recibidas == []
 
 
 # ---------------------------------------------------------------------
 # Rutas propias de n8n (/home, /rest/*, /credentials/*, ...): pasan tal
-# cual, con cualquiera de los metodos que el editor necesita
+# cual, con cualquiera de los metodos que el editor necesita, y SIN
+# exigir el Basic Auth del proxy publico (FIX del prompt repetido: la
+# SPA de n8n dispara decenas de llamadas internas -- gatearlas con nuestro
+# Basic Auth causaba prompts de usuario/clave una y otra vez). La
+# seguridad de estas rutas queda a cargo exclusivo del login nativo de
+# n8n (ver mas abajo "ruta protegida de n8n sin sesion").
 # ---------------------------------------------------------------------
 
-@pytest.mark.parametrize("ruta", ["/home", "/home/workflows", "/rest/login", "/credentials/nueva", "/signin"])
-def test_rutas_propias_de_n8n_se_reenvian_get(lanzar_proxy, fake_n8n, ruta):
+@pytest.mark.parametrize("ruta", [
+    "/home", "/home/workflows", "/rest/login", "/rest/settings", "/rest/tags",
+    "/credentials/nueva", "/signin", "/types/credentials.json",
+])
+def test_rutas_propias_de_n8n_llegan_sin_basic_auth_del_proxy(lanzar_proxy, fake_n8n, ruta):
     puerto_n8n, recibidas = fake_n8n
     proxy = lanzar_proxy(puerto_n8n)
-    status, _, data = proxy.request("GET", ruta, headers=_basic_auth_header(USUARIO, CLAVE))
+    status, headers, data = proxy.request("GET", ruta)  # SIN Authorization
     assert status == 200
+    assert not _header(headers, "WWW-Authenticate"), f"{ruta} no deberia pedir Basic Auth del proxy"
     assert json.loads(data)["recibido_en"] == ruta
     assert recibidas[-1]["path"] == ruta
 
@@ -402,10 +437,33 @@ def test_archivos_estaticos_existentes_no_pasan_por_n8n(lanzar_proxy, fake_n8n, 
     assert recibidas == []
 
 
+@pytest.mark.parametrize("archivo", ["/", "/v3_control_cierres.html", "/revision_correccion.html"])
+def test_panel_cajas_gabo_sigue_protegido_con_basic_auth(lanzar_proxy, fake_n8n, archivo):
+    """El fix acota el Basic Auth del proxy a las rutas de CAJAS GABO,
+    pero NO lo elimina de ahi: '/', v3_control_cierres.html y
+    revision_correccion.html siguen exigiendolo exactamente igual que
+    antes (401 sin credenciales)."""
+    puerto_n8n, _ = fake_n8n
+    proxy = lanzar_proxy(puerto_n8n)
+    status, headers, _ = proxy.request("GET", archivo)  # sin Authorization
+    assert status == 401
+    assert _header(headers, "WWW-Authenticate") == ['Basic realm="CAJAS GABO"']
+
+
 # ---------------------------------------------------------------------
 # /webhook/* sigue usando el proxy angosto de siempre: mismo
-# comportamiento, sin los headers nuevos (X-Forwarded-*, etc.)
+# comportamiento (incluida la exigencia de Basic Auth), sin los headers
+# nuevos (X-Forwarded-*, etc.)
 # ---------------------------------------------------------------------
+
+def test_webhook_sigue_exigiendo_basic_auth_del_proxy(lanzar_proxy, fake_n8n):
+    puerto_n8n, recibidas = fake_n8n
+    proxy = lanzar_proxy(puerto_n8n)
+    status, headers, _ = proxy.request("GET", "/webhook/tiq-v3-dev/estado")  # sin Authorization
+    assert status == 401
+    assert _header(headers, "WWW-Authenticate") == ['Basic realm="CAJAS GABO"']
+    assert recibidas == []
+
 
 def test_webhook_sigue_sin_x_forwarded_headers(lanzar_proxy, fake_n8n):
     puerto_n8n, recibidas = fake_n8n
@@ -497,7 +555,13 @@ def test_websocket_handshake_y_splice_de_bytes(lanzar_proxy, fake_n8n):
         sock.close()
 
 
-def test_websocket_sin_auth_no_llega_a_n8n(lanzar_proxy, fake_n8n):
+def test_websocket_sin_basic_auth_del_proxy_igual_llega_a_n8n(lanzar_proxy, fake_n8n):
+    """FIX del prompt repetido: /rest/push (el canal de tiempo real del
+    editor) ya NO exige el Basic Auth del proxy publico -- el handshake
+    llega a n8n igual sin ningun header Authorization. Lo que protege
+    esta ruta es la propia sesion de n8n (la Cookie que el navegador ya
+    tenga, si la tiene) -- ver test_websocket_handshake_y_splice_de_bytes
+    para el caso CON Cookie de sesion valida."""
     puerto_n8n, recibidas = fake_n8n
     proxy = lanzar_proxy(puerto_n8n)
 
@@ -517,17 +581,44 @@ def test_websocket_sin_auth_no_llega_a_n8n(lanzar_proxy, fake_n8n):
         buffer = b""
         while b"\r\n\r\n" not in buffer:
             trozo = sock.recv(4096)
-            if not trozo:
-                break
+            assert trozo, "la conexion se cerro antes de completar el handshake"
             buffer += trozo
-        # Handler nunca fijo protocol_version (siempre fue HTTP/1.0 por
-        # default de SimpleHTTPRequestHandler, sin relacion con este
-        # cambio) -- lo que importa aca es que _autenticar() corta ANTES
-        # de intentar cualquier upgrade.
-        assert b" 401 " in buffer.split(b"\r\n", 1)[0]
+        cabecera = buffer.partition(b"\r\n\r\n")[0]
+        assert b" 101 " in cabecera.split(b"\r\n", 1)[0], cabecera
     finally:
         sock.close()
-    assert not any(r["method"] == "WS-UPGRADE" for r in recibidas)
+    recibida_ws = next(r for r in recibidas if r["method"] == "WS-UPGRADE")
+    assert "Authorization" not in recibida_ws["headers"]
+
+
+# ---------------------------------------------------------------------
+# La pieza central del fix: una ruta de n8n que SI requiere sesion
+# queda protegida por el 401 propio de n8n (nunca por el nuestro) --
+# demuestra que "sin Basic Auth del proxy" no es "sin autenticacion",
+# es "la autenticacion la hace n8n".
+# ---------------------------------------------------------------------
+
+def test_ruta_protegida_de_n8n_sin_sesion_queda_protegida_por_n8n_no_por_el_proxy(lanzar_proxy, fake_n8n):
+    puerto_n8n, recibidas = fake_n8n
+    proxy = lanzar_proxy(puerto_n8n)
+    status, headers, data = proxy.request("GET", "/rest/workflows-protegido")  # sin Cookie, sin Authorization
+    # Llega a n8n (nuestro proxy no la bloqueo) y es N8N quien la
+    # rechaza -- nunca con el 401/WWW-Authenticate de nuestro proxy.
+    assert status == 401
+    assert not _header(headers, "WWW-Authenticate"), "un 401 con WWW-Authenticate Basic seria NUESTRO proxy, no n8n"
+    assert json.loads(data) == {"code": 401, "message": "Unauthorized (n8n)"}
+    assert len(recibidas) == 1
+    assert recibidas[0]["path"] == "/rest/workflows-protegido"
+
+
+def test_ruta_protegida_de_n8n_con_sesion_responde_ok(lanzar_proxy, fake_n8n):
+    puerto_n8n, _ = fake_n8n
+    proxy = lanzar_proxy(puerto_n8n)
+    status, _, data = proxy.request(
+        "GET", "/rest/workflows-protegido", headers={"Cookie": "n8n-auth=sesion-valida"}
+    )
+    assert status == 200
+    assert json.loads(data)["ok"] is True
 
 
 # ---------------------------------------------------------------------
@@ -573,18 +664,21 @@ def test_x_forwarded_host_refleja_el_host_real_del_request(lanzar_proxy, fake_n8
     assert recibidas[-1]["headers"].get("X-Forwarded-Host") == "cajas-gabo-shadow-production.up.railway.app"
 
 
-def test_callback_oauth_sin_auth_pide_basic_auth_nunca_llega_a_n8n(lanzar_proxy, fake_n8n):
-    """Si el navegador vuelve de Google SIN credenciales Basic Auth
-    cacheadas (peor caso), la primera capa sigue intacta: 401 con
-    WWW-Authenticate, NUNCA se filtra a n8n el code/state de Google."""
+def test_callback_oauth_sin_basic_auth_del_proxy_llega_a_n8n(lanzar_proxy, fake_n8n):
+    """FIX del prompt repetido / requisito de OAuth: Google NO puede
+    devolver la clave del proxy -- el callback tiene que llegar a n8n
+    SIN el Basic Auth de CAJAS GABO, exactamente el caso real de cuando
+    el navegador vuelve de Google. n8n es quien valida code/state."""
     puerto_n8n, recibidas = fake_n8n
     proxy = lanzar_proxy(puerto_n8n)
-    status, headers, _ = proxy.request(
+    status, headers, data = proxy.request(
         "GET", "/rest/oauth2-credential/callback?code=AUTH_CODE_DE_GOOGLE&state=xyz"
     )
-    assert status == 401
-    assert _header(headers, "WWW-Authenticate") == ['Basic realm="CAJAS GABO"']
-    assert recibidas == [], "el code/state de Google no debe llegar a n8n sin Basic Auth valido"
+    assert status == 200
+    assert not _header(headers, "WWW-Authenticate")
+    assert len(recibidas) == 1
+    assert recibidas[0]["path"] == "/rest/oauth2-credential/callback?code=AUTH_CODE_DE_GOOGLE&state=xyz"
+    assert "Authorization" not in recibidas[0]["headers"]
 
 
 def test_callback_oauth_con_auth_llega_intacto_a_n8n_con_forwarded_correctos(lanzar_proxy, fake_n8n):
