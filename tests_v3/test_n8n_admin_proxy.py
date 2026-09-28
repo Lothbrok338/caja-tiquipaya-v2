@@ -528,3 +528,109 @@ def test_websocket_sin_auth_no_llega_a_n8n(lanzar_proxy, fake_n8n):
     finally:
         sock.close()
     assert not any(r["method"] == "WS-UPGRADE" for r in recibidas)
+
+
+# ---------------------------------------------------------------------
+# Verificacion puntual pedida sobre el commit 646c96d (sin rediseñar
+# nada): X-Forwarded-* correctos y no spoofeables por el cliente, y el
+# callback OAuth (/rest/oauth2-credential/callback) llega intacto a n8n
+# sin quedar interceptado por ninguna ruta local, con Basic Auth como
+# primera capa (nunca bypaseada, nunca "traga" la vuelta de Google).
+# ---------------------------------------------------------------------
+
+def test_x_forwarded_for_no_es_spoofeable_por_el_cliente(lanzar_proxy, fake_n8n):
+    """Un cliente que ya manda su PROPIO X-Forwarded-For/Proto/Host
+    (con cualquier capitalizacion) no debe poder colarlo hacia n8n: el
+    proxy tiene que ganar siempre con la IP/host/proto REALES de esta
+    conexion -- si no, N8N_PROXY_HOPS=1 confiaria en un valor que el
+    cliente publico controla, no en el hop real (este proxy)."""
+    puerto_n8n, recibidas = fake_n8n
+    proxy = lanzar_proxy(puerto_n8n)
+    headers = {
+        **_basic_auth_header(USUARIO, CLAVE),
+        "X-Forwarded-For": "6.6.6.6",
+        "X-Forwarded-Proto": "http",
+        "X-Forwarded-Host": "atacante.example.com",
+    }
+    status, _, _ = proxy.request("GET", "/home", headers=headers)
+    assert status == 200
+    recibida = recibidas[-1]["headers"]
+    assert recibida.get("X-Forwarded-For") == "127.0.0.1", recibida.get("X-Forwarded-For")
+    assert recibida.get("X-Forwarded-Proto") == "https", recibida.get("X-Forwarded-Proto")
+    assert recibida.get("X-Forwarded-Host") != "atacante.example.com"
+    # Un solo valor de cada uno llega a n8n -- nunca dos headers
+    # colisionando (que dejaria a n8n eligiendo entre el real y el
+    # spoofeado de forma ambigua).
+    crudo = [(k, v) for k, v in recibida.items() if k.lower() == "x-forwarded-for"]
+    assert len(crudo) <= 1, f"deberia llegar UN solo X-Forwarded-For, llegaron: {crudo}"
+
+
+def test_x_forwarded_host_refleja_el_host_real_del_request(lanzar_proxy, fake_n8n):
+    puerto_n8n, recibidas = fake_n8n
+    proxy = lanzar_proxy(puerto_n8n)
+    headers = {**_basic_auth_header(USUARIO, CLAVE), "Host": "cajas-gabo-shadow-production.up.railway.app"}
+    proxy.request("GET", "/home", headers=headers)
+    assert recibidas[-1]["headers"].get("X-Forwarded-Host") == "cajas-gabo-shadow-production.up.railway.app"
+
+
+def test_callback_oauth_sin_auth_pide_basic_auth_nunca_llega_a_n8n(lanzar_proxy, fake_n8n):
+    """Si el navegador vuelve de Google SIN credenciales Basic Auth
+    cacheadas (peor caso), la primera capa sigue intacta: 401 con
+    WWW-Authenticate, NUNCA se filtra a n8n el code/state de Google."""
+    puerto_n8n, recibidas = fake_n8n
+    proxy = lanzar_proxy(puerto_n8n)
+    status, headers, _ = proxy.request(
+        "GET", "/rest/oauth2-credential/callback?code=AUTH_CODE_DE_GOOGLE&state=xyz"
+    )
+    assert status == 401
+    assert _header(headers, "WWW-Authenticate") == ['Basic realm="CAJAS GABO"']
+    assert recibidas == [], "el code/state de Google no debe llegar a n8n sin Basic Auth valido"
+
+
+def test_callback_oauth_con_auth_llega_intacto_a_n8n_con_forwarded_correctos(lanzar_proxy, fake_n8n):
+    """Caso real: el navegador YA tiene Basic Auth cacheado para este
+    origen (se autentico para llegar a /n8n-admin -> /home -> conectar
+    la credencial antes de ir a Google), asi que la vuelta desde Google
+    la reenvia el propio navegador con las MISMAS credenciales Basic
+    Auth -- comportamiento estandar de todo navegador para requests
+    subsiguientes al mismo origen/realm. El callback debe llegar a n8n
+    con el path/query EXACTOS que mando Google, sin que /webhook/*,
+    /n8n-admin ni el chequeo de archivo estatico lo intercepten, y con
+    X-Forwarded-Proto/Host/For correctos (para que n8n valide bien el
+    redirect_uri con N8N_PROXY_HOPS=1)."""
+    puerto_n8n, recibidas = fake_n8n
+    proxy = lanzar_proxy(puerto_n8n)
+    headers = {
+        **_basic_auth_header(USUARIO, CLAVE),
+        "Host": "cajas-gabo-shadow-production.up.railway.app",
+        "Cookie": "n8n-auth=sesion-admin-ya-logueada",
+    }
+    ruta = "/rest/oauth2-credential/callback?code=AUTH_CODE_DE_GOOGLE&state=xyz"
+    status, _, data = proxy.request("GET", ruta, headers=headers)
+
+    assert status == 200
+    assert json.loads(data)["recibido_en"] == ruta, "el query string (code/state) debe llegar intacto"
+    assert len(recibidas) == 1, "ninguna otra ruta interfirio en el camino"
+    recibida = recibidas[0]
+    assert recibida["path"] == ruta
+    assert recibida["method"] == "GET"
+    assert "Authorization" not in recibida["headers"], "el Basic Auth del proxy nunca debe llegar a n8n"
+    assert recibida["headers"].get("Cookie") == "n8n-auth=sesion-admin-ya-logueada"
+    assert recibida["headers"].get("X-Forwarded-Proto") == "https"
+    assert recibida["headers"].get("X-Forwarded-Host") == "cajas-gabo-shadow-production.up.railway.app"
+    assert recibida["headers"].get("X-Forwarded-For") == "127.0.0.1"
+
+
+def test_callback_oauth_no_coincide_con_ninguna_ruta_local_reservada(lanzar_proxy, fake_n8n):
+    """Confirma explicitamente que /rest/oauth2-credential/callback no
+    es ni /, ni /webhook/*, ni /n8n-admin, ni un archivo de
+    n8n_frontend/ -- cae SIEMPRE en el pass-through generico hacia n8n
+    (_proxy_n8n), nunca se sirve localmente ni se redirige."""
+    puerto_n8n, _ = fake_n8n
+    proxy = lanzar_proxy(puerto_n8n)
+    status, headers, _ = proxy.request(
+        "GET", "/rest/oauth2-credential/callback?code=X&state=Y",
+        headers=_basic_auth_header(USUARIO, CLAVE),
+    )
+    assert status == 200  # nunca 302 (no es /, no es /n8n-admin)
+    assert not _header(headers, "Location")
