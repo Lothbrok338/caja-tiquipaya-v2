@@ -714,6 +714,14 @@
     // error contable del cierre — tag/label deliberadamente distintos de
     // "revisar"/"error" para no confundir ambos casos (ver v3/precheck_maestro.py).
     BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA: { label: "Maestro sin cobertura", tag: "bloqueo-maestro" },
+    // Hallazgo real CAJA AMÉRICA 2026-09-28: distinto a propósito de
+    // "Maestro sin cobertura" -- el problema es una fecha de depósito
+    // inválida DENTRO del propio cierre, nunca del maestro (ver
+    // v3/precheck_maestro.py, CIERRE_FECHA_INVALIDA). Mismo tag base
+    // ("bloqueo-maestro": mismo estilo neutral de precondición, nunca
+    // "error"/"revisar") pero label y texto de detalle propios para no
+    // mandar al auditor a revisar MACROS por error.
+    CIERRE_FECHA_INVALIDA: { label: "Fecha de depósito inválida", tag: "bloqueo-maestro" },
   };
 
   var state = { cierres: [], seleccion: null, loteId: null, publicationMode: "loading", publicationModeConfirmado: false, caja: null };
@@ -1219,6 +1227,22 @@
       });
       secMaestro.appendChild(el("div", { class: "placeholder-note", text: "Verifique o actualice el maestro antes de procesar este cierre." }));
       cont.appendChild(secMaestro);
+    }
+
+    // Hallazgo real CAJA AMÉRICA 2026-09-28: mismo tipo de precondición de
+    // ENTORNO que el bloque de arriba, pero el problema está en el propio
+    // cierre (una fecha de depósito con formato inválido/ambiguo que ni
+    // siquiera v3/normalizacion_fecha_deposito.py pudo corregir de forma
+    // segura), nunca en el maestro -- panel deliberadamente distinto para
+    // no mandar al auditor a revisar MACROS por error. Tampoco ofrece
+    // formulario de corrección ni botón Publicar (mismo criterio de
+    // "precondición de entorno, no error contable" que el bloque anterior).
+    if (c._raw && c._raw.estado_final === "CIERRE_FECHA_INVALIDA") {
+      var secFechaInvalida = el("div", { class: "detalle-section" });
+      secFechaInvalida.appendChild(el("h3", { text: "FECHA DE DEPÓSITO INVÁLIDA EN EL CIERRE", style: "color:#8a6414;" }));
+      secFechaInvalida.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: "Fecha del cierre" }), el("span", { class: "v", text: fmtFecha(c.fecha) })]));
+      secFechaInvalida.appendChild(el("div", { class: "placeholder-note", text: c._raw.mensaje_precheck_maestro || "Corrija la fecha de depósito en el archivo del cierre y vuelva a procesar." }));
+      cont.appendChild(secFechaInvalida);
     }
 
     // ---- cuadre ----

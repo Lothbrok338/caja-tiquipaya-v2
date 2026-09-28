@@ -71,8 +71,20 @@ from v3.motor import NO_PROCESADO  # noqa: E402
 MAESTRO_APTO = "MAESTRO_APTO"
 BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA = "BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA"
 MACROS_NO_CUBRE_FECHA_DEPOSITO = "MACROS_NO_CUBRE_FECHA_DEPOSITO"
+# Hallazgo real (CAJA AMÉRICA, 2026-09-28): una FECHA DE DEPOSITO con
+# formato de texto ambiguo dentro del PROPIO cierre (p. ej. un año de 2
+# dígitos que no coincide con el año del cierre) impedía leer el cierre
+# para el chequeo ATC, y ese fallo de lectura se reportaba, engañosamente,
+# como si el MAESTRO no tuviera cobertura. v3/normalizacion_fecha_deposito.py
+# ya resuelve los casos SEGUROS antes de llegar aquí (año de 2 dígitos que
+# SÍ coincide con el año del cierre); lo que sigue llegando aquí como
+# excel_io.FechaAmbiguaError es, por definición, un caso que esa
+# normalización NO pudo corregir sin adivinar (fail-closed, correcto) —
+# pero el problema es del CIERRE, nunca del maestro, y el estado/mensaje
+# tiene que decirlo así, para no mandar al auditor a revisar MACROS.
+CIERRE_FECHA_INVALIDA = "CIERRE_FECHA_INVALIDA"
 
-_ESTADOS_VALIDOS = (MAESTRO_APTO, BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA)
+_ESTADOS_VALIDOS = (MAESTRO_APTO, BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA)
 
 
 def _fecha_maxima(fechas):
@@ -210,6 +222,30 @@ def _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre, caja=None):
     try:
         tiene_atc = _cierre_tiene_movimiento_atc(ruta_cierre, caja=caja)
     except Exception as exc:
+        # excel_io.py es codigo COMPARTIDO con V2/Tiquipaya (el repo tiene
+        # pruebas propias que exigen que quede byte a byte sin tocar --
+        # ver tests_v3/test_auditoria_mensual.py::test_P_Q_v2_y_control3_
+        # permanecen_sin_cambios), asi que la distincion se hace por el
+        # MENSAJE exacto y estable de excel_io._fecha_iso() (nunca se
+        # agrega ahi un tipo de excepcion nuevo). El cierre en si trae una
+        # FECHA DE DEPOSITO con formato ambiguo que
+        # v3.normalizacion_fecha_deposito ya intento normalizar de forma
+        # segura y no pudo (año de 2 digitos que no coincide con el año
+        # del cierre, o formato no reconocido) -- esto NUNCA es un
+        # problema de cobertura del maestro: es del cierre. estado/mensaje
+        # tienen que decirlo asi, no "Maestro sin cobertura".
+        if isinstance(exc, ValueError) and "Fecha en formato no reconocido" in str(exc):
+            return {
+                "estado": CIERRE_FECHA_INVALIDA,
+                "fecha_cierre": fecha_cierre,
+                "fecha_maxima_macros": fecha_maxima_macros,
+                "fecha_maxima_atc": fecha_maxima_atc,
+                "codigo_bloqueo": CIERRE_FECHA_INVALIDA,
+                "mensaje": (
+                    f"Fecha de depósito inválida en el cierre: {exc}. Corrija la fecha en el "
+                    "archivo del cierre y vuelva a procesar — esto no es un problema del maestro."
+                ),
+            }
         return {
             "estado": BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
             "fecha_cierre": fecha_cierre,
@@ -312,7 +348,7 @@ def aplicar_precheck_maestro(cierres_materializados, caja=None):
             "fecha_requerida_deposito": cobertura.get("fecha_requerida_deposito"),
             "observaciones_precheck": cobertura.get("observaciones") or [],
         })
-        if cobertura["estado"] == BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA:
+        if cobertura["estado"] in (BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA):
             salida["estado_motor"] = NO_PROCESADO
             salida["resultado"] = None
         resultados.append(salida)
@@ -322,10 +358,12 @@ def aplicar_precheck_maestro(cierres_materializados, caja=None):
 def filtrar_aptos_para_motor(cierres_anotados):
     """Devuelve SOLO los items que deben pasar a v3.motor.ejecutar_motor():
     excluye explícitamente los BLOQUEADOS por este precheck (v3.motor
-    JAMÁS los recibe, no solo "no los procesa")."""
+    JAMÁS los recibe, no solo "no los procesa") -- tanto por falta de
+    cobertura real del maestro como por una fecha inválida en el propio
+    cierre (CIERRE_FECHA_INVALIDA: distinto motivo, mismo "no procesar")."""
     return [
         item for item in cierres_anotados
-        if item.get("estado_precheck_maestro") != BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA
+        if item.get("estado_precheck_maestro") not in (BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA)
     ]
 
 

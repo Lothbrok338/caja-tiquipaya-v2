@@ -19,7 +19,7 @@ import run_batch  # noqa: E402
 import xlsx_fixtures as fx  # noqa: E402
 from v3.precheck_maestro import (  # noqa: E402
     evaluar_cobertura_maestro, aplicar_precheck_maestro, filtrar_aptos_para_motor,
-    MAESTRO_APTO, BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
+    MAESTRO_APTO, BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA,
 )
 from v3.materializacion import MATERIALIZADO, SIN_ARCHIVO
 from v3.motor import NO_PROCESADO
@@ -160,6 +160,59 @@ def test_cierre_ilegible_para_determinar_atc_bloquea(tmp_path):
     r = evaluar_cobertura_maestro(ruta_maestro, "2026-09-10", "/no/existe/CIERRE.xlsm")
     assert r["estado"] == BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA
     assert "movimiento ATC" in r["mensaje"]
+
+
+# 5b) hallazgo real (CAJA AMÉRICA, 2026-09-28): una FECHA DE DEPOSITO con
+# formato de texto ambiguo DENTRO del propio cierre (año de 2 dígitos que
+# NO coincide con el año del cierre -- v3/normalizacion_fecha_deposito.py
+# ya resuelve, antes de llegar aquí, los casos SEGUROS de corregir) tiene
+# que reportarse como CIERRE_FECHA_INVALIDA, NUNCA como "Maestro sin
+# cobertura": el problema es del cierre, no del maestro.
+def _cierre_con_deposito_ambiguo(tmp_path, fecha, fecha_deposito_texto, nombre=None):
+    nombre = nombre or run_batch.nombre_cierre_esperado(fecha)
+    ruta = tmp_path / nombre
+    sfc_con_deposito = {
+        "total_movimiento": "0.00", "cobros_atc": "0.00", "dolares": "0.00",
+        "depositos": [{"importe": "100.00", "fecha": fecha_deposito_texto, "asignacion": "AB1"}],
+    }
+    sfc_vacio = {"total_movimiento": "0.00", "cobros_atc": "0.00", "dolares": "0.00", "depositos": []}
+    fx.crear_cierre(str(ruta), sfc_con_deposito, sfc_vacio)
+    return str(ruta)
+
+
+def test_fecha_deposito_ambigua_en_el_cierre_da_cierre_fecha_invalida_no_maestro_sin_cobertura(tmp_path):
+    ruta_maestro = _maestro(tmp_path, [_fila_macros("2026-09-26")], [_fila_atc("2026-09-26")])
+    # año de 2 dígitos que NO coincide con el año del cierre (2026): ni
+    # excel_io ni la normalización previa lo aceptan -- fail-closed.
+    ruta_cierre = _cierre_con_deposito_ambiguo(tmp_path, "2026-09-26", "26/09/25")
+
+    r = evaluar_cobertura_maestro(ruta_maestro, "2026-09-26", ruta_cierre)
+
+    assert r["estado"] == CIERRE_FECHA_INVALIDA
+    assert r["estado"] != BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA
+    assert r["codigo_bloqueo"] == CIERRE_FECHA_INVALIDA
+    assert "Fecha de depósito inválida en el cierre" in r["mensaje"]
+    assert "maestro" not in r["mensaje"].lower() or "no es un problema del maestro" in r["mensaje"].lower()
+
+
+def test_cierre_fecha_invalida_nunca_llega_al_motor(tmp_path):
+    """Mismo criterio que BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA: nunca
+    se procesa con el motor, filtrar_aptos_para_motor lo excluye, y
+    aplicar_precheck_maestro fija estado_motor=NO_PROCESADO."""
+    ruta_maestro = _maestro(tmp_path, [_fila_macros("2026-09-26")], [_fila_atc("2026-09-26")])
+    ruta_cierre = _cierre_con_deposito_ambiguo(tmp_path, "2026-09-26", "26/09/25")
+    items = [{
+        "fecha": "2026-09-26", "estado_materializacion": MATERIALIZADO,
+        "ruta_maestro_local": ruta_maestro, "ruta_cierre_local": ruta_cierre,
+    }]
+
+    anotados = aplicar_precheck_maestro(items)
+    assert anotados[0]["estado_precheck_maestro"] == CIERRE_FECHA_INVALIDA
+    assert anotados[0]["estado_motor"] == NO_PROCESADO
+    assert anotados[0]["resultado"] is None
+
+    aptos_para_motor = filtrar_aptos_para_motor(anotados)
+    assert aptos_para_motor == []
 
 
 # 6) un hueco de ATC para una fecha SIN movimiento ATC nunca bloquea,
