@@ -1630,12 +1630,34 @@
     };
   }
 
+  // Intervalo de sondeo de /estado (antes 500ms con corte artificial a los
+  // 60 intentos == 30s, lo que cortaba el polling con un error falso aunque
+  // el backend siguiera vivo y respondiendo 200 PROCESANDO).
+  var POLL_INTERVAL_MS = 1000;
+  // A partir de este tiempo SIN dejar de estar PROCESANDO, el mensaje avisa
+  // que esta tardando mas de lo esperado -- pero el polling NUNCA se corta
+  // por esto: no es un timeout, solo cambia el texto mostrado. Se sigue
+  // consultando el MISMO lote_id indefinidamente mientras el backend
+  // responda 200 con estado_lote=PROCESANDO.
+  var POLL_AVISO_LARGO_MS = 5 * 60 * 1000;
+
+  function formatearTranscurrido(ms) {
+    var totalSeg = Math.floor(ms / 1000);
+    var minutos = Math.floor(totalSeg / 60);
+    var segundos = totalSeg % 60;
+    return minutos > 0 ? (minutos + " min " + segundos + " s") : (segundos + " s");
+  }
+
   // Sondea GET /estado hasta que el lote deje de estar PROCESANDO (o falle),
   // actualizando la barra de progreso con cada respuesta REAL del backend
-  // (nunca con un avance simulado fuera de ?demo=1).
+  // (nunca con un avance simulado fuera de ?demo=1). Mientras el backend
+  // siga respondiendo PROCESANDO, esto NUNCA rechaza con un error: solo el
+  // propio backend (estado_lote=ERROR) o un fallo real de red/HTTP
+  // (apiGet -> catch) terminan el polling con error.
   function pollEstadoHastaListo(loteId) {
     var bar = qs("#progress-bar"), pct = qs("#progress-pct"), label = qs("#progress-label");
     var intentos = 0;
+    var inicio = Date.now();
     return new Promise(function (resolve, reject) {
       (function tick() {
         intentos++;
@@ -1644,8 +1666,11 @@
           bar.style.width = avance + "%";
           pct.textContent = avance + "%";
           if (resp.estado_lote === "PROCESANDO") {
-            if (intentos > 60) { reject(new Error("Tiempo de espera agotado consultando " + ENDPOINTS.estado)); return; }
-            setTimeout(tick, 500);
+            var transcurridoMs = Date.now() - inicio;
+            label.textContent = transcurridoMs > POLL_AVISO_LARGO_MS
+              ? "El procesamiento continúa, pero está tardando más de lo esperado."
+              : "Procesando... " + formatearTranscurrido(transcurridoMs);
+            setTimeout(tick, POLL_INTERVAL_MS);
             return;
           }
           if (resp.estado_lote === "ERROR") {

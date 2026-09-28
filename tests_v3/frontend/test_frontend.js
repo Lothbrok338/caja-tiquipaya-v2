@@ -111,6 +111,137 @@ async function test_procesar_rango_valido() {
 }
 
 // ---------------------------------------------------------------------------
+// Fix polling /estado: ya no corta a los 60 intentos (~30s con el intervalo
+// viejo de 500ms) con un error falso aunque el backend siga vivo
+// respondiendo 200 PROCESANDO. Ahora el polling nunca rechaza mientras
+// estado_lote=PROCESANDO: pasados 5 minutos solo cambia el mensaje (avisa
+// que tarda mas), sigue consultando el MISMO lote_id, y unicamente
+// estado_lote=ERROR (o un fallo real de red) termina el ciclo con error.
+// Reloj y setTimeout simulados para no esperar minutos reales en el test.
+// ---------------------------------------------------------------------------
+async function test_polling_no_corta_con_error_falso_pasados_5_minutos() {
+  console.log("\n[TIMEOUT] pollEstadoHastaListo nunca corta con error falso mientras sigue PROCESANDO, incluso pasados 5 minutos");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+
+  // Reloj y setTimeout(tick, 1000) del polling controlados a mano (en vez de
+  // avanzar tiempo real) para poder observar de forma determinista cada
+  // estado intermedio, sin depender de carreras de timing: cada "avanzar()"
+  // mueve el reloj simulado y dispara el tick pendiente exactamente una vez.
+  let fakeNow = 1700000000000;
+  const realDateNow = window.Date.now;
+  window.Date.now = function () { return fakeNow; };
+  let tickPendiente = null;
+  const realSetTimeout = window.setTimeout;
+  window.setTimeout = function (fn, ms) {
+    if (ms === 1000) { tickPendiente = fn; return 0; } // el intervalo de polling del fix (POLL_INTERVAL_MS)
+    return realSetTimeout(fn, ms);
+  };
+  // Dispara el tick pendiente y espera a que la pagina agende el SIGUIENTE
+  // (via el mismo setTimeout mockeado) antes de continuar -- asi cada paso
+  // queda sincronizado con la cadena de promesas real de la pagina, sin
+  // carreras de timing.
+  async function avanzar(deltaMs) {
+    fakeNow += deltaMs;
+    var fn = tickPendiente;
+    tickPendiente = null;
+    fn();
+    await waitFor(() => tickPendiente !== null, 2000);
+  }
+
+  var TOTAL_PROCESANDO = 6; // 6 * 65s simulados = 390000ms > 300000ms (5 min)
+  var intentosPolling = 0; // solo cuenta /estado?lote_id=... (nunca el chequeo inicial de publication_mode)
+  const calls = [];
+  window.fetch = function (url, opts) {
+    calls.push({ url: url, opts: opts });
+    if (url.indexOf("/procesar") !== -1) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-timeout", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
+    }
+    if (url.indexOf("/estado") !== -1 && url.indexOf("lote_id=") !== -1) {
+      intentosPolling++;
+      var estado = intentosPolling <= TOTAL_PROCESANDO ? "PROCESANDO" : "LISTO_PARA_REVISION_O_PUBLICACION";
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-timeout", estado_lote: estado }) });
+    }
+    if (url.indexOf("/estado") !== -1) {
+      // chequeo inicial de publication_mode al cargar la pagina (sin lote_id)
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", publication_mode: "dev" }) });
+    }
+    if (url.indexOf("/datos") !== -1) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-timeout", cierres: [] }) });
+    }
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  await waitFor(() => window.document.getElementById("in-fecha-desde") && window.document.getElementById("in-fecha-desde").value !== "");
+  window.document.getElementById("btn-procesar").click();
+
+  // Intento 1 (elapsed=0): dispara sin pasar por nuestro setTimeout mockeado.
+  await waitFor(() => intentosPolling === 1 && tickPendiente !== null, 3000);
+  const label = function () { return window.document.getElementById("progress-label").textContent; };
+  ok(label().indexOf("Procesando...") !== -1, "antes de 5 min: label muestra 'Procesando... <tiempo>' (" + label() + ")");
+  ok(!window.__lastAlert, "antes de 5 min: no se dispara ningun error mientras sigue PROCESANDO");
+
+  // Avanza el reloj simulado ~65s por intento hasta superar el umbral de
+  // 5 minutos (300000ms): en el intento 6 el elapsed simulado (325000ms) ya
+  // lo supera.
+  await avanzar(65000); // intento 2, elapsed 65000
+  await avanzar(65000); // intento 3, elapsed 130000
+  await avanzar(65000); // intento 4, elapsed 195000
+  await avanzar(65000); // intento 5, elapsed 260000
+  ok(label().indexOf("Procesando...") !== -1, "a los ~4min20s (todavia dentro de los 5 min): sigue mostrando 'Procesando...' (" + label() + ")");
+  await avanzar(65000); // intento 6, elapsed 325000 > 300000 -> cruza el umbral de 5 min
+  ok(label().indexOf("tardando más de lo esperado") !== -1, "pasados 5 min: avisa que tarda mas, NUNCA muestra 'Tiempo de espera agotado' (" + label() + ")");
+  ok(!window.__lastAlert, "pasados 5 min: sigue sin disparar ningun error (el backend sigue respondiendo PROCESANDO)");
+  ok(window.document.getElementById("in-caja").value !== "", "el lote sigue activo (el formulario no se reinicio) mientras avisa que tarda mas");
+
+  // Intento 7: el backend deja PROCESANDO -> ya no se agenda un tick nuevo,
+  // el ciclo termina con normalidad (nunca con un error de timeout).
+  fakeNow += 1000;
+  var ultimoTick = tickPendiente;
+  tickPendiente = null;
+  ultimoTick();
+  await waitFor(() => window.document.getElementById("progress-bar").style.width === "100%", 3000);
+  ok(window.document.getElementById("progress-bar").style.width === "100%", "cuando el backend deja PROCESANDO, la barra llega a 100% con normalidad");
+  ok(!window.__lastAlert, "el ciclo completo (incluidos los 5+ min) nunca disparo un error");
+  ok(intentosPolling === TOTAL_PROCESANDO + 1, "el polling siguio consultando /estado mas alla de los 5 minutos simulados sin cortar (" + intentosPolling + " llamadas)");
+  ok(calls.filter((c) => c.url.indexOf("/procesar") !== -1).length === 1, "nunca se creo un segundo lote mientras el primero seguia PROCESANDO (solo 1 llamada a /procesar)");
+  ok(calls.every((c) => c.url.indexOf("lote_id=") === -1 || c.url.indexOf("lote_id=lote-timeout") !== -1), "todo el polling y /datos usaron SIEMPRE el mismo lote_id (nunca se perdio/cambio)");
+
+  window.Date.now = realDateNow;
+  window.setTimeout = realSetTimeout;
+  dom.window.close();
+}
+
+// Complemento del fix anterior: si el backend SI reporta estado_lote=ERROR
+// durante el polling, eso (y solo eso) debe mostrarse como error real,
+// nunca silenciado por el cambio que evita el falso timeout.
+async function test_polling_estado_lote_error_se_muestra_como_error_real() {
+  console.log("\n[TIMEOUT] pollEstadoHastaListo SI muestra el error real cuando estado_lote=ERROR");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  let alertMsg = null;
+  window.alert = function (msg) { alertMsg = msg; };
+  window.fetch = function (url) {
+    if (url.indexOf("/procesar") !== -1) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-err", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
+    }
+    if (url.indexOf("/estado") !== -1 && url.indexOf("lote_id=") !== -1) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", estado_lote: "ERROR", mensaje_error: "MOTOR_FALLO: fallo real simulado del backend" }) });
+    }
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", publication_mode: "dev" }) });
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  await waitFor(() => window.document.getElementById("in-fecha-desde") && window.document.getElementById("in-fecha-desde").value !== "");
+  window.document.getElementById("btn-procesar").click();
+  await waitFor(() => alertMsg !== null, 3000);
+  ok(alertMsg !== null && alertMsg.indexOf("fallo real simulado del backend") !== -1, "estado_lote=ERROR SI se muestra como error real (" + alertMsg + ")");
+  ok(window.document.getElementById("btn-procesar").disabled === false, "el boton PROCESAR se reactiva tras el error real");
+  dom.window.close();
+}
+
+// ---------------------------------------------------------------------------
 // Caja América: selector visible con TIQUIPAYA/AMERICA (default TIQUIPAYA),
 // crear lote manda la caja elegida, y tras crear el lote esa identidad
 // queda bloqueada (no se puede cambiar) para el resto de acciones del lote.
@@ -1350,6 +1481,8 @@ async function test_flujo_diario_nunca_llama_endpoints_mensuales() {
 (async () => {
   await test_demo_no_llama_backend();
   await test_procesar_rango_valido();
+  await test_polling_no_corta_con_error_falso_pasados_5_minutos();
+  await test_polling_estado_lote_error_se_muestra_como_error_real();
   await test_selector_caja_opciones_y_default();
   await test_crear_lote_america_manda_caja_america();
   await test_acciones_posteriores_no_mandan_ni_cambian_caja();
