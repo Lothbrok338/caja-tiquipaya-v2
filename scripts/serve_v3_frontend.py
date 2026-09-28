@@ -273,6 +273,14 @@ AUTH_USERNAME = os.environ.get("TIQ_AUTH_USERNAME", "")
 AUTH_PASSWORD = os.environ.get("TIQ_AUTH_PASSWORD", "")
 AUTH_CONFIGURED = bool(AUTH_USERNAME) and bool(AUTH_PASSWORD)
 
+# Paginas de verificacion OAuth de Google (2026-09): las unicas rutas de
+# CAJAS GABO que quedan publicas a proposito -- Google Cloud Console las
+# visita/audita sin ninguna credencial de este proyecto. Solo estas dos
+# rutas EXACTAS (ver Handler.do_GET); todo el resto de n8n_frontend/
+# (incluido v3_control_cierres.html) sigue exigiendo Basic Auth igual
+# que siempre.
+RUTAS_PUBLICAS_SIN_AUTH = {"/oauth-info.html", "/privacy.html"}
+
 if not AUTH_CONFIGURED:
     print(
         "[serve_v3_frontend] ADVERTENCIA: TIQ_AUTH_USERNAME/TIQ_AUTH_PASSWORD no estan "
@@ -369,6 +377,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Location", "/v3_control_cierres.html")
             self.end_headers()
             return
+        if self.path.partition("?")[0] in RUTAS_PUBLICAS_SIN_AUTH:
+            # Paginas de verificacion OAuth de Google (2026-09): TIENEN
+            # que ser publicas -- Google las visita/audita sin ninguna
+            # credencial de CAJAS GABO -- asi que NUNCA pasan por
+            # _autenticar(), a diferencia de cualquier otro archivo
+            # estatico de n8n_frontend/ (ver el chequeo generico de mas
+            # abajo, que SI sigue exigiendo Basic Auth). Solo estas dos
+            # rutas exactas; todo lo demas sigue protegido igual que
+            # siempre.
+            return super().do_GET()
         if os.path.isfile(self.translate_path(self.path)):
             if not self._autenticar():
                 return

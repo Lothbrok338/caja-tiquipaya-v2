@@ -451,6 +451,31 @@ def test_panel_cajas_gabo_sigue_protegido_con_basic_auth(lanzar_proxy, fake_n8n,
 
 
 # ---------------------------------------------------------------------
+# Paginas de verificacion OAuth de Google (oauth-info.html, privacy.html):
+# UNICAS excepciones publicas dentro de n8n_frontend/ -- Google las
+# visita/audita sin ninguna credencial de CAJAS GABO.
+# ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("archivo", ["/oauth-info.html", "/privacy.html"])
+def test_paginas_oauth_publicas_responden_200_sin_auth(lanzar_proxy, fake_n8n, archivo):
+    puerto_n8n, recibidas = fake_n8n
+    proxy = lanzar_proxy(puerto_n8n)
+    status, headers, cuerpo = proxy.request("GET", archivo)  # sin Authorization
+    assert status == 200
+    assert not _header(headers, "WWW-Authenticate")
+    assert recibidas == [], "las paginas publicas nunca deben tocar n8n"
+    assert b"CAJAS UNIVALLE" in cuerpo
+    assert b"torricogabriel24@gmail.com" in cuerpo
+
+
+def test_oauth_info_enlaza_a_privacy(lanzar_proxy, fake_n8n):
+    puerto_n8n, _ = fake_n8n
+    proxy = lanzar_proxy(puerto_n8n)
+    _, _, cuerpo = proxy.request("GET", "/oauth-info.html")
+    assert b"/privacy.html" in cuerpo
+
+
+# ---------------------------------------------------------------------
 # /webhook/* sigue usando el proxy angosto de siempre: mismo
 # comportamiento (incluida la exigencia de Basic Auth), sin los headers
 # nuevos (X-Forwarded-*, etc.)
