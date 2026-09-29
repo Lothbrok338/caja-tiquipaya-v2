@@ -43,10 +43,25 @@ elif [ -n "${RAILWAY_PUBLIC_DOMAIN:-}" ]; then
   # Railway: RAILWAY_PUBLIC_DOMAIN la inyecta la plataforma automaticamente
   # cuando el servicio tiene un dominio generado. n8n corre solo en la red
   # interna del contenedor (scripts/serve_v3_frontend.py expone /webhook/*
-  # bajo ese mismo dominio en $PORT). El editor queda privado via tunel SSH,
-  # mientras que las URLs de Webhook/Form Trigger usan el dominio publico.
+  # Y (2026-09) /n8n-admin + el resto de las rutas propias de n8n bajo
+  # ese mismo dominio en $PORT -- ver docstring de ese archivo). Fijar
+  # TIQ_N8N_EDITOR_BASE_URL=https://<dominio-railway> en las variables
+  # del servicio es lo que hace que n8n genere URLs/redirect_uri de
+  # OAuth correctos para ese acceso; sin fijarla, sigue el default de
+  # siempre (localhost:5678, solo accesible via tunel SSH).
   export N8N_EDITOR_BASE_URL="${TIQ_N8N_EDITOR_BASE_URL:-http://localhost:5678}"
   export N8N_WEBHOOK_URL="https://${RAILWAY_PUBLIC_DOMAIN}"
+  # Acceso admin al editor sobre el mismo dominio (2026-09):
+  # scripts/serve_v3_frontend.py ahora reenvia hacia n8n TODO lo que no
+  # sea un archivo estatico local de n8n_frontend/ ni /webhook/* (ver
+  # _proxy_n8n ahi) -- n8n nunca usa N8N_PATH (sigue creyendo que vive
+  # en la raiz), pero queda detras de un hop real de proxy (ese mismo
+  # proceso), asi que necesita confiar en los headers X-Forwarded-*
+  # que agrega (protocolo real https, IP real del cliente) para
+  # generar URLs/cookies/redirect_uri de OAuth correctos. Sin esto,
+  # n8n podria creer que la conexion es HTTP plano y romper cookies
+  # `secure` o URLs generadas.
+  export N8N_PROXY_HOPS="${N8N_PROXY_HOPS:-1}"
 elif [ -n "${N8N_EDITOR_BASE_URL:-}" ]; then
   # Compatibilidad con entornos existentes que todavia usan WEBHOOK_URL.
   export WEBHOOK_URL="${N8N_EDITOR_BASE_URL}"

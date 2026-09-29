@@ -46,6 +46,7 @@ import correcciones_tiquipaya as correcciones  # noqa: E402  (reutilizado tal cu
 from v3.materializacion import _verificar_contenido_en_base_dir  # noqa: E402
 from v3.ingesta import ejecutar_ingesta, ENCONTRADO as _INGESTA_ENCONTRADO  # noqa: E402
 from v3.materializacion import ejecutar_materializacion  # noqa: E402
+from v3.normalizacion_fecha_deposito import normalizar_cierres_materializados  # noqa: E402
 from v3.motor import ejecutar_motor  # noqa: E402
 from v3.precheck_maestro import aplicar_precheck_maestro, filtrar_aptos_para_motor  # noqa: E402
 from v3.clasificacion import ejecutar_clasificacion, LISTO_PARA_PUBLICAR, ERROR_REVISAR  # noqa: E402
@@ -231,6 +232,17 @@ def procesar_lote(lote_id, base_dir_dev, origen_cierres_dir, ruta_maestro_origen
             "ruta_maestro_origen": ruta_maestro_origen, "ruta_plantilla_origen": ruta_plantilla_origen,
             "markers_origen_dir": markers_origen_dir, "mes_rango": mes_rango,
         })
+
+        # Hallazgo real (CAJA AMÉRICA, 2026-09-28): normaliza, en una COPIA
+        # nueva (nunca el original de Drive, nunca la copia materializada
+        # tal cual), las FECHA DE DEPOSITO con formato de texto ambiguo
+        # pero SEGURO de corregir (mismo año que el cierre) — ver
+        # v3/normalizacion_fecha_deposito.py, misma regla del auditor. A
+        # partir de aquí, `ruta_cierre_local` de cada item YA es la copia
+        # normalizada cuando hizo falta: precheck, motor, SAP y
+        # rectificación posterior la usan sin saber que existe este paso
+        # (todos leen ruta_cierre_local, nunca el origen directamente).
+        materializados = normalizar_cierres_materializados(materializados, caja=caja_lote.codigo)
 
         # FASE 10C: precheck de cobertura del maestro, ANTES del motor (ver
         # v3/precheck_maestro.py) — v3.motor.ejecutar_motor() JAMAS recibe

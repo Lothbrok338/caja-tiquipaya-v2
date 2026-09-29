@@ -46,7 +46,7 @@ import run_batch  # noqa: E402  (reutilizado tal cual: _ESTADO_MAP)
 from v3.ingesta import SIN_ARCHIVO as ING_SIN_ARCHIVO, AMBIGUO as ING_AMBIGUO, ERROR_INGESTA  # noqa: E402
 from v3.materializacion import ERROR_MATERIALIZACION  # noqa: E402
 from v3.motor import PROCESADO, NO_PROCESADO, ERROR_MOTOR, _ESTADO_MOTOR_MAP_RESULTADO  # noqa: E402
-from v3.precheck_maestro import BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA  # noqa: E402
+from v3.precheck_maestro import BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA  # noqa: E402
 import pipeline_tiquipaya as pipeline  # noqa: E402
 
 
@@ -71,6 +71,13 @@ _ESTADOS_FINALES_V2 = (LISTO_PARA_PUBLICAR, ERROR_REVISAR, SIN_ARCHIVO, YA_PROCE
 # 02 y 03) — un item que nunca pasó por el precheck se clasifica exactamente
 # igual que antes de FASE 10C, sin ningún cambio de comportamiento.
 BLOQUEADO_MAESTRO = BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA
+
+# Séptimo estado (hallazgo real CAJA AMÉRICA, 2026-09-28): distinto de
+# BLOQUEADO_MAESTRO a propósito -- el problema es una fecha de depósito
+# inválida DENTRO del propio cierre, nunca cobertura del maestro. Antes de
+# esto, ese caso caía indistinguible dentro de BLOQUEADO_MAESTRO (mismo
+# mensaje "Maestro sin cobertura" engañoso) -- ver v3/precheck_maestro.py.
+CIERRE_FECHA_INVALIDA_ESTADO = CIERRE_FECHA_INVALIDA
 
 ACCION_PUBLICAR = "PUBLICAR"
 ACCION_REVISAR = "REVISAR"
@@ -97,6 +104,7 @@ _ACCION_POR_ESTADO = {
     # corregir aquí (ver v3/precheck_maestro.py) — no se ofrece formulario
     # de corrección ni botón de publicar para este estado.
     BLOQUEADO_MAESTRO: ACCION_NINGUNA,
+    CIERRE_FECHA_INVALIDA_ESTADO: ACCION_NINGUNA,
 }
 
 _MENSAJES = {
@@ -109,6 +117,10 @@ _MENSAJES = {
         "El maestro mensual no tiene cobertura confirmada hasta la fecha de "
         "este cierre. Verifique o actualice el maestro antes de procesar — "
         "esto no es necesariamente un error del cierre."
+    ),
+    CIERRE_FECHA_INVALIDA_ESTADO: (
+        "Fecha de depósito inválida en el cierre. Corrija la fecha en el archivo "
+        "del cierre y vuelva a procesar — esto no es un problema del maestro."
     ),
 }
 
@@ -151,6 +163,10 @@ def clasificar_cierre(item):
         # ERROR_TECNICO, para no confundir "el maestro no llegó a esta
         # fecha" con "el cierre tiene un problema real".
         estado_final = BLOQUEADO_MAESTRO
+    elif estado_precheck_maestro == CIERRE_FECHA_INVALIDA_ESTADO:
+        # Distinto de BLOQUEADO_MAESTRO a propósito: el problema es del
+        # propio cierre (fecha de depósito inválida), nunca del maestro.
+        estado_final = CIERRE_FECHA_INVALIDA_ESTADO
     elif estado_motor == ERROR_MOTOR:
         estado_final = ERROR_TECNICO
     elif estado_motor == PROCESADO:

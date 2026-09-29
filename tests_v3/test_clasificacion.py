@@ -118,6 +118,32 @@ def test_ya_procesado_da_ya_procesado():
     assert r["requiere_revision"] is False
 
 
+# 8b) hallazgo real (CAJA AMÉRICA, 2026-09-28): estado_precheck_maestro ==
+# CIERRE_FECHA_INVALIDA (v3/precheck_maestro.py) -> estado_final propio,
+# distinto de BLOQUEADO_MAESTRO -- nunca publicable, nunca "requiere
+# revisión" (no es un error contable del cierre que el auditor corrija
+# aquí, es una precondición de entorno, mismo criterio que BLOQUEADO_MAESTRO).
+def test_cierre_fecha_invalida_tiene_su_propio_estado_final():
+    from v3.clasificacion import CIERRE_FECHA_INVALIDA_ESTADO
+    r = clasificar_cierre(_base_item(estado_precheck_maestro=CIERRE_FECHA_INVALIDA_ESTADO))
+    assert r["estado_final"] == CIERRE_FECHA_INVALIDA_ESTADO
+    assert r["accion_siguiente"] == ACCION_NINGUNA
+    assert r["publicable"] is False
+    assert r["requiere_revision"] is False
+    assert "Fecha de depósito inválida en el cierre" in r["mensaje"]
+    assert "no es un problema del maestro" in r["mensaje"].lower()
+    assert "cobertura confirmada" not in r["mensaje"].lower()  # nunca el texto de BLOQUEADO_MAESTRO
+
+
+def test_cierre_fecha_invalida_distinto_de_bloqueado_maestro():
+    from v3.clasificacion import CIERRE_FECHA_INVALIDA_ESTADO, BLOQUEADO_MAESTRO
+    assert CIERRE_FECHA_INVALIDA_ESTADO != BLOQUEADO_MAESTRO
+    r_maestro = clasificar_cierre(_base_item(estado_precheck_maestro=BLOQUEADO_MAESTRO))
+    r_fecha = clasificar_cierre(_base_item(estado_precheck_maestro=CIERRE_FECHA_INVALIDA_ESTADO))
+    assert r_maestro["estado_final"] != r_fecha["estado_final"]
+    assert r_maestro["mensaje"] != r_fecha["mensaje"]
+
+
 # 9) diferencia distinta de cero -> nunca LISTO (V2: pipeline solo marca
 # VALIDADO_PENDIENTE_PUBLICACION si diferencia==0; cualquier otro caso con
 # blockers==0 pero diferencia!=0 termina en estado interno ERROR).
