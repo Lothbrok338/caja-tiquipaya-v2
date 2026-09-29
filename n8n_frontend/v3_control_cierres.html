@@ -214,6 +214,59 @@
   }
   .toolbar .grow { flex: 1; }
 
+  /* ---------------- publicacion multiple (seleccion + lote) ---------------- */
+  .bulk-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--panel);
+  }
+  .bulk-bar[hidden] { display: none; }
+  .bulk-bar .bulk-spacer { flex: 1; }
+  th.col-sel, td.col-sel { width: 34px; text-align: center; padding-left: 10px; padding-right: 4px; }
+  td.col-sel input, th.col-sel input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--guindo); }
+  tbody tr.en-lote-actual td { background: rgba(200,155,44,0.14); }
+
+  .lote-panel { padding: 14px 18px; border-bottom: 1px solid var(--border-soft); background: var(--panel-2); }
+  .lote-panel[hidden] { display: none; }
+  .lote-titulo { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 13.5px; margin-bottom: 8px; }
+  .lote-titulo .spacer { flex: 1; }
+  .lote-titulo.terminado { color: var(--guindo-dark); }
+  .lote-resumen { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 13px; margin-bottom: 8px; font-family: var(--mono); }
+  .lote-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 2px 24px; font-size: 13px; }
+  .lote-item { padding: 3px 0; border-bottom: 1px dashed var(--border-soft); }
+  .lote-item .f { font-family: var(--mono); margin-right: 8px; }
+  .lote-item.publicado { color: var(--green); }
+  .lote-item.no_publicado { color: var(--amber); }
+  .lote-item.error { color: var(--red); }
+  .lote-item.pendiente { color: var(--muted2); }
+  .lote-item.publicando { color: var(--guindo-dark); font-weight: 700; }
+  .lote-item .motivo { color: var(--muted); font-weight: 400; }
+
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(45,35,30,0.45);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay[hidden] { display: none; }
+  .modal-box {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--guindo);
+    border-radius: 10px;
+    max-width: 560px; width: 100%;
+    padding: 20px 24px;
+    box-shadow: 0 8px 30px rgba(45,35,30,0.25);
+  }
+  .modal-box h3 { margin: 0 0 12px; font-size: 15px; color: var(--guindo-dark); }
+  .modal-box p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.45; }
+  .modal-box .modal-fechas { font-family: var(--mono); font-size: 12.5px; background: var(--bg-alt); border: 1px solid var(--border-soft); border-radius: 6px; padding: 8px 10px; margin-bottom: 14px; max-height: 120px; overflow: auto; }
+  .modal-box .modal-acciones { display: flex; justify-content: flex-end; gap: 10px; }
+
   /* ---------------- avance de la caja seleccionada ---------------- */
   .avance-caja {
     display: flex;
@@ -611,10 +664,26 @@
   <div class="layout">
     <div class="panel">
       <h2>Cierres del rango</h2>
+      <!-- PUBLICACION MULTIPLE: solo orquesta, desde aqui, la publicacion
+           individual que ya existe (publicarCierre/enviarPublicacion), UNO
+           por uno y en secuencia. No hay endpoint nuevo ni logica de
+           publicacion masiva. -->
+      <div class="bulk-bar" id="bulk-bar">
+        <button class="small" id="btn-sel-listos">Seleccionar listos</button>
+        <button class="small ghost" id="btn-desel">Deseleccionar</button>
+        <span class="bulk-spacer"></span>
+        <button class="small publicar" id="btn-publicar-sel" disabled>Publicar seleccionados (0)</button>
+      </div>
+      <div class="lote-panel" id="lote-panel" hidden>
+        <div class="lote-titulo" id="lote-titulo"></div>
+        <div class="lote-resumen" id="lote-resumen"></div>
+        <div class="lote-lista" id="lote-lista"></div>
+      </div>
       <div class="table-scroll">
         <table>
           <thead>
             <tr>
+              <th class="col-sel"><input type="checkbox" id="chk-todos" title="Seleccionar / deseleccionar todos" aria-label="Seleccionar todos los cierres"></th>
               <th>Fecha</th>
               <th>Archivo</th>
               <th>Estado</th>
@@ -626,7 +695,7 @@
             </tr>
           </thead>
           <tbody id="tabla-body">
-            <tr><td colspan="8" class="empty-state">Pulsa "Procesar cierres" para cargar el rango.</td></tr>
+            <tr><td colspan="9" class="empty-state">Pulsa "Procesar cierres" para cargar el rango.</td></tr>
           </tbody>
         </table>
       </div>
@@ -667,6 +736,20 @@
   </div>
 
 </main>
+
+<!-- Confirmacion de PUBLICAR SELECCIONADOS (no es window.confirm: necesita los
+     botones CANCELAR / PUBLICAR N CIERRES y la lista de fechas). -->
+<div class="modal-overlay" id="modal-lote" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-lote-titulo">
+    <h3 id="modal-lote-titulo">Publicar seleccionados</h3>
+    <div id="modal-lote-texto"></div>
+    <div class="modal-fechas" id="modal-lote-fechas"></div>
+    <div class="modal-acciones">
+      <button class="ghost" id="btn-lote-cancelar">CANCELAR</button>
+      <button class="primary publicar" id="btn-lote-confirmar">PUBLICAR</button>
+    </div>
+  </div>
+</div>
 
 <footer class="dev-footer">
   BACKEND DEV (FASE 9): /webhook/tiq-v3-dev/{estado,procesar,datos,revisar,corregir,publicar} — workflow "TIQ V3 · BACKEND DEV (webhooks)", inactivo por defecto; cada endpoint invoca v3/dev_api.py (Python, unica autoridad) via el mismo patron Execute-Command+base64 de los 7 subworkflows. Ver constantes ENDPOINTS en el codigo fuente.<br>
@@ -775,7 +858,12 @@
     CIERRE_FECHA_INVALIDA: { label: "Fecha de depósito inválida", tag: "bloqueo-maestro" },
   };
 
-  var state = { cierres: [], seleccion: null, loteId: null, publicationMode: "loading", publicationModeConfirmado: false, caja: null };
+  // marcados: fecha -> true (seleccion multiple de la tabla, ver PUBLICACION
+  // MULTIPLE). loteEnCurso / publicacionActiva: candado unico de publicacion
+  // (una sola llamada a /publicar en vuelo a la vez, sea individual, de lote
+  // o rectificacion). resultadosLote: {items:[{fecha,estado,motivo}],terminado}.
+  var state = { cierres: [], seleccion: null, loteId: null, publicationMode: "loading", publicationModeConfirmado: false, caja: null,
+                marcados: {}, loteEnCurso: false, publicacionActiva: null, resultadosLote: null };
 
   // Caja: se elige UNA sola vez, al crear el lote (ver v3/dev_api.py
   // crear_lote_pendiente/_caja_lote). Una vez creado el lote, el selector
@@ -1221,6 +1309,7 @@
     // dentro del panel de detalle (Ver), no como botones sueltos de fila.
     if (esPublicable(cierre)) {
       var btnPub = el("button", { class: "small publicar", text: "Publicar" });
+      if (state.loteEnCurso) btnPub.disabled = true; // durante un lote solo publica el lote
       btnPub.addEventListener("click", function (ev) { ev.stopPropagation(); publicarCierre(cierre); });
       wrap.appendChild(btnPub);
     }
@@ -1246,13 +1335,16 @@
     var body = qs("#tabla-body");
     body.innerHTML = "";
     if (!cierres.length) {
-      body.appendChild(el("tr", {}, [el("td", { colspan: "8", class: "empty-state", text: "Sin cierres en este rango." })]));
+      body.appendChild(el("tr", {}, [el("td", { colspan: "9", class: "empty-state", text: "Sin cierres en este rango." })]));
+      renderBulk();
       return;
     }
     cierres.forEach(function (c) {
       var info = ESTADOS[c.estado] || { label: c.estado || "—", tag: "neutral" };
-      var tr = el("tr", { "data-hash": c.hash || c.fecha });
+      var tr = el("tr", { "data-hash": c.hash || c.fecha, "data-fecha": c.fecha });
       if (state.seleccion && state.seleccion.fecha === c.fecha) tr.classList.add("selected");
+      if (state.publicacionActiva === c.fecha && state.loteEnCurso) tr.classList.add("en-lote-actual");
+      tr.appendChild(celdaSeleccion(c));
       tr.appendChild(el("td", { class: "mono", text: fmtFecha(c.fecha) }));
       tr.appendChild(el("td", { text: c.archivo || "—" }));
       var celdaEstado = el("td", {}, [el("span", { class: "tag " + info.tag, text: info.label })]);
@@ -1267,6 +1359,7 @@
       tr.addEventListener("click", function () { seleccionar(c); });
       body.appendChild(tr);
     });
+    renderBulk();
   }
 
   function seleccionar(cierre) {
@@ -1699,8 +1792,10 @@
 
   function rectificarCierre(cierre) {
     if (!RECTIFICACION_HABILITADA || !esRectificable(cierre)) return;
+    if (publicacionOcupada()) return; // candado unico: nunca dos /publicar a la vez
     if (!confirmarRectificacion(cierre.fecha)) return;
     var usuarioAuditor = qs("#in-usuario-auditor").value || "auditor.dev";
+    state.publicacionActiva = cierre.fecha;
     apiPost(ENDPOINTS.publicar, {
       lote_id: state.loteId, fechas: [cierre.fecha], usuario_auditor: usuarioAuditor, rectificacion: true,
     }).then(function (resp) {
@@ -1718,14 +1813,42 @@
       renderTabla(state.cierres);
       renderDetalle();
       cargarAvanceCaja();
-    }).catch(function (err) { mostrarErrorBackend(err.message || String(err)); });
+    }).catch(function (err) { mostrarErrorBackend(err.message || String(err)); })
+      .finally(function () { state.publicacionActiva = null; });
   }
+
+  // -----------------------------------------------------------------------
+  // PUBLICACION — nucleo UNICO compartido por el boton Publicar individual y
+  // por la publicacion multiple. Hay una sola implementacion de "publicar un
+  // cierre": enviarPublicacion() arma el MISMO payload de siempre
+  // ({lote_id, fechas:[fecha], usuario_auditor}) hacia el MISMO endpoint, y
+  // aplicarRespuestaPublicacion() vuelca la respuesta del backend al estado.
+  // Toda decision real (bloqueadores, preflight, idempotencia SHA256, Drive,
+  // marcador, rectificacion) sigue siendo del backend; aqui no se decide nada.
+  // -----------------------------------------------------------------------
+  function enviarPublicacion(cierre) {
+    var usuarioAuditor = qs("#in-usuario-auditor").value || "auditor.dev";
+    return apiPost(ENDPOINTS.publicar, { lote_id: state.loteId, fechas: [cierre.fecha], usuario_auditor: usuarioAuditor });
+  }
+
+  function aplicarRespuestaPublicacion(resp) {
+    (resp.publicados || []).forEach(function (p) {
+      var actualizado = actualizarCierreEnEstado(p);
+      if (state.seleccion && state.seleccion.fecha === p.fecha) state.seleccion = actualizado;
+    });
+  }
+
+  // Candado unico: una sola publicacion (individual, de lote o rectificacion)
+  // en vuelo a la vez. Evita doble clic sobre el mismo cierre y cualquier
+  // publicacion simultanea (el backend persiste cada lote en un solo archivo).
+  function publicacionOcupada() { return state.loteEnCurso || state.publicacionActiva !== null; }
 
   function publicarCierre(cierre) {
     if (!esPublicable(cierre)) return;
+    if (publicacionOcupada()) return;
     if (!confirmarPublicacion([cierre.fecha])) return;
-    var usuarioAuditor = qs("#in-usuario-auditor").value || "auditor.dev";
-    apiPost(ENDPOINTS.publicar, { lote_id: state.loteId, fechas: [cierre.fecha], usuario_auditor: usuarioAuditor }).then(function (resp) {
+    state.publicacionActiva = cierre.fecha;
+    enviarPublicacion(cierre).then(function (resp) {
       if (resp.omitidos && resp.omitidos.length) {
         mostrarErrorBackend(resp.omitidos.map(function (o) { return o.fecha + ": " + o.motivo; }).join("\n"));
       }
@@ -1733,14 +1856,275 @@
         if (esPublicacionOficial() && p.estado_publicacion === "ERROR_PUBLICACION_OFICIAL") {
           mostrarErrorBackend(fmtFecha(p.fecha) + ": la publicación oficial NO se completó.\n" + (p.mensaje || "No hay confirmación de Drive."));
         }
-        var actualizado = actualizarCierreEnEstado(p);
-        if (state.seleccion && state.seleccion.fecha === p.fecha) state.seleccion = actualizado;
       });
+      aplicarRespuestaPublicacion(resp);
       renderIndicadores(state.cierres);
       renderTabla(state.cierres);
       renderDetalle();
       cargarAvanceCaja();
-    }).catch(function (err) { mostrarErrorBackend(err.message || String(err)); });
+    }).catch(function (err) { mostrarErrorBackend(err.message || String(err)); })
+      .finally(function () { state.publicacionActiva = null; });
+  }
+
+  // -----------------------------------------------------------------------
+  // PUBLICACION MULTIPLE — solo ORQUESTA la publicacion individual de arriba
+  // (mismo enviarPublicacion / aplicarRespuestaPublicacion / guard
+  // esPublicable), UNO por uno, EN SECUENCIA (cada /publicar espera la
+  // respuesta del anterior; jamas en paralelo). Un cierre
+  // que no se publica (bloqueado por el backend) o falla (error tecnico) se
+  // registra y el lote CONTINUA con el siguiente. El frontend no decide si
+  // un cierre es contablemente correcto: "Seleccionar listos" solo usa lo ya
+  // mostrado en la tabla, y la autoridad final es siempre /publicar.
+  // -----------------------------------------------------------------------
+  function buscarCierre(fecha) {
+    for (var i = 0; i < state.cierres.length; i++) if (state.cierres[i].fecha === fecha) return state.cierres[i];
+    return null;
+  }
+
+  function fechasMarcadas() {
+    return state.cierres.filter(function (c) { return state.marcados[c.fecha]; }).map(function (c) { return c.fecha; });
+  }
+
+  // Ayuda visual para "Seleccionar listos": SOLO lo que la tabla ya muestra
+  // (estado LISTO y no publicado, con SAP, y sin aviso de rectificacion).
+  function esSeleccionableListo(c) {
+    return esPublicable(c) && !!c.sap && c.sap !== "—" && !esRectificable(c);
+  }
+
+  function celdaSeleccion(c) {
+    var chk = el("input", { type: "checkbox", class: "chk-cierre", "data-fecha": c.fecha, "aria-label": "Seleccionar cierre " + fmtFecha(c.fecha) });
+    chk.checked = !!state.marcados[c.fecha];
+    chk.disabled = DEMO || state.loteEnCurso;
+    chk.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    chk.addEventListener("change", function () {
+      if (chk.checked) state.marcados[c.fecha] = true; else delete state.marcados[c.fecha];
+      renderBulk();
+    });
+    var td = el("td", { class: "col-sel" }, [chk]);
+    td.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    return td;
+  }
+
+  function renderBulk() {
+    var n = fechasMarcadas().length;
+    var btn = qs("#btn-publicar-sel");
+    btn.textContent = "Publicar seleccionados (" + n + ")";
+    btn.disabled = DEMO || state.loteEnCurso || n === 0 || !state.loteId;
+    qs("#btn-sel-listos").disabled = DEMO || state.loteEnCurso || !state.cierres.length;
+    qs("#btn-desel").disabled = DEMO || state.loteEnCurso || n === 0;
+    var todos = qs("#chk-todos");
+    todos.disabled = DEMO || state.loteEnCurso || !state.cierres.length;
+    todos.checked = state.cierres.length > 0 && n === state.cierres.length;
+  }
+
+  function seleccionarListos() {
+    if (state.loteEnCurso) return;
+    state.marcados = {};
+    state.cierres.forEach(function (c) { if (esSeleccionableListo(c)) state.marcados[c.fecha] = true; });
+    renderTabla(state.cierres);
+  }
+
+  function deseleccionarTodos() {
+    if (state.loteEnCurso) return;
+    state.marcados = {};
+    renderTabla(state.cierres);
+  }
+
+  function seleccionarTodosLosCierres(marcar) {
+    if (state.loteEnCurso) return;
+    state.marcados = {};
+    if (marcar) state.cierres.forEach(function (c) { state.marcados[c.fecha] = true; });
+    renderTabla(state.cierres);
+  }
+
+  var ROTULO_LOTE = {
+    pendiente: "Pendiente", publicando: "⏳ Publicando...", publicado: "✅ Publicado",
+    no_publicado: "❌ No publicado", error: "❌ Error",
+  };
+
+  function renderResultadosLote() {
+    var panel = qs("#lote-panel"), r = state.resultadosLote;
+    panel.hidden = !r;
+    if (!r) return;
+    var total = r.items.length;
+    var cuenta = { publicado: 0, no_publicado: 0, error: 0 };
+    var hechos = 0;
+    r.items.forEach(function (it) {
+      if (cuenta[it.estado] !== undefined) { cuenta[it.estado]++; hechos++; }
+    });
+    var titulo = qs("#lote-titulo");
+    titulo.innerHTML = "";
+    titulo.className = "lote-titulo" + (r.terminado ? " terminado" : "");
+    if (r.terminado) {
+      titulo.appendChild(el("span", { text: "PUBLICACIÓN TERMINADA" }));
+      titulo.appendChild(el("span", { class: "spacer" }));
+      var btnCerrar = el("button", { class: "small ghost", id: "btn-lote-cerrar", text: "Cerrar resultados" });
+      btnCerrar.addEventListener("click", cerrarResultadosLote);
+      titulo.appendChild(btnCerrar);
+    } else {
+      var actual = Math.min(hechos + 1, total);
+      titulo.appendChild(el("span", { text: "Publicando " + actual + " de " + total + "..." }));
+    }
+    var resumen = qs("#lote-resumen");
+    resumen.innerHTML = "";
+    if (r.terminado) {
+      [["Seleccionados", total], ["Publicados", cuenta.publicado], ["No publicados", cuenta.no_publicado], ["Errores", cuenta.error]].forEach(function (kv) {
+        resumen.appendChild(el("span", { text: kv[0] + ": " + kv[1] }));
+      });
+    }
+    var lista = qs("#lote-lista");
+    lista.innerHTML = "";
+    r.items.forEach(function (it) {
+      var fila = el("div", { class: "lote-item " + it.estado, "data-fecha": it.fecha });
+      fila.appendChild(el("span", { class: "f", text: fmtFecha(it.fecha) }));
+      fila.appendChild(document.createTextNode(ROTULO_LOTE[it.estado]));
+      if (it.motivo) fila.appendChild(el("span", { class: "motivo", text: " — " + it.motivo }));
+      lista.appendChild(fila);
+    });
+  }
+
+  function cerrarResultadosLote() {
+    if (state.loteEnCurso) return;
+    state.resultadosLote = null;
+    renderResultadosLote();
+  }
+
+  // Mientras corre un lote: nada mas puede publicar, procesar, recargar ni
+  // cambiar la seleccion.
+  function bloquearAccionesDeLote(bloquear) {
+    ["#btn-procesar", "#btn-recargar"].forEach(function (sel) { qs(sel).disabled = bloquear; });
+    Array.prototype.forEach.call(document.querySelectorAll("#detalle-body button.publicar, #detalle-body button.rectificar"), function (b) { b.disabled = bloquear; });
+  }
+
+  function motivoNoPublicable(cierre) {
+    if (estaPublicado(cierre)) return "Ya estaba publicado; no se volvió a enviar.";
+    var raw = cierre._raw || {};
+    var estado = raw.resultado_reproceso || raw.estado_final || cierre.estado;
+    var etiqueta = (ESTADOS[estado] || {}).label || estado || "desconocido";
+    var bloq = cierre.blockers;
+    return "No habilitado para publicación (estado: " + etiqueta + (bloq ? "; " + bloq + " bloqueador(es)" : "") + ").";
+  }
+
+  // Clasifica la respuesta de /publicar SIN reinterpretar reglas: NO PUBLICADO
+  // = el sistema lo rechazo o bloqueo correctamente; ERROR = fallo tecnico.
+  function clasificarRespuestaPublicacion(resp, fecha) {
+    var omitido = (resp.omitidos || []).filter(function (o) { return o.fecha === fecha; })[0];
+    var p = (resp.publicados || []).filter(function (x) { return x.fecha === fecha; })[0];
+    if (!p) {
+      return omitido
+        ? { estado: "no_publicado", motivo: omitido.motivo || "Rechazado por el backend." }
+        : { estado: "error", motivo: "El backend no devolvió resultado para este cierre." };
+    }
+    var actual = buscarCierre(fecha);
+    if (actual && estaPublicado(actual)) {
+      var idem = p.estado_publicacion === "YA_PUBLICADO" || p.estado_publicacion === "YA_PUBLICADO_OFICIAL";
+      return { estado: "publicado", motivo: idem ? "Ya estaba publicado (idempotente)." : "" };
+    }
+    if (p.estado_publicacion === "NO_PUBLICABLE") return { estado: "no_publicado", motivo: p.mensaje || "El backend no lo considera publicable." };
+    if (p.estado_publicacion === "CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION") {
+      return { estado: "no_publicado", motivo: (p.mensaje || "Ya existe un cierre oficial distinto para esta fecha.") + " Use RECTIFICAR CIERRE PUBLICADO (individual)." };
+    }
+    return { estado: "error", motivo: p.mensaje || ("Estado de publicación: " + (p.estado_publicacion || "sin estado")) };
+  }
+
+  // Publica UN cierre del lote por el mismo camino que el boton individual.
+  // Siempre resuelve (nunca rechaza): el lote no puede romperse por un cierre.
+  function publicarCierreDeLote(item) {
+    var cierre = buscarCierre(item.fecha);
+    if (!cierre) {
+      item.estado = "no_publicado"; item.motivo = "El cierre ya no está en la lista.";
+      return Promise.resolve();
+    }
+    // Mismo guard que el boton individual, evaluado AHORA (no al seleccionar).
+    if (!esPublicable(cierre)) {
+      item.estado = "no_publicado"; item.motivo = motivoNoPublicable(cierre);
+      return Promise.resolve();
+    }
+    return Promise.resolve().then(function () {
+      return enviarPublicacion(cierre);
+    }).then(function (resp) {
+      aplicarRespuestaPublicacion(resp);
+      var r = clasificarRespuestaPublicacion(resp, item.fecha);
+      item.estado = r.estado; item.motivo = r.motivo;
+    }).catch(function (err) {
+      item.estado = "error"; item.motivo = (err && err.message) || String(err);
+    });
+  }
+
+  function iniciarLotePublicacion(fechas) {
+    if (state.loteEnCurso || state.publicacionActiva !== null || !fechas.length) return;
+    state.loteEnCurso = true;
+    state.resultadosLote = { items: fechas.map(function (f) { return { fecha: f, estado: "pendiente", motivo: "" }; }), terminado: false };
+    bloquearAccionesDeLote(true);
+    renderResultadosLote();
+    renderTabla(state.cierres);
+
+    var i = 0;
+    function siguiente() {
+      if (i >= state.resultadosLote.items.length) return Promise.resolve();
+      var item = state.resultadosLote.items[i++];
+      item.estado = "publicando";
+      state.publicacionActiva = item.fecha;
+      renderResultadosLote();
+      renderTabla(state.cierres);
+      return publicarCierreDeLote(item).then(function () {
+        state.publicacionActiva = null;
+        renderIndicadores(state.cierres);
+        renderResultadosLote();
+        return siguiente();
+      });
+    }
+    siguiente().catch(function (err) {
+      // No deberia ocurrir (publicarCierreDeLote nunca rechaza); si pasa, los
+      // items que no llegaron a correr quedan como ERROR visibles, sin colgar la UI.
+      state.resultadosLote.items.forEach(function (it) {
+        if (it.estado === "pendiente" || it.estado === "publicando") { it.estado = "error"; it.motivo = (err && err.message) || String(err); }
+      });
+    }).then(function () {
+      state.publicacionActiva = null;
+      state.loteEnCurso = false;
+      state.resultadosLote.terminado = true;
+      bloquearAccionesDeLote(false);
+      // Refresco final: estados, contadores, detalle y "Procesado continuo hasta".
+      state.marcados = {};
+      renderIndicadores(state.cierres);
+      renderTabla(state.cierres);
+      renderDetalle();
+      renderResultadosLote();
+      cargarAvanceCaja();
+    });
+  }
+
+  // Confirmacion previa (modal propio: necesita CANCELAR / PUBLICAR N CIERRES).
+  var fechasPendientesDeConfirmar = [];
+
+  function abrirConfirmacionLote() {
+    if (publicacionOcupada()) return;
+    var fechas = fechasMarcadas();
+    if (!fechas.length) return;
+    fechasPendientesDeConfirmar = fechas;
+    var n = fechas.length;
+    var texto = qs("#modal-lote-texto");
+    texto.innerHTML = "";
+    texto.appendChild(el("p", { text: "Se intentarán publicar " + n + (n === 1 ? " cierre" : " cierres") + ", uno por uno." }));
+    texto.appendChild(el("p", { text: esPublicacionOficial()
+      ? "Cada cierre se publica oficialmente en Drive y se mueve a Procesados."
+      : "Modo DEV: solo copias locales, no se escribe nada en Drive." }));
+    texto.appendChild(el("p", { text: "Los cierres que presenten errores o bloqueadores no se publicarán y el proceso continuará con los siguientes." }));
+    qs("#modal-lote-fechas").textContent = fechas.map(fmtFecha).join(", ");
+    qs("#btn-lote-confirmar").textContent = "PUBLICAR " + n + (n === 1 ? " CIERRE" : " CIERRES");
+    qs("#modal-lote").hidden = false;
+  }
+
+  function cerrarConfirmacionLote() {
+    qs("#modal-lote").hidden = true;
+    fechasPendientesDeConfirmar = [];
+  }
+
+  function confirmarLotePublicacion() {
+    var fechas = fechasPendientesDeConfirmar;
+    cerrarConfirmacionLote();
+    iniciarLotePublicacion(fechas);
   }
 
   // Convierte el item que devuelve v3.dev_api (fecha/archivo_esperado/
@@ -1848,6 +2232,7 @@
     bar.style.width = "0%"; pct.textContent = "0%";
     label.textContent = "Enviando solicitud a " + ENDPOINTS.procesar + "...";
     state.cierres = []; state.seleccion = null; state.loteId = null; state.caja = null;
+    state.marcados = {}; state.resultadosLote = null; renderResultadosLote();
     desbloquearSelectorCaja();
     renderTabla([]); renderDetalle();
 
@@ -1904,6 +2289,7 @@
   // -----------------------------------------------------------------------
   function procesarCierres() {
     var btn = qs("#btn-procesar");
+    if (state.loteEnCurso) return; // no se reprocesa mientras se publica un lote
 
     if (!DEMO) {
       procesarCierresReal();
@@ -1998,9 +2384,19 @@
     renderIndicadores([]);
     cargarAvanceCaja();
     qs("#in-caja").addEventListener("change", cargarAvanceCaja);
-    qs("#tabla-body").innerHTML = '<tr><td colspan="8" class="empty-state">' + textoPlaceholderVacio() + '</td></tr>';
+    qs("#tabla-body").innerHTML = '<tr><td colspan="9" class="empty-state">' + textoPlaceholderVacio() + '</td></tr>';
+    // Publicacion multiple: en demo no aplica (ningun boton llama al backend).
+    qs("#bulk-bar").hidden = DEMO;
+    qs("#btn-sel-listos").addEventListener("click", seleccionarListos);
+    qs("#btn-desel").addEventListener("click", deseleccionarTodos);
+    qs("#chk-todos").addEventListener("change", function () { seleccionarTodosLosCierres(qs("#chk-todos").checked); });
+    qs("#btn-publicar-sel").addEventListener("click", abrirConfirmacionLote);
+    qs("#btn-lote-cancelar").addEventListener("click", cerrarConfirmacionLote);
+    qs("#btn-lote-confirmar").addEventListener("click", confirmarLotePublicacion);
+    renderBulk();
     qs("#btn-procesar").addEventListener("click", procesarCierres);
     qs("#btn-recargar").addEventListener("click", function () {
+      if (state.loteEnCurso) return; // no se libera el lote mientras se publica
       // FASE CAJA-AMERICA: Recargar debe liberar el lote Y la caja por
       // completo -- antes solo limpiaba cierres/seleccion y dejaba
       // state.loteId/state.caja con el valor del lote anterior, y el
@@ -2011,11 +2407,14 @@
       state.seleccion = null;
       state.loteId = null;
       state.caja = null;
+      state.marcados = {};
+      state.resultadosLote = null;
+      renderResultadosLote();
       desbloquearSelectorCaja();
       renderIndicadores([]);
       renderTabla([]);
       renderDetalle();
-      qs("#tabla-body").innerHTML = '<tr><td colspan="8" class="empty-state">' + textoPlaceholderVacio() + '</td></tr>';
+      qs("#tabla-body").innerHTML = '<tr><td colspan="9" class="empty-state">' + textoPlaceholderVacio() + '</td></tr>';
       cargarAvanceCaja();
     });
   });

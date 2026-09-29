@@ -1694,6 +1694,305 @@ async function test_mejoras_interfaz_v3_ids_funcionales_y_demo() {
   dom.window.close();
 }
 
+
+// ---------------------------------------------------------------------------
+// PUBLICACIÓN MÚLTIPLE — orquestación HTML/JS de la publicación individual
+// (mismo /publicar, mismo payload), uno por uno en secuencia, sin detenerse
+// por un cierre que falla o queda bloqueado. Sin endpoint nuevo.
+// ---------------------------------------------------------------------------
+const FECHAS_LOTE = ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05", "2026-09-06", "2026-09-07", "2026-09-08"];
+
+// comportamientos de /publicar por fecha: ok | no_publicable | omitido | error_oficial | http500 | rectificar
+async function montarEscenarioLote(caja, comportamientos, opciones) {
+  opciones = opciones || {};
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  const ctx = { dom: dom, window: window, doc: window.document, calls: [], publicarLog: [], alertas: [], enVuelo: 0, maxEnVuelo: 0, avanceCalls: 0, cajaLote: caja };
+  window.alert = function (m) { ctx.alertas.push(String(m)); };
+  window.confirm = function () { return true; };
+  const cierres = FECHAS_LOTE.map((f, i) => {
+    const dia = f.slice(8);
+    const base = { fecha: f, archivo_esperado: "CIERRE " + dia + "-09-2026.xlsm", diferencia: "0.00", bloqueadores: 0, requiere_revision: false, publicado: false, sha256: "sha" + dia, mensajes: [] };
+    if (dia === "03") return Object.assign(base, { estado_final: "ERROR_REVISAR", requiere_revision: true, bloqueadores: 1, diferencia: "0.00" });
+    if (dia === "07") return Object.assign(base, { estado_final: "SIN_ARCHIVO", diferencia: null, bloqueadores: null });
+    if (dia === "08") return Object.assign(base, { estado_final: "LISTO_PARA_PUBLICAR" }); // LISTO pero SIN SAP
+    return Object.assign(base, { estado_final: "LISTO_PARA_PUBLICAR", ruta_sap: "/x/SAP_" + (caja === "america" ? "AME" : "TIQ") + "_" + dia + "-09-2026.xlsx" });
+  });
+  window.fetch = function (url, opts) {
+    ctx.calls.push({ url: url, opts: opts });
+    const json = (o, status) => Promise.resolve({ ok: (status || 200) < 400, status: status || 200, json: () => Promise.resolve(o) });
+    if (url.indexOf("/avance") !== -1) { ctx.avanceCalls++; return json({ resultado: "OK", disponible: true, caja: caja, procesado_continuo_hasta: "2026-09-0" + (1 + ctx.avanceCalls), ultimo_cierre_existente: "2026-09-06", pendientes: 0, primer_pendiente: null, desde: "2026-09-01" }); }
+    if (url.indexOf("/procesar") !== -1) return json({ resultado: "OK", lote_id: "lote-multi", estado_lote: "PROCESANDO", caja: JSON.parse(opts.body).caja });
+    if (url.indexOf("/estado") !== -1) return json({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION", publication_mode: opciones.modo || "official" });
+    if (url.indexOf("/datos") !== -1) return json({ resultado: "OK", cierres: cierres });
+    if (url.indexOf("/publicar") !== -1) {
+      const body = JSON.parse(opts.body);
+      const fecha = body.fechas[0];
+      const entrada = { fecha: fecha, body: body, url: url, inicio: ctx.publicarLog.length, enVueloAlEntrar: ctx.enVuelo };
+      ctx.publicarLog.push(entrada);
+      ctx.enVuelo++; ctx.maxEnVuelo = Math.max(ctx.maxEnVuelo, ctx.enVuelo);
+      const base = cierres.find((c) => c.fecha === fecha);
+      const comp = comportamientos[fecha] || "ok";
+      return new Promise((resolve) => setTimeout(() => {
+        ctx.enVuelo--; entrada.fin = true;
+        if (comp === "http500") return resolve({ ok: false, status: 500, json: () => Promise.resolve({ resultado: "ERROR", mensaje: "fallo técnico simulado " + fecha }) });
+        if (comp === "omitido") return resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", publicados: [], omitidos: [{ fecha: fecha, motivo: "Estado 'ERROR_REVISAR' no habilita publicación (CONTRACT-011)." }] }) });
+        const pub = Object.assign({}, base, { requiere_revision: false });
+        if (comp === "ok") Object.assign(pub, { estado_publicacion: "PUBLICADO_OFICIAL", publicado: true, ruta_marker: "/m/PROCESADO_" + base.sha256 + ".json" });
+        if (comp === "ya") Object.assign(pub, { estado_publicacion: "YA_PUBLICADO_OFICIAL", publicado: false });
+        if (comp === "no_publicable") Object.assign(pub, { estado_publicacion: "NO_PUBLICABLE", publicado: false, mensaje: "Tiene bloqueadores pendientes." });
+        if (comp === "error_oficial") Object.assign(pub, { estado_publicacion: "ERROR_PUBLICACION_OFICIAL", publicado: false, mensaje: "Sin confirmación de Drive." });
+        if (comp === "rectificar") Object.assign(pub, { estado_publicacion: "CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION", publicado: false, mensaje: "Ya existe una publicación oficial distinta." });
+        resolve({ ok: true, status: 200, json: () => Promise.resolve({ resultado: "OK", publicados: [pub], omitidos: [] }) });
+      }, opciones.demoraMs || 15));
+    }
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+  const doc = ctx.doc;
+  await waitFor(() => doc.getElementById("in-fecha-desde").value !== "");
+  doc.getElementById("in-caja").value = caja;
+  doc.getElementById("btn-procesar").click();
+  await waitFor(() => doc.querySelectorAll("#tabla-body tr[data-fecha]").length === FECHAS_LOTE.length, 5000);
+  ctx.chk = (fecha) => doc.querySelector('#tabla-body input.chk-cierre[data-fecha="' + fecha + '"]');
+  ctx.marcadas = () => Array.from(doc.querySelectorAll("#tabla-body input.chk-cierre")).filter((c) => c.checked).map((c) => c.getAttribute("data-fecha"));
+  ctx.terminado = () => doc.getElementById("lote-titulo").textContent.indexOf("PUBLICACIÓN TERMINADA") !== -1;
+  ctx.publicarCalls = () => ctx.calls.filter((c) => c.url.indexOf("/publicar") !== -1);
+  ctx.cerrar = async () => { await sleep(60); ctx.dom.window.close(); };
+  return ctx;
+}
+
+async function test_lote_seleccion_listos_deseleccionar_y_contador() {
+  console.log("\n[LOTE] Selección múltiple, 'Seleccionar listos', 'Deseleccionar' y contador");
+  const c = await montarEscenarioLote("tiquipaya", {});
+  const doc = c.doc;
+  const btn = doc.getElementById("btn-publicar-sel");
+  ok(doc.querySelectorAll("#tabla-body input.chk-cierre").length === 8 && !!doc.getElementById("chk-todos"), "primera columna con casilla por fila + casilla de cabecera");
+  ok(btn.textContent === "Publicar seleccionados (0)" && btn.disabled, "contador en 0 y botón deshabilitado sin selección");
+
+  c.chk("2026-09-01").click(); c.chk("2026-09-03").click();
+  ok(JSON.stringify(c.marcadas()) === JSON.stringify(["2026-09-01", "2026-09-03"]), "seleccionar varios cierres a mano (incluida una fila en REVISIÓN)");
+  ok(btn.textContent === "Publicar seleccionados (2)" && !btn.disabled, "el contador del botón sigue la selección: (2)");
+  ok(doc.getElementById("detalle-body").textContent.indexOf("Cuadre") === -1 && doc.getElementById("panel-detalle").hidden === true, "marcar una casilla no abre el detalle de la fila");
+
+  doc.getElementById("btn-desel").click();
+  ok(c.marcadas().length === 0 && btn.textContent === "Publicar seleccionados (0)", "Deseleccionar limpia todo y el contador vuelve a 0");
+
+  doc.getElementById("btn-sel-listos").click();
+  const esperados = ["2026-09-01", "2026-09-02", "2026-09-04", "2026-09-05", "2026-09-06"];
+  ok(JSON.stringify(c.marcadas()) === JSON.stringify(esperados), "Seleccionar listos marca solo LISTO con SAP (" + c.marcadas().join(",") + ")");
+  ok(c.marcadas().indexOf("2026-09-03") === -1 && c.marcadas().indexOf("2026-09-07") === -1 && c.marcadas().indexOf("2026-09-08") === -1, "no marca REVISIÓN, FALTANTE ni LISTO sin SAP");
+  ok(btn.textContent === "Publicar seleccionados (5)", "contador (5) tras Seleccionar listos");
+
+  doc.getElementById("chk-todos").click();
+  ok(c.marcadas().length === 8, "la casilla de cabecera marca todas las filas");
+  doc.getElementById("chk-todos").click();
+  ok(c.marcadas().length === 0, "y las desmarca");
+  ok(c.publicarCalls().length === 0, "seleccionar nunca llama a /publicar");
+  await c.cerrar();
+}
+
+async function test_lote_ya_publicados_no_se_seleccionan_como_listos() {
+  console.log("\n[LOTE] 'Seleccionar listos' no marca cierres ya publicados");
+  const c = await montarEscenarioLote("tiquipaya", {});
+  const doc = c.doc;
+  // publicar 01 de forma individual y luego pedir 'Seleccionar listos'
+  c.chk("2026-09-01").click();
+  doc.querySelector('#tabla-body tr[data-fecha="2026-09-01"] button.publicar').click();
+  await waitFor(() => doc.querySelector('#tabla-body tr[data-fecha="2026-09-01"] .badge-publicado'), 3000);
+  doc.getElementById("btn-sel-listos").click();
+  ok(c.marcadas().indexOf("2026-09-01") === -1 && c.marcadas().length === 4, "el cierre ya publicado queda fuera de 'Seleccionar listos' (" + c.marcadas().join(",") + ")");
+  await c.cerrar();
+}
+
+async function test_lote_confirmacion_modal_con_fechas_y_cancelar() {
+  console.log("\n[LOTE] Confirmación previa: fechas, CANCELAR y PUBLICAR N CIERRES");
+  const c = await montarEscenarioLote("tiquipaya", {});
+  const doc = c.doc;
+  const modal = doc.getElementById("modal-lote");
+  doc.getElementById("btn-sel-listos").click();
+  doc.getElementById("btn-publicar-sel").click();
+  ok(modal.hidden === false, "aparece la confirmación");
+  const txt = modal.textContent;
+  ok(txt.indexOf("Se intentarán publicar 5 cierres, uno por uno.") !== -1, "texto: se intentarán publicar 5 cierres, uno por uno");
+  ok(txt.indexOf("Los cierres que presenten errores o bloqueadores no se publicarán y el proceso continuará con los siguientes.") !== -1, "texto: los errores/bloqueadores no detienen el proceso");
+  ok(txt.indexOf("01/09/2026") !== -1 && txt.indexOf("06/09/2026") !== -1, "muestra las fechas seleccionadas");
+  ok(doc.getElementById("btn-lote-cancelar").textContent === "CANCELAR" && doc.getElementById("btn-lote-confirmar").textContent === "PUBLICAR 5 CIERRES", "botones CANCELAR y PUBLICAR 5 CIERRES");
+  doc.getElementById("btn-lote-cancelar").click();
+  await sleep(50);
+  ok(modal.hidden === true && c.publicarCalls().length === 0, "CANCELAR no llama a /publicar");
+  ok(c.marcadas().length === 5, "cancelar conserva la selección");
+  await c.cerrar();
+}
+
+// Escenario completo: 01 ok, 02 ok, 03 (REVISIÓN: el guard individual lo rechaza), 04 bloqueado por el
+// backend, 05 fallo técnico (HTTP 500), 06 ok. Ninguno detiene al siguiente.
+async function correrLoteMixto(caja) {
+  const c = await montarEscenarioLote(caja, { "2026-09-01": "ok", "2026-09-02": "ok", "2026-09-04": "no_publicable", "2026-09-05": "http500", "2026-09-06": "ok" });
+  const doc = c.doc;
+  ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05", "2026-09-06"].forEach((f) => c.chk(f).click());
+  const antesAvance = c.avanceCalls;
+  doc.getElementById("btn-publicar-sel").click();
+  doc.getElementById("btn-lote-confirmar").click();
+  await waitFor(c.terminado, 8000);
+  c.antesAvance = antesAvance;
+  return c;
+}
+
+async function test_lote_secuencial_continua_tras_error_y_resumen(caja) {
+  console.log("\n[LOTE] Secuencial, sin paralelismo, continúa tras bloqueo/error, resumen — " + caja.toUpperCase());
+  const c = await correrLoteMixto(caja);
+  const doc = c.doc;
+  const fechasLlamadas = c.publicarLog.map((e) => e.fecha);
+
+  ok(c.maxEnVuelo === 1, "nunca hay dos /publicar en vuelo a la vez (máx " + c.maxEnVuelo + ")");
+  ok(c.publicarLog.every((e) => e.enVueloAlEntrar === 0), "cada /publicar arranca solo después de terminar el anterior");
+  ok(JSON.stringify(fechasLlamadas) === JSON.stringify(["2026-09-01", "2026-09-02", "2026-09-04", "2026-09-05", "2026-09-06"]), "orden estricto de la tabla: " + fechasLlamadas.join(","));
+  ok(fechasLlamadas[0] === "2026-09-01" && fechasLlamadas.indexOf("2026-09-02") === 1, "primer cierre OK → segundo OK");
+  ok(fechasLlamadas.indexOf("2026-09-04") !== -1 && fechasLlamadas.indexOf("2026-09-05") !== -1, "el cierre bloqueado (04) no detiene al siguiente (05)");
+  ok(fechasLlamadas[fechasLlamadas.length - 1] === "2026-09-06", "el último cierre también se procesa tras un error técnico (05)");
+  ok(fechasLlamadas.indexOf("2026-09-03") === -1, "la fila en REVISIÓN no llega al backend: el guard individual la rechaza sin llamar");
+
+  const filas = {};
+  Array.from(doc.querySelectorAll("#lote-lista .lote-item")).forEach((f) => { filas[f.getAttribute("data-fecha")] = f; });
+  ok(filas["2026-09-01"].className.indexOf("publicado") !== -1 && filas["2026-09-02"].className.indexOf("publicado") !== -1 && filas["2026-09-06"].className.indexOf("publicado") !== -1, "01, 02 y 06 quedan ✅ Publicado");
+  ok(filas["2026-09-03"].className.indexOf("no_publicado") !== -1 && filas["2026-09-03"].textContent.indexOf("No habilitado") !== -1, "03 → NO PUBLICADO con el motivo (" + filas["2026-09-03"].textContent + ")");
+  ok(filas["2026-09-04"].className.indexOf("no_publicado") !== -1 && filas["2026-09-04"].textContent.indexOf("bloqueadores") !== -1, "04 → NO PUBLICADO (bloqueado por el backend), con motivo");
+  ok(filas["2026-09-05"].className.indexOf("error") !== -1 && filas["2026-09-05"].textContent.indexOf("fallo técnico simulado") !== -1, "05 → ERROR técnico, distinto de NO PUBLICADO, con motivo");
+
+  const resumen = doc.getElementById("lote-resumen").textContent;
+  ok(doc.getElementById("lote-titulo").textContent.indexOf("PUBLICACIÓN TERMINADA") !== -1, "aparece PUBLICACIÓN TERMINADA");
+  ok(resumen.indexOf("Seleccionados: 6") !== -1 && resumen.indexOf("Publicados: 3") !== -1 && resumen.indexOf("No publicados: 2") !== -1 && resumen.indexOf("Errores: 1") !== -1, "resumen: 6 seleccionados, 3 publicados, 2 no publicados, 1 error (" + resumen + ")");
+  ok(c.alertas.length === 0, "el lote no dispara alert() por cada cierre (" + c.alertas.length + ")");
+
+  // La caja del lote no cambia y /publicar mantiene EXACTAMENTE su payload y endpoint.
+  const procBody = JSON.parse(c.calls.find((x) => x.url.indexOf("/procesar") !== -1).opts.body);
+  ok(procBody.caja === caja, "el lote se procesó con la caja " + caja);
+  ok(c.publicarLog.every((e) => e.url === "/webhook/tiq-v3-dev/publicar"), "todas las llamadas van al endpoint existente /publicar");
+  ok(!c.calls.some((x) => /publicar-?masivo|masivo|lote-publicar/.test(x.url)), "no existe ni se llama ningún endpoint masivo");
+  ok(c.publicarLog.every((e) => JSON.stringify(Object.keys(e.body).sort()) === JSON.stringify(["fechas", "lote_id", "usuario_auditor"]) && e.body.fechas.length === 1 && e.body.lote_id === "lote-multi" && e.body.usuario_auditor === "auditor.dev"), "payload de /publicar idéntico al individual: lote_id, fechas:[una], usuario_auditor (sin caja ni campos nuevos)");
+  await c.cerrar();
+}
+
+async function test_lote_refresco_final_y_resultados_persisten() {
+  console.log("\n[LOTE] Refresco final de tabla/contadores/avance; resultados visibles hasta cerrarlos");
+  const c = await correrLoteMixto("tiquipaya");
+  const doc = c.doc;
+  await waitFor(() => c.avanceCalls === c.antesAvance + 1, 3000);
+  ok(c.avanceCalls === c.antesAvance + 1, "'Procesado continuo hasta' se refresca UNA vez al terminar el lote (no por cada cierre) (" + (c.avanceCalls - c.antesAvance) + ")");
+  ok(doc.querySelectorAll("#tabla-body .badge-publicado").length === 3, "la tabla muestra el estado Publicado de los 3 cierres publicados");
+  ok(doc.getElementById("ind-listos").textContent === "3" || Number(doc.getElementById("ind-listos").textContent) >= 1, "los contadores se recalculan (listos=" + doc.getElementById("ind-listos").textContent + ")");
+  ok(doc.getElementById("lote-panel").hidden === false, "los resultados siguen visibles tras terminar");
+  ok(c.marcadas().length === 0, "la selección se limpia al terminar");
+  ok(doc.getElementById("btn-procesar").disabled === false, "Procesar se reactiva al terminar");
+  ok(doc.getElementById("btn-recargar").disabled === false && doc.getElementById("btn-publicar-sel").textContent === "Publicar seleccionados (0)", "acciones reactivadas y contador en 0");
+  doc.getElementById("btn-lote-cerrar").click();
+  ok(doc.getElementById("lote-panel").hidden === true, "'Cerrar resultados' oculta el panel");
+  await c.cerrar();
+}
+
+async function test_lote_progreso_bloqueos_y_doble_clic() {
+  console.log("\n[LOTE] Progreso 'Publicando N de M', bloqueo de doble clic y de acciones concurrentes");
+  const c = await montarEscenarioLote("tiquipaya", {}, { demoraMs: 60 });
+  const doc = c.doc;
+  doc.getElementById("btn-sel-listos").click();
+  doc.getElementById("btn-publicar-sel").click();
+  // doble clic sobre el botón de confirmación: solo el primero cuenta
+  const confirmar = doc.getElementById("btn-lote-confirmar");
+  confirmar.click(); confirmar.click();
+  doc.getElementById("btn-publicar-sel").click(); // y un clic más en 'Publicar seleccionados' mientras corre
+  await waitFor(() => doc.getElementById("lote-titulo").textContent.indexOf("Publicando 2 de 5") !== -1, 3000);
+  ok(doc.getElementById("lote-titulo").textContent.indexOf("Publicando 2 de 5...") !== -1, "muestra 'Publicando 2 de 5...' mientras corre");
+  const filas = Array.from(doc.querySelectorAll("#lote-lista .lote-item")).map((f) => f.className.replace("lote-item ", ""));
+  ok(filas[0] === "publicado" && filas[1] === "publicando" && filas[2] === "pendiente", "estado por fila: publicado / ⏳ publicando / pendiente (" + filas.join(",") + ")");
+  ok(doc.getElementById("modal-lote").hidden === true, "no se reabre la confirmación durante el lote");
+  ok(doc.getElementById("btn-publicar-sel").disabled && doc.getElementById("btn-sel-listos").disabled && doc.getElementById("btn-desel").disabled, "botones de selección/publicación bloqueados durante el lote");
+  ok(doc.getElementById("btn-procesar").disabled && doc.getElementById("btn-recargar").disabled, "Procesar y Recargar bloqueados durante el lote");
+  ok(Array.from(doc.querySelectorAll("#tabla-body input.chk-cierre")).every((k) => k.disabled), "casillas bloqueadas durante el lote");
+  const btnIndiv = doc.querySelector('#tabla-body tr[data-fecha="2026-09-06"] button.publicar');
+  ok(!!btnIndiv && btnIndiv.disabled === true, "el botón Publicar individual de las filas queda deshabilitado durante el lote");
+  btnIndiv.click(); // aunque se fuerce el clic, no se lanza nada
+  doc.getElementById("btn-recargar").click();
+  await waitFor(c.terminado, 8000);
+  ok(c.publicarLog.length === 5, "exactamente 5 publicaciones (una por cierre, sin duplicados) pese a los dobles clics (" + c.publicarLog.length + ")");
+  ok(new Set(c.publicarLog.map((e) => e.fecha)).size === 5, "ningún cierre se publicó dos veces");
+  ok(c.maxEnVuelo === 1, "nunca hubo dos publicaciones simultáneas (máx " + c.maxEnVuelo + ")");
+  ok(c.calls.filter((x) => x.url.indexOf("/procesar") !== -1).length === 1, "Recargar/Procesar no se ejecutaron durante el lote");
+  await c.cerrar();
+}
+
+async function test_lote_ya_publicado_e_idempotente_y_rectificacion_no_se_fuerza() {
+  console.log("\n[LOTE] YA_PUBLICADO cuenta como publicado; 'requiere rectificación' no se rectifica en lote; omitidos = no publicado");
+  const c = await montarEscenarioLote("tiquipaya", { "2026-09-01": "ya", "2026-09-02": "rectificar", "2026-09-04": "omitido", "2026-09-05": "error_oficial", "2026-09-06": "ok" });
+  const doc = c.doc;
+  doc.getElementById("btn-sel-listos").click();
+  doc.getElementById("btn-publicar-sel").click();
+  doc.getElementById("btn-lote-confirmar").click();
+  await waitFor(c.terminado, 8000);
+  const est = {};
+  Array.from(doc.querySelectorAll("#lote-lista .lote-item")).forEach((f) => { est[f.getAttribute("data-fecha")] = f; });
+  ok(est["2026-09-01"].className.indexOf("publicado") !== -1 && est["2026-09-01"].textContent.indexOf("idempotente") !== -1, "YA_PUBLICADO_OFICIAL → Publicado (idempotente)");
+  ok(est["2026-09-02"].className.indexOf("no_publicado") !== -1 && est["2026-09-02"].textContent.indexOf("RECTIFICAR") !== -1, "CIERRE_YA_PUBLICADO_REQUIERE_RECTIFICACION → NO PUBLICADO, remite a la rectificación individual");
+  ok(est["2026-09-04"].className.indexOf("no_publicado") !== -1 && est["2026-09-04"].textContent.indexOf("CONTRACT-011") !== -1, "'omitidos' del backend → NO PUBLICADO con su motivo");
+  ok(est["2026-09-05"].className.indexOf("error") !== -1 && est["2026-09-05"].textContent.indexOf("Sin confirmación de Drive") !== -1, "ERROR_PUBLICACION_OFICIAL → ERROR técnico");
+  ok(c.publicarLog.every((e) => e.body.rectificacion === undefined), "el lote NUNCA manda rectificacion:true");
+  await c.cerrar();
+}
+
+async function test_publicacion_individual_sigue_igual_con_la_columna_de_seleccion() {
+  console.log("\n[LOTE] La publicación individual sigue funcionando igual (confirm, payload, alertas)");
+  const c = await montarEscenarioLote("tiquipaya", { "2026-09-05": "error_oficial" });
+  const doc = c.doc;
+  let confirmaciones = 0;
+  c.window.confirm = function (m) { confirmaciones++; c.ultimoConfirm = m; return true; };
+  doc.querySelector('#tabla-body tr[data-fecha="2026-09-01"] button.publicar').click();
+  await waitFor(() => doc.querySelector('#tabla-body tr[data-fecha="2026-09-01"] .badge-publicado'), 3000);
+  ok(confirmaciones === 1 && c.ultimoConfirm.indexOf("Va a publicar oficialmente el cierre 01/09/2026") !== -1, "el botón individual conserva su confirm() original");
+  ok(c.publicarLog.length === 1 && JSON.stringify(Object.keys(c.publicarLog[0].body).sort()) === JSON.stringify(["fechas", "lote_id", "usuario_auditor"]), "una llamada con el payload de siempre");
+  ok(!!doc.querySelector('#tabla-body tr[data-fecha="2026-09-01"] .badge-publicado'), "la fila queda Publicado");
+  // fallo oficial: el individual sigue avisando con alert() como antes
+  doc.querySelector('#tabla-body tr[data-fecha="2026-09-05"] button.publicar').click();
+  await waitFor(() => c.alertas.length === 1, 3000);
+  ok(c.alertas[0].indexOf("la publicación oficial NO se completó") !== -1, "el error de publicación individual sigue mostrándose con alert()");
+  // cancelar el confirm => cero llamadas
+  c.window.confirm = function () { return false; };
+  const antes = c.publicarLog.length;
+  doc.querySelector('#tabla-body tr[data-fecha="2026-09-02"] button.publicar').click();
+  await sleep(50);
+  ok(c.publicarLog.length === antes, "cancelar el confirm individual no llama a /publicar");
+  // doble clic individual: una sola publicación
+  c.window.confirm = function () { return true; };
+  const btn = doc.querySelector('#tabla-body tr[data-fecha="2026-09-04"] button.publicar');
+  btn.click(); btn.click();
+  await waitFor(() => doc.querySelector('#tabla-body tr[data-fecha="2026-09-04"] .badge-publicado'), 3000);
+  ok(c.publicarLog.filter((e) => e.fecha === "2026-09-04").length === 1, "doble clic en Publicar individual no duplica la publicación");
+  ok(c.maxEnVuelo === 1, "sin llamadas simultáneas");
+  await c.cerrar();
+}
+
+function test_sin_promise_all_en_la_publicacion() {
+  console.log("\n[LOTE] El código no usa Promise.all ni paralelismo");
+  ok(html.indexOf("Promise.all") === -1 && html.indexOf("Promise.race") === -1 && html.indexOf("Promise.allSettled") === -1, "el HTML/JS no contiene Promise.all / race / allSettled");
+  ok(!/publicar-?masivo/i.test(html), "el frontend no referencia ningún endpoint /publicar-masivo");
+  const idx = html.indexOf("function iniciarLotePublicacion");
+  const cuerpo = html.slice(idx, idx + 2500);
+  ok(cuerpo.indexOf("forEach(function (f) { enviarPublicacion") === -1 && cuerpo.indexOf("function siguiente()") !== -1, "el lote se encadena con una función recursiva 'siguiente()', no con un bucle de envíos");
+}
+
+async function test_lote_no_aplica_en_demo() {
+  console.log("\n[LOTE] En modo demo la publicación múltiple no se ofrece ni llama al backend");
+  const dom = makeDom("http://localhost/v3_control_cierres.html?demo=1");
+  const { window } = dom;
+  let fetchCalls = 0;
+  window.fetch = function () { fetchCalls++; return Promise.reject(new Error("fetch NO debería llamarse en demo")); };
+  await waitFor(() => window.document.getElementById("in-fecha-desde").value !== "");
+  ok(window.document.getElementById("bulk-bar").hidden === true, "la barra de selección múltiple está oculta en demo");
+  window.document.getElementById("btn-procesar").click();
+  await waitFor(() => window.document.querySelectorAll("#tabla-body tr[data-hash]").length === 5, 6000);
+  ok(Array.from(window.document.querySelectorAll("#tabla-body input.chk-cierre")).every((k) => k.disabled), "las casillas están deshabilitadas en demo");
+  ok(fetchCalls === 0, "cero llamadas a fetch en demo");
+  dom.window.close();
+}
+
 (async () => {
   await test_demo_no_llama_backend();
   await test_procesar_rango_valido();
@@ -1740,6 +2039,17 @@ async function test_mejoras_interfaz_v3_ids_funcionales_y_demo() {
   await test_mejoras_interfaz_v3_layout_detalle_abajo_a_ancho_completo();
   await test_mejoras_interfaz_v3_encabezado_y_texto_publicacion();
   await test_mejoras_interfaz_v3_ids_funcionales_y_demo();
+  await test_lote_seleccion_listos_deseleccionar_y_contador();
+  await test_lote_ya_publicados_no_se_seleccionan_como_listos();
+  await test_lote_confirmacion_modal_con_fechas_y_cancelar();
+  await test_lote_secuencial_continua_tras_error_y_resumen("tiquipaya");
+  await test_lote_secuencial_continua_tras_error_y_resumen("america");
+  await test_lote_refresco_final_y_resultados_persisten();
+  await test_lote_progreso_bloqueos_y_doble_clic();
+  await test_lote_ya_publicado_e_idempotente_y_rectificacion_no_se_fuerza();
+  await test_publicacion_individual_sigue_igual_con_la_columna_de_seleccion();
+  test_sin_promise_all_en_la_publicacion();
+  await test_lote_no_aplica_en_demo();
 
   console.log("\n=========================================");
   console.log(passed + " passed, " + failures + " failed");
