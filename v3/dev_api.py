@@ -62,6 +62,7 @@ from v3 import control3_modos  # noqa: E402
 from v3 import control1_institucional  # noqa: E402
 from v3 import control3_institucional  # noqa: E402
 from v3.shadow_guard import bloqueo_publicacion_oficial_activo, exigir_no_bloqueo_para_publicacion_oficial  # noqa: E402
+from v3.avance_caja import calcular_avance  # noqa: E402  (solo lectura: "procesado continuo hasta" de la interfaz)
 
 
 PROCESANDO = "PROCESANDO"
@@ -1161,6 +1162,7 @@ def main(argv=None):
         "generar_global", "preparar_global_entrada", "preparar_control1_entrada", "preparar_control3_entrada", "ejecutar_control1", "ejecutar_control3",
         "preparar_control1_institucional_entrada", "preparar_control3_institucional_entrada",
         "ejecutar_control1_institucional", "ejecutar_control3_institucional", "corregir_control1_institucional",
+        "avance_caja",
     ])
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
@@ -1249,6 +1251,8 @@ def main(argv=None):
                 datos["anio"], datos["mes"], datos["base_dir_dev"], datos.get("dry_run", False),
                 datos.get("confirmacion_cierre", False),
             )}
+        elif args.accion == "avance_caja":
+            salida = {"resultado": "OK", **calcular_avance(datos.get("caja"), datos.get("nombres_archivos"))}
         elif args.accion == "corregir_control1_institucional":
             salida = {"resultado": "OK", **corregir_control1_institucional(
                 datos["anio"], datos["mes"], datos["base_dir_dev"],

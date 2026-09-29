@@ -136,7 +136,7 @@
   }
 
   main {
-    max-width: 1400px;
+    max-width: 1760px;
     margin: 0 auto;
     padding: 22px 26px 60px;
   }
@@ -213,6 +213,33 @@
     text-decoration: underline;
   }
   .toolbar .grow { flex: 1; }
+
+  /* ---------------- avance de la caja seleccionada ---------------- */
+  .avance-caja {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 22px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--guindo);
+    border-radius: 10px;
+    padding: 12px 18px;
+    margin-bottom: 18px;
+    box-shadow: 0 1px 2px rgba(45,35,30,0.04);
+  }
+  .avance-caja .avance-nombre {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--guindo-dark);
+  }
+  .avance-caja .avance-principal { font-size: 15px; color: var(--ink); }
+  .avance-caja .avance-principal strong { font-family: var(--mono); font-size: 16px; }
+  .avance-caja .avance-secundario { font-size: 12.5px; color: var(--muted); }
+  .avance-caja .avance-pend { color: var(--amber); font-weight: 700; }
+  .avance-caja.no-disponible .avance-principal { color: var(--muted2); font-size: 13px; }
 
   /* ---------------- indicators ---------------- */
   .indicators {
@@ -293,13 +320,17 @@
   }
 
   /* ---------------- layout: table + detail ---------------- */
+  /* Tabla arriba a todo el ancho; el detalle del cierre aparece DEBAJO (a
+     ancho completo) solo cuando hay un cierre seleccionado (atributo hidden). */
   .layout {
     display: grid;
-    grid-template-columns: 1fr 380px;
+    grid-template-columns: minmax(0, 1fr);
     gap: 18px;
     align-items: start;
+    margin-bottom: 18px;
   }
-  @media (max-width: 1050px) { .layout { grid-template-columns: 1fr; } }
+  .layout > .panel[hidden] { display: none; }
+  #panel-detalle { scroll-margin-top: 84px; }
 
   .panel {
     background: var(--panel);
@@ -389,10 +420,21 @@
   .mensual-resultado.cargando { color: var(--amber); font-weight: 600; }
 
   /* ---------------- detail panel ---------------- */
-  #detalle-body { padding: 14px 16px; }
-  .detalle-section { margin-bottom: 16px; }
+  /* Detalle a ancho completo: las secciones se reparten en columnas
+     (auto-fit) en vez de apilarse en una sola columna angosta. */
+  #detalle-body {
+    padding: 18px 22px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 20px 32px;
+    align-items: start;
+  }
+  #detalle-body > .empty-state { grid-column: 1 / -1; }
+  .detalle-section { margin-bottom: 0; min-width: 0; }
+  .detalle-section.detalle-wide { grid-column: 1 / -1; }
+  .detalle-wide .form-field { max-width: 720px; }
   .detalle-section h3 {
-    font-size: 10.5px;
+    font-size: 11.5px;
     text-transform: uppercase;
     letter-spacing: .06em;
     color: var(--guindo);
@@ -402,7 +444,7 @@
     border-bottom: 1px dashed var(--gold-soft);
     padding-bottom: 6px;
   }
-  .kv { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 12.5px; }
+  .kv { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; font-size: 13.5px; }
   .kv .k { color: var(--muted); }
   .kv .v { font-family: var(--mono); text-align: right; word-break: break-word; }
   .exc-item {
@@ -411,19 +453,19 @@
     border-radius: 6px;
     padding: 8px 10px;
     margin-bottom: 6px;
-    font-size: 12px;
+    font-size: 13px;
     background: var(--bg-alt);
   }
   .exc-item .cat { font-weight: 700; color: var(--amber); font-size: 10.5px; text-transform: uppercase; }
   .hist-item {
-    font-size: 11.5px;
+    font-size: 12.5px;
     color: var(--muted);
     padding: 4px 0;
     border-bottom: 1px dashed var(--border-soft);
     font-family: var(--mono);
   }
   .placeholder-note {
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--muted2);
     font-style: italic;
     padding: 6px 0;
@@ -490,7 +532,7 @@
   }
 
   footer.dev-footer {
-    max-width: 1400px;
+    max-width: 1760px;
     margin: 30px auto 0;
     padding: 14px 26px 0;
     border-top: 1px solid var(--border-soft);
@@ -510,7 +552,7 @@
     <h1>CAJA TIQUIPAYA <span class="v3">V3</span></h1>
     <span id="badge-entorno" class="badge-dev">VERIFICANDO ENTORNO...</span>
   </div>
-  <div class="sub">Control de Cierres · interfaz de desarrollo, separada del frontend V2</div>
+  <div class="sub">Interfaz de desarrollo</div>
   <div class="spacer"></div>
   <div class="clock" id="clock"></div>
 </header>
@@ -541,6 +583,12 @@
     <div class="field grow"></div>
     <button class="primary" id="btn-procesar">PROCESAR CIERRES</button>
     <button class="ghost" id="btn-recargar">Recargar</button>
+  </div>
+
+  <div class="avance-caja no-disponible" id="avance-caja">
+    <span class="avance-nombre" id="avance-caja-nombre">TIQUIPAYA</span>
+    <span class="avance-principal" id="avance-principal">Procesado continuo hasta: —</span>
+    <span class="avance-secundario" id="avance-secundario"></span>
   </div>
 
   <div class="indicators">
@@ -584,7 +632,7 @@
       </div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="panel-detalle" hidden>
       <h2>Detalle del cierre</h2>
       <div id="detalle-body">
         <div class="empty-state">Selecciona una fila de la tabla para ver su detalle.</div>
@@ -661,6 +709,9 @@
     // ejecutarControl1Mensual()/ejecutarControl3Mensual() mas abajo.
     control1:  NAMESPACE + "/control1",   // POST — CONTROL 1 institucional (asignaciones) sobre TIQ+AME
     control3:  NAMESPACE + "/control3",   // POST — CONTROL 3 institucional (CxC/CxP) sobre TIQ+AME
+    // AVANCE DE LA CAJA: solo lectura e informativo ("Procesado continuo
+    // hasta"). Nunca dispara ni condiciona procesar/publicar/corregir.
+    avance:    NAMESPACE + "/avance",     // GET  — ?caja=<caja>; avance continuo segun los SAP oficiales en Drive
   };
   // SEGURIDAD (pendiente, NO implementada aqui): antes de exponer estos
   // endpoints fuera de un entorno de desarrollo controlado, /procesar,
@@ -736,6 +787,67 @@
     var sel = qs("#in-caja"), info = qs("#caja-lote-info");
     sel.disabled = false;
     info.style.display = "none";
+  }
+
+  // -----------------------------------------------------------------------
+  // AVANCE DE LA CAJA — "Procesado continuo hasta". Solo lectura e
+  // informativo: el backend (GET /avance, v3/avance_caja.py) decide que
+  // fechas cuentan como procesadas oficialmente y donde se corta la
+  // continuidad ante un hueco; aqui NO se calcula ni se infiere nada, solo
+  // se pinta lo que responde. Un fallo (red, caja sin carpeta configurada)
+  // solo deja el mensaje "no disponible": jamas bloquea ni alerta, y nunca
+  // afecta a procesar/publicar/corregir. `avanceSolicitud` descarta
+  // respuestas de una consulta vieja si la caja cambio mientras tanto.
+  // -----------------------------------------------------------------------
+  var avanceSolicitud = 0;
+
+  function cajaActiva() { return state.caja || qs("#in-caja").value; }
+
+  function nombreCajaActiva() {
+    var sel = qs("#in-caja"), op = sel.options[sel.selectedIndex];
+    return op ? op.text : String(cajaActiva()).toUpperCase();
+  }
+
+  // datos: objeto de /avance | "cargando" | "demo" | "error"
+  function renderAvance(datos) {
+    var box = qs("#avance-caja"), princ = qs("#avance-principal"), sec = qs("#avance-secundario");
+    qs("#avance-caja-nombre").textContent = nombreCajaActiva();
+    sec.innerHTML = "";
+    box.classList.add("no-disponible");
+    if (datos === "cargando") { princ.textContent = "Procesado continuo hasta: consultando…"; return; }
+    if (datos === "demo") { princ.textContent = "Procesado continuo hasta: no disponible en modo demo"; return; }
+    if (!datos || datos === "error") { princ.textContent = "Procesado continuo hasta: no disponible"; return; }
+    if (datos.disponible === false) {
+      princ.textContent = "Procesado continuo hasta: no disponible (carpeta oficial de esta caja sin configurar)";
+      return;
+    }
+    box.classList.remove("no-disponible");
+    princ.textContent = "";
+    princ.appendChild(document.createTextNode("Procesado continuo hasta: "));
+    if (datos.procesado_continuo_hasta) {
+      princ.appendChild(el("strong", { text: fmtFecha(datos.procesado_continuo_hasta) }));
+    } else if (datos.ultimo_cierre_existente) {
+      princ.appendChild(el("strong", { text: "—" }));
+      princ.appendChild(document.createTextNode(" (sin días consecutivos desde " + fmtFecha(datos.desde) + ")"));
+    } else {
+      princ.appendChild(el("strong", { text: "sin cierres procesados" }));
+    }
+    if (datos.ultimo_cierre_existente) {
+      sec.appendChild(document.createTextNode("Último cierre existente: " + fmtFecha(datos.ultimo_cierre_existente) + " · Pendientes: "));
+      sec.appendChild(el("span", { class: datos.pendientes ? "avance-pend" : "", text: String(datos.pendientes || 0) }));
+      if (datos.pendientes && datos.primer_pendiente) {
+        sec.appendChild(document.createTextNode(" (primero: " + fmtFecha(datos.primer_pendiente) + ")"));
+      }
+    }
+  }
+
+  function cargarAvanceCaja() {
+    var solicitud = ++avanceSolicitud;
+    if (DEMO) { renderAvance("demo"); return Promise.resolve(); }
+    renderAvance("cargando");
+    return apiGet(ENDPOINTS.avance + "?caja=" + encodeURIComponent(cajaActiva()))
+      .then(function (data) { if (solicitud === avanceSolicitud) renderAvance(data); })
+      .catch(function () { if (solicitud === avanceSolicitud) renderAvance("error"); });
   }
 
   // -----------------------------------------------------------------------
@@ -1150,9 +1262,17 @@
   }
 
   function seleccionar(cierre) {
+    var cambioDeCierre = !state.seleccion || state.seleccion.fecha !== cierre.fecha;
     state.seleccion = cierre;
     renderTabla(state.cierres);
     renderDetalle();
+    // El detalle vive debajo de la tabla: al abrir OTRO cierre se lleva a la
+    // vista (sin animacion). Reseleccionar el mismo cierre (p. ej. tras
+    // corregir) no mueve la pantalla.
+    if (cambioDeCierre) {
+      var panelDetalle = qs("#panel-detalle");
+      if (panelDetalle && panelDetalle.scrollIntoView) panelDetalle.scrollIntoView({ block: "start" });
+    }
 
     // Modo real: si el cierre requiere revision (y el reproceso, si lo
     // hubo, NO quedo LISTO_PARA_PUBLICAR) y todavia no se cargo su detalle
@@ -1188,6 +1308,9 @@
     var cont = qs("#detalle-body");
     cont.innerHTML = "";
     var c = state.seleccion;
+    // El panel de detalle solo se muestra (debajo de la tabla, a ancho
+    // completo) cuando hay un cierre seleccionado.
+    qs("#panel-detalle").hidden = !c;
     if (!c) {
       cont.appendChild(el("div", { class: "empty-state", text: "Selecciona una fila de la tabla para ver su detalle." }));
       return;
@@ -1197,7 +1320,7 @@
     // ---- resumen ----
     var secResumen = el("div", { class: "detalle-section" });
     secResumen.appendChild(el("h3", { text: "Resumen" }));
-    [["Fecha", fmtFecha(c.fecha)], ["Archivo", c.archivo || "—"], ["Estado", (ESTADOS[c.estado] || {}).label || c.estado || "—"], ["Hash origen", c.hash || (DEMO ? "N/D (demo)" : "N/D")]]
+    [["Fecha", fmtFecha(c.fecha)], ["Archivo", c.archivo || "—"], ["Estado", (ESTADOS[c.estado] || {}).label || c.estado || "—"]]
       .forEach(function (kv) { secResumen.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: kv[0] }), el("span", { class: "v", text: kv[1] })])); });
     cont.appendChild(secResumen);
 
@@ -1328,7 +1451,7 @@
       var btnPublicarDetalle = el("button", { class: "primary publicar", text: esPublicacionOficial() ? "PUBLICAR ESTE CIERRE" : "PUBLICAR ESTE CIERRE (DEV)" });
       btnPublicarDetalle.addEventListener("click", function () { publicarCierre(c); });
       secPub.appendChild(btnPublicarDetalle);
-      secPub.appendChild(el("div", { class: "placeholder-note", text: esPublicacionOficial() ? "Publica oficialmente en Drive (SAP, resultado, cierre a Procesados y marcador); idempotente por SHA256." : "Publica únicamente en DEV (base_dir_dev/publicacion/); idempotente por SHA256." }));
+      secPub.appendChild(el("div", { class: "placeholder-note", text: esPublicacionOficial() ? "Publicar guarda oficialmente el cierre y sus archivos en Drive y evita duplicados." : "Publica únicamente en DEV (base_dir_dev/publicacion/); idempotente por SHA256." }));
     } else {
       secPub.appendChild(el("div", { class: "placeholder-note", text: "Este cierre no está habilitado para publicación todavía." }));
     }
@@ -1341,7 +1464,7 @@
   }
 
   function renderFormularioCorreccion(cierre) {
-    var sec = el("div", { class: "detalle-section" });
+    var sec = el("div", { class: "detalle-section detalle-wide" });
     sec.appendChild(el("h3", { text: "Corrección" }));
 
     var rev = cierre._revision;
@@ -1570,6 +1693,7 @@
       renderIndicadores(state.cierres);
       renderTabla(state.cierres);
       renderDetalle();
+      cargarAvanceCaja();
     }).catch(function (err) { mostrarErrorBackend(err.message || String(err)); });
   }
 
@@ -1591,6 +1715,7 @@
       renderIndicadores(state.cierres);
       renderTabla(state.cierres);
       renderDetalle();
+      cargarAvanceCaja();
     }).catch(function (err) { mostrarErrorBackend(err.message || String(err)); });
   }
 
@@ -1822,6 +1947,8 @@
       cargarModoPublicacion().then(renderBadgeEntorno);
     }
     renderIndicadores([]);
+    cargarAvanceCaja();
+    qs("#in-caja").addEventListener("change", cargarAvanceCaja);
     qs("#tabla-body").innerHTML = '<tr><td colspan="8" class="empty-state">' + textoPlaceholderVacio() + '</td></tr>';
     qs("#btn-procesar").addEventListener("click", procesarCierres);
     qs("#btn-recargar").addEventListener("click", function () {
@@ -1840,6 +1967,7 @@
       renderTabla([]);
       renderDetalle();
       qs("#tabla-body").innerHTML = '<tr><td colspan="8" class="empty-state">' + textoPlaceholderVacio() + '</td></tr>';
+      cargarAvanceCaja();
     });
   });
 })();

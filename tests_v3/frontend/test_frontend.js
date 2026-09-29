@@ -947,7 +947,9 @@ async function test_ajustes_interfaz_fase_10f() {
   const texto = window.document.getElementById("detalle-body").textContent;
   ok(texto.indexOf("N/D") === -1 || texto.indexOf("Bs 1.500,00") !== -1, "el cuadre real (Universo/Recaudación) se muestra, no N/D, cuando el dato existe");
   ok(texto.indexOf("(demo)") === -1, "ninguna referencia '(demo)' aparece en un cierre real");
-  ok(texto.indexOf("Hash origen") !== -1 && texto.indexOf("N/D (demo)") === -1, "Hash origen ausente se muestra como N/D simple, sin '(demo)', en modo real");
+  // Mejoras de interfaz V3: "Hash origen" ya no se renderiza (el dato sigue
+  // en el estado/atributo data-hash, ver test_mejoras_interfaz_v3_*).
+  ok(texto.indexOf("Hash origen") === -1 && texto.indexOf("N/D (demo)") === -1, "Hash origen ya no se muestra al usuario y no hay residuos '(demo)' en modo real");
   dom.window.close();
 }
 
@@ -1347,6 +1349,220 @@ async function test_flujo_diario_nunca_llama_endpoints_mensuales() {
   dom.window.close();
 }
 
+
+// ---------------------------------------------------------------------------
+// MEJORAS DE INTERFAZ V3 — avance de la caja ("Procesado continuo hasta"),
+// layout tabla arriba / detalle abajo, encabezado, "Hash origen" oculto y
+// texto de publicación simplificado. Todo visual/informativo: nada de esto
+// cambia payloads, endpoints existentes ni la lógica de estados.
+// ---------------------------------------------------------------------------
+const AVANCE_TIQ = { resultado: "OK", disponible: true, caja: "tiquipaya", procesado_continuo_hasta: "2026-09-10", ultimo_cierre_existente: "2026-09-12", pendientes: 1, primer_pendiente: "2026-09-11", desde: "2026-09-01", dias_procesados: 11 };
+const AVANCE_AME = { resultado: "OK", disponible: true, caja: "america", procesado_continuo_hasta: "2026-09-05", ultimo_cierre_existente: "2026-09-05", pendientes: 0, primer_pendiente: null, desde: "2026-09-01", dias_procesados: 5 };
+
+function mockBackendMejoras(calls, opciones) {
+  opciones = opciones || {};
+  return function (url, opts) {
+    calls.push({ url: url, opts: opts });
+    if (url.indexOf("/avance") !== -1) {
+      if (opciones.avance) return opciones.avance(url);
+      var caja = /caja=([a-z]+)/.exec(url)[1];
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(caja === "america" ? AVANCE_AME : AVANCE_TIQ) });
+    }
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-mj", estado_lote: "PROCESANDO", caja: JSON.parse(opts.body).caja }) });
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION", publication_mode: opciones.modo || "official" }) });
+    if (url.indexOf("/datos") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", cierres: [
+      { fecha: "2026-09-04", archivo_esperado: "CIERRE 04-09-2026.xlsm", estado_final: "LISTO_PARA_PUBLICAR", diferencia: "0.00", bloqueadores: 0, requiere_revision: false, publicado: false, sha256: "abc123def456", mensajes: ["Motor ejecutado: OK."], cuadre: { universo_ajustado: "1500.00", recaudacion_explicada: "1500.00", diferencia: "0.00" } },
+      { fecha: "2026-09-05", archivo_esperado: "CIERRE 05-09-2026.xlsm", estado_final: "LISTO_PARA_PUBLICAR", diferencia: "0.00", bloqueadores: 0, requiere_revision: false, publicado: false, sha256: "zzz999", mensajes: [] },
+    ] }) });
+    if (url.indexOf("/publicar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", omitidos: [], publicados: [
+      { fecha: "2026-09-04", archivo_esperado: "CIERRE 04-09-2026.xlsm", estado_final: "LISTO_PARA_PUBLICAR", requiere_revision: false, publicado: true, estado_publicacion: "PUBLICADO_OFICIAL", sha256: "abc123def456", ruta_marker: "/x/PROCESADO_abc123def456.json", mensajes: [] } ] }) });
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+}
+
+async function test_mejoras_interfaz_v3_avance_de_la_caja() {
+  console.log("\n[V3-UI] Avance de la caja: 'Procesado continuo hasta' (no la fecha máxima)");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  const calls = [];
+  window.fetch = mockBackendMejoras(calls);
+  const doc = window.document;
+  const txt = (id) => doc.getElementById(id).textContent;
+
+  await waitFor(() => txt("avance-principal").indexOf("10/09/2026") !== -1, 3000);
+  ok(calls.some((c) => c.url === "/webhook/tiq-v3-dev/avance?caja=tiquipaya"), "al cargar consulta GET /avance?caja=tiquipaya");
+  ok(txt("avance-caja-nombre") === "TIQUIPAYA", "muestra el nombre de la caja seleccionada (" + txt("avance-caja-nombre") + ")");
+  ok(txt("avance-principal") === "Procesado continuo hasta: 10/09/2026", "dato principal: continuo hasta 10/09/2026, NO 12/09 (" + txt("avance-principal") + ")");
+  ok(txt("avance-principal").indexOf("12/09") === -1, "no confunde el último cierre existente con el avance continuo");
+  ok(txt("avance-secundario").indexOf("Último cierre existente: 12/09/2026") !== -1 && txt("avance-secundario").indexOf("Pendientes: 1") !== -1, "dato secundario: último cierre existente y pendientes (" + txt("avance-secundario") + ")");
+  ok(txt("avance-secundario").indexOf("primero: 11/09/2026") !== -1, "indica el primer pendiente");
+
+  // cambiar de caja consulta la nueva caja (sin lote activo el selector está libre)
+  const sel = doc.getElementById("in-caja");
+  sel.value = "america";
+  sel.dispatchEvent(new window.Event("change"));
+  await waitFor(() => txt("avance-principal").indexOf("05/09/2026") !== -1, 3000);
+  ok(calls.some((c) => c.url === "/webhook/tiq-v3-dev/avance?caja=america"), "cambiar a AMERICA consulta /avance?caja=america");
+  ok(txt("avance-caja-nombre") === "AMERICA", "el encabezado del avance sigue a la caja (" + txt("avance-caja-nombre") + ")");
+  ok(txt("avance-secundario").indexOf("Pendientes: 0") !== -1, "AMERICA sin huecos: Pendientes: 0");
+
+  // Es SOLO informativo: el payload de /procesar conserva exactamente sus campos.
+  doc.getElementById("btn-procesar").click();
+  await waitFor(() => calls.some((c) => c.url.indexOf("/datos") !== -1), 5000);
+  const body = JSON.parse(calls.find((c) => c.url.indexOf("/procesar") !== -1).opts.body);
+  ok(JSON.stringify(Object.keys(body).sort()) === JSON.stringify(["caja", "fecha_fin", "fecha_inicio", "usuario_auditor"]), "payload de /procesar sin campos nuevos (" + Object.keys(body).sort().join(",") + ")");
+  ok(body.caja === "america", "/procesar sigue enviando la caja seleccionada");
+
+  // Recargar libera el lote y vuelve a consultar el avance de la caja elegida.
+  const antes = calls.filter((c) => c.url.indexOf("/avance") !== -1).length;
+  doc.getElementById("btn-recargar").click();
+  await waitFor(() => calls.filter((c) => c.url.indexOf("/avance") !== -1).length === antes + 1, 3000);
+  ok(calls.filter((c) => c.url.indexOf("/avance") !== -1).length === antes + 1, "Recargar refresca el avance");
+  await sleep(50); // deja resolver la consulta pendiente antes de cerrar la ventana
+  dom.window.close();
+}
+
+async function test_mejoras_interfaz_v3_avance_no_disponible_no_bloquea() {
+  console.log("\n[V3-UI] Avance no disponible / con error: nunca alerta ni bloquea");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  let alertas = 0;
+  window.alert = function () { alertas++; };
+  const calls = [];
+  window.fetch = mockBackendMejoras(calls, { avance: () => Promise.reject(new Error("n8n caído")) });
+  const doc = window.document;
+  await waitFor(() => doc.getElementById("avance-principal").textContent.indexOf("no disponible") !== -1, 3000);
+  ok(doc.getElementById("avance-principal").textContent.indexOf("no disponible") !== -1, "un error de red muestra 'no disponible'");
+  ok(alertas === 0, "el fallo del avance NO dispara alert()");
+  doc.getElementById("btn-procesar").click();
+  await waitFor(() => doc.querySelectorAll("#tabla-body tr[data-hash]").length === 2, 5000);
+  ok(doc.querySelectorAll("#tabla-body tr[data-hash]").length === 2, "Procesar funciona igual aunque el avance falle");
+
+  // caja sin carpeta oficial configurada (AMERICA sin DRIVE_SAP_AME)
+  const dom2 = makeDom("http://localhost/v3_control_cierres.html");
+  dom2.window.alert = function () { alertas++; };
+  dom2.window.fetch = mockBackendMejoras([], { avance: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", disponible: false, caja: "tiquipaya", motivo: "DRIVE_SAP_AME_NO_CONFIGURADA" }) }) });
+  await waitFor(() => dom2.window.document.getElementById("avance-principal").textContent.indexOf("sin configurar") !== -1, 3000);
+  ok(dom2.window.document.getElementById("avance-principal").textContent.indexOf("sin configurar") !== -1, "disponible:false muestra 'sin configurar', sin inventar un avance");
+  ok(dom2.window.document.getElementById("avance-secundario").textContent === "", "sin datos secundarios cuando no está disponible");
+
+  // respuesta de una consulta vieja (caja anterior) se descarta
+  const dom3 = makeDom("http://localhost/v3_control_cierres.html");
+  dom3.window.alert = function () {};
+  const resolvers = {};
+  dom3.window.fetch = mockBackendMejoras([], { avance: (url) => new Promise((res) => { resolvers[/caja=([a-z]+)/.exec(url)[1]] = () => res({ ok: true, json: () => Promise.resolve(/caja=america/.test(url) ? AVANCE_AME : AVANCE_TIQ) }); }) });
+  const d3 = dom3.window.document;
+  await waitFor(() => resolvers.tiquipaya, 3000);
+  d3.getElementById("in-caja").value = "america";
+  d3.getElementById("in-caja").dispatchEvent(new dom3.window.Event("change"));
+  await waitFor(() => resolvers.america, 3000);
+  resolvers.america();
+  await waitFor(() => d3.getElementById("avance-principal").textContent.indexOf("05/09/2026") !== -1, 3000);
+  resolvers.tiquipaya(); // llega tarde la de TIQUIPAYA
+  await sleep(80);
+  ok(d3.getElementById("avance-principal").textContent.indexOf("05/09/2026") !== -1, "una respuesta tardía de otra caja no pisa el avance vigente");
+  dom.window.close(); dom2.window.close(); dom3.window.close();
+}
+
+async function test_mejoras_interfaz_v3_layout_detalle_abajo_a_ancho_completo() {
+  console.log("\n[V3-UI] Tabla arriba; detalle debajo, a ancho completo, solo con un cierre seleccionado");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function () {}; window.confirm = function () { return true; };
+  const calls = [];
+  window.fetch = mockBackendMejoras(calls);
+  const doc = window.document;
+  await waitFor(() => doc.getElementById("in-fecha-desde").value !== "");
+
+  const layout = doc.querySelector(".layout");
+  const paneles = Array.from(layout.children);
+  ok(paneles.length === 2 && paneles[0].querySelector("#tabla-body") && paneles[1].id === "panel-detalle", "estructura: tabla primero, detalle después (mismo contenedor)");
+  ok(doc.getElementById("panel-detalle").hidden === true, "sin cierre seleccionado el detalle está oculto (la tabla usa todo el ancho)");
+  ok(doc.getElementById("detalle-body") !== null, "#detalle-body se conserva (id funcional)");
+
+  doc.getElementById("btn-procesar").click();
+  await waitFor(() => doc.querySelectorAll("#tabla-body tr[data-hash]").length === 2, 5000);
+  ok(doc.getElementById("panel-detalle").hidden === true, "cargar la tabla no abre el detalle por sí solo");
+
+  const btnVer = Array.from(doc.querySelectorAll("#tabla-body tr[data-hash]")[0].querySelectorAll("button")).find((b) => b.textContent === "Ver");
+  btnVer.click();
+  await waitFor(() => doc.getElementById("detalle-body").textContent.indexOf("Cuadre") !== -1, 3000);
+  ok(doc.getElementById("panel-detalle").hidden === false, "Ver muestra el detalle debajo de la tabla");
+  const secciones = Array.from(doc.querySelectorAll("#detalle-body .detalle-section h3")).map((h) => h.textContent);
+  ["Resumen", "Cuadre", "Observaciones", "Excepciones", "Resultado SAP", "Historial", "Publicación"].forEach((t) => {
+    ok(secciones.indexOf(t) !== -1, "el detalle conserva la sección '" + t + "'");
+  });
+  ok(!!Array.from(doc.querySelectorAll("#detalle-body button")).find((b) => b.textContent.indexOf("PUBLICAR ESTE CIERRE") !== -1), "el detalle conserva la acción PUBLICAR ESTE CIERRE");
+
+  // "Hash origen" no se ve, pero el hash sigue en los datos de la fila.
+  const detalleTxt = doc.getElementById("detalle-body").textContent;
+  ok(detalleTxt.indexOf("Hash origen") === -1 && detalleTxt.indexOf("abc123def456") === -1, "Hash origen no se renderiza en el detalle");
+  ok(doc.querySelector("#tabla-body tr[data-hash]").getAttribute("data-hash") === "abc123def456", "el hash se conserva internamente (data-hash) para el JS");
+
+  // Recargar: el detalle vuelve a ocultarse.
+  doc.getElementById("btn-recargar").click();
+  ok(doc.getElementById("panel-detalle").hidden === true, "Recargar oculta el detalle");
+  await sleep(50);
+  dom.window.close();
+}
+
+async function test_mejoras_interfaz_v3_encabezado_y_texto_publicacion() {
+  console.log("\n[V3-UI] Encabezado 'Interfaz de desarrollo' y texto de publicación simplificado");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function () {}; window.confirm = function () { return true; };
+  const calls = [];
+  window.fetch = mockBackendMejoras(calls);
+  const doc = window.document;
+  const sub = doc.querySelector("header .sub").textContent.trim();
+  ok(sub === "Interfaz de desarrollo", "encabezado: 'Interfaz de desarrollo' (" + sub + ")");
+  ok(doc.querySelector("header").textContent.indexOf("separada del frontend V2") === -1, "el encabezado ya no dice 'separada del frontend V2'");
+  ok(!!doc.querySelector("header h1") && doc.getElementById("badge-entorno") !== null && doc.getElementById("clock") !== null, "se conserva el resto del encabezado (título, badge, reloj)");
+
+  await waitFor(() => doc.getElementById("in-fecha-desde").value !== "");
+  await waitFor(() => doc.getElementById("badge-entorno").className === "badge-oficial", 3000);
+  doc.getElementById("btn-procesar").click();
+  await waitFor(() => doc.querySelectorAll("#tabla-body tr[data-hash]").length === 2, 5000);
+  doc.querySelectorAll("#tabla-body tr[data-hash]")[0].click();
+  await waitFor(() => doc.getElementById("detalle-body").textContent.indexOf("PUBLICAR ESTE CIERRE") !== -1, 3000);
+  const t = doc.getElementById("detalle-body").textContent;
+  ok(t.indexOf("Publicar guarda oficialmente el cierre y sus archivos en Drive y evita duplicados.") !== -1, "texto de publicación simplificado (modo oficial)");
+  ok(t.indexOf("SHA256") === -1 && t.indexOf("marcador") === -1, "sin jerga técnica (SHA256/marcador) en el texto de publicación");
+
+  // publicar: mismo payload de siempre y el avance se refresca
+  const avancesAntes = calls.filter((c) => c.url.indexOf("/avance") !== -1).length;
+  Array.from(doc.querySelectorAll("#detalle-body button")).find((b) => b.textContent.indexOf("PUBLICAR ESTE CIERRE") !== -1).click();
+  await waitFor(() => calls.some((c) => c.url.indexOf("/publicar") !== -1), 3000);
+  const pub = calls.filter((c) => c.url.indexOf("/publicar") !== -1);
+  ok(pub.length === 1, "una sola llamada a /publicar");
+  const bodyPub = JSON.parse(pub[0].opts.body);
+  ok(JSON.stringify(Object.keys(bodyPub).sort()) === JSON.stringify(["fechas", "lote_id", "usuario_auditor"]) && bodyPub.lote_id === "lote-mj" && bodyPub.fechas[0] === "2026-09-04", "payload de /publicar sin cambios (lote_id, fechas, usuario_auditor)");
+  await waitFor(() => calls.filter((c) => c.url.indexOf("/avance") !== -1).length === avancesAntes + 1, 3000);
+  ok(calls.filter((c) => c.url.indexOf("/avance") !== -1).length === avancesAntes + 1, "tras publicar se refresca el avance de la caja");
+  await sleep(50);
+  dom.window.close();
+}
+
+async function test_mejoras_interfaz_v3_ids_funcionales_y_demo() {
+  console.log("\n[V3-UI] IDs funcionales intactos; modo demo sin consultas");
+  const dom = makeDom("http://localhost/v3_control_cierres.html?demo=1");
+  const { window } = dom;
+  let fetchCalls = 0;
+  window.fetch = function () { fetchCalls++; return Promise.reject(new Error("fetch NO debería llamarse en modo demo")); };
+  const doc = window.document;
+  await waitFor(() => doc.getElementById("in-fecha-desde").value !== "");
+  ["in-fecha-desde", "in-fecha-hasta", "in-usuario-auditor", "in-caja", "caja-lote-info", "btn-procesar", "btn-recargar", "tabla-body", "detalle-body",
+   "ind-encontrados", "ind-faltantes", "ind-procesando", "ind-listos", "ind-revision", "ind-errores", "progress-wrap", "progress-bar", "progress-pct", "progress-label",
+   "in-mensual-anio", "in-mensual-mes", "btn-mensual-global", "btn-mensual-control1", "btn-mensual-control3", "mensual-resultado", "badge-entorno", "clock", "demo-banner"].forEach((id) => {
+    ok(doc.getElementById(id) !== null, "id funcional presente: #" + id);
+  });
+  ok(doc.getElementById("avance-principal").textContent.indexOf("modo demo") !== -1, "en demo el avance dice que no está disponible (sin consulta)");
+  await sleep(50);
+  ok(fetchCalls === 0, "demo: cero llamadas a fetch, tampoco a /avance");
+  dom.window.close();
+}
+
 (async () => {
   await test_demo_no_llama_backend();
   await test_procesar_rango_valido();
@@ -1386,6 +1602,11 @@ async function test_flujo_diario_nunca_llama_endpoints_mensuales() {
   await test_oficial_ya_publicado_oficial_es_idempotente();
   await test_global_bloqueado_post_cierre_muestra_mensaje_funcional();
   await test_flujo_diario_nunca_llama_endpoints_mensuales();
+  await test_mejoras_interfaz_v3_avance_de_la_caja();
+  await test_mejoras_interfaz_v3_avance_no_disponible_no_bloquea();
+  await test_mejoras_interfaz_v3_layout_detalle_abajo_a_ancho_completo();
+  await test_mejoras_interfaz_v3_encabezado_y_texto_publicacion();
+  await test_mejoras_interfaz_v3_ids_funcionales_y_demo();
 
   console.log("\n=========================================");
   console.log(passed + " passed, " + failures + " failed");

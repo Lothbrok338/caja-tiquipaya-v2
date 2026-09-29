@@ -1,0 +1,344 @@
+{
+  "id": "AvncCajaRO7v3Dev",
+  "name": "TIQ V3 · AVANCE CAJA · DEV (solo lectura)",
+  "active": true,
+  "isArchived": false,
+  "versionId": "ead87ae1-3349-5b6b-b13b-d41c3bbffcef",
+  "activeVersionId": "ead87ae1-3349-5b6b-b13b-d41c3bbffcef",
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "tags": [],
+  "description": "GET /webhook/tiq-v3-dev/avance?caja=<caja> -- 'procesado continuo hasta' de la interfaz V3. Solo lectura: lista los nombres de la carpeta SAP oficial de la caja en Drive (misma fuente que GLOBAL) y v3/dev_api.py (accion avance_caja) decide la continuidad. No toca el motor, el precheck, la publicacion ni el marcador.",
+  "nodes": [
+    {
+      "id": "ad736994-9213-56eb-a647-053a2757b0c6",
+      "name": "WEBHOOK avance",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "tiq-v3-dev/avance",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "140f1a9b-d6b2-5a5c-9fa9-58d01ea664f4"
+    },
+    {
+      "id": "2104c06e-debb-556d-b1a1-cbf685ddc964",
+      "name": "RESOLVER - Carpeta SAP de la caja",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// AVANCE CAJA (solo lectura) -- resuelve la carpeta SAP oficial de la caja pedida.\n// Es la MISMA carpeta y la MISMA variable de entorno que usa la publicacion oficial y\n// GLOBAL (DRIVE_SAP_<TIQ|AME>, default historico solo para TIQUIPAYA; AMERICA sin default y\n// sin fallback al folder de TIQUIPAYA: falla cerrado con motivo, ver config_drive_oficial.py).\n// Config por caja, no ramas: agregar una caja = una fila aqui + su entrada en config_cajas.py\n// (tests_v3/n8n_avance_caja verifica que ambas tablas coincidan).\nconst CAJAS = {\n  tiquipaya: { env: 'DRIVE_SAP_TIQ', porDefecto: '1mid4gUHnCmZbISlsAYMwWta3RudTSE13' },\n  america: { env: 'DRIVE_SAP_AME', porDefecto: null },\n};\nconst q = ($('WEBHOOK avance').first().json.query || {});\nconst caja = String(q.caja || 'tiquipaya').trim().toLowerCase();\nconst cfg = Object.prototype.hasOwnProperty.call(CAJAS, caja) ? CAJAS[caja] : null;\nif (!cfg) {\n  return [{ json: { caja: caja, folder_sap_id: null, motivo: 'CAJA_DESCONOCIDA' } }];\n}\nconst folderId = $env[cfg.env] || cfg.porDefecto;\nif (!folderId) {\n  return [{ json: { caja: caja, folder_sap_id: null, motivo: cfg.env + '_NO_CONFIGURADA' } }];\n}\nreturn [{ json: { caja: caja, folder_sap_id: folderId, motivo: null } }];\n"
+      }
+    },
+    {
+      "id": "5f519020-9abd-5791-b498-b03a7296221d",
+      "name": "IF - Carpeta SAP configurada",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ !!$json.folder_sap_id }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "b27d62b6-86eb-5f1a-bf94-40ae1a508f62",
+      "name": "BUSCAR - SAP oficiales de la caja (Drive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        660,
+        -120
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "name",
+        "queryString": "",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $('RESOLVER - Carpeta SAP de la caja').first().json.folder_sap_id }}"
+          },
+          "whatToSearch": "files",
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "aoEcEAFQQ38XcwZg",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "id": "52e9ad42-d298-5554-a229-b28b8b2739ca",
+      "name": "CONSTRUIR payload avance_caja",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// AVANCE CAJA (solo lectura): n8n solo lista nombres de archivo de la carpeta SAP oficial;\n// que fechas cuentan como procesadas y donde se corta la continuidad lo decide Python\n// (v3/avance_caja.py, unica autoridad).\nconst r = $('RESOLVER - Carpeta SAP de la caja').first().json;\nconst nombres = $input.all()\n  .map(function (it) { return it.json && it.json.name; })\n  .filter(function (n) { return typeof n === 'string' && n; });\nconst executionId = ($execution && $execution.id) ? $execution.id : String(Date.now());\n\nconst payload = { caja: r.caja, nombres_archivos: nombres };\n\nconst rutaInputTmp = '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_avance_caja_input_' + executionId + '.json';\nconst rutaOutputTmp = '' + ($env.TIQ_BASE_DIR || \"/home/codespace/.n8n-files\") + '/tiq_v3_tmp/tiq_v3_dev_api_avance_caja_output_' + executionId + '.json';\n\nreturn [{\n  json: {\n    input_b64: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),\n    ruta_input_tmp: rutaInputTmp,\n    ruta_output_tmp: rutaOutputTmp,\n  },\n}];"
+      }
+    },
+    {
+      "id": "a46167f1-b331-5a8c-962d-a97be0596d5e",
+      "name": "ESCRIBIR input avance_caja",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        -120
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=printf '%s' \"{{ $json.input_b64 }}\" | base64 -d > \"{{ $json.ruta_input_tmp }}\""
+      }
+    },
+    {
+      "id": "d5d1d20b-e27d-5f60-bb1a-9121bb881e4c",
+      "name": "EJECUTAR avance_caja (Python)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        -120
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=cd {{ $env.TIQ_REPO_ROOT || '/workspaces/caja-tiquipaya-v2' }} && {{ $env.TIQ_PYTHON_BIN || '/workspaces/.venv-caja/bin/python3' }} -m v3.dev_api --accion avance_caja --input \"{{ $('CONSTRUIR payload avance_caja').item.json.ruta_input_tmp }}\" --output \"{{ $('CONSTRUIR payload avance_caja').item.json.ruta_output_tmp }}\" ; true"
+      }
+    },
+    {
+      "id": "39ce4d7f-5097-55b5-b4fc-2d14eef81982",
+      "name": "LEER resultado avance_caja",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        -120
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('CONSTRUIR payload avance_caja').item.json.ruta_output_tmp }}"
+      }
+    },
+    {
+      "id": "b3cf1ad4-9f2a-53e2-8527-9a9efd729c9c",
+      "name": "INTERPRETAR resultado avance_caja",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        -120
+      ],
+      "parameters": {
+        "operation": "fromJson"
+      }
+    },
+    {
+      "id": "db77442a-c819-555e-b819-6c960453b11e",
+      "name": "RESPONDER avance",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1980,
+        -120
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.data }}"
+      }
+    },
+    {
+      "id": "42915764-3308-54a9-a52a-ca0dfa744bc0",
+      "name": "CONSTRUIR - Respuesta sin carpeta SAP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        140
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Sin carpeta SAP configurada para esta caja (p. ej. DRIVE_SAP_AME sin definir): no se\n// consulta Drive ni se inventa un avance; la interfaz solo muestra \"no disponible\".\nconst r = $input.first().json;\nreturn [{ json: { resultado: 'OK', disponible: false, caja: r.caja, motivo: r.motivo } }];"
+      }
+    },
+    {
+      "id": "b181e394-9da4-5502-b799-b24c1c51aab2",
+      "name": "RESPONDER avance (sin carpeta)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        880,
+        140
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      }
+    }
+  ],
+  "connections": {
+    "WEBHOOK avance": {
+      "main": [
+        [
+          {
+            "node": "RESOLVER - Carpeta SAP de la caja",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RESOLVER - Carpeta SAP de la caja": {
+      "main": [
+        [
+          {
+            "node": "IF - Carpeta SAP configurada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Carpeta SAP configurada": {
+      "main": [
+        [
+          {
+            "node": "BUSCAR - SAP oficiales de la caja (Drive)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CONSTRUIR - Respuesta sin carpeta SAP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSCAR - SAP oficiales de la caja (Drive)": {
+      "main": [
+        [
+          {
+            "node": "CONSTRUIR payload avance_caja",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR payload avance_caja": {
+      "main": [
+        [
+          {
+            "node": "ESCRIBIR input avance_caja",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ESCRIBIR input avance_caja": {
+      "main": [
+        [
+          {
+            "node": "EJECUTAR avance_caja (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EJECUTAR avance_caja (Python)": {
+      "main": [
+        [
+          {
+            "node": "LEER resultado avance_caja",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEER resultado avance_caja": {
+      "main": [
+        [
+          {
+            "node": "INTERPRETAR resultado avance_caja",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTERPRETAR resultado avance_caja": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER avance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSTRUIR - Respuesta sin carpeta SAP": {
+      "main": [
+        [
+          {
+            "node": "RESPONDER avance (sin carpeta)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
