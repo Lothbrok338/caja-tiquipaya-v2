@@ -550,3 +550,53 @@ def test_aplicar_precheck_maestro_propaga_caja_america(tmp_path):
     }]
     anotados = aplicar_precheck_maestro(items, caja="america")
     assert anotados[0]["estado_precheck_maestro"] == MAESTRO_APTO
+
+
+# ---------------------------------------------------------------------------
+# MACROS_NO_CUBRE_FECHA_DEPOSITO con posible inversión DD/MM NO confirmada:
+# el mensaje apunta a la FECHA DE DEPOSITO del cierre, nunca afirma que
+# MACROS esté desactualizado (hallazgo real CAJA AMÉRICA, 09-11/09/2026).
+# ---------------------------------------------------------------------------
+
+def _cierre_con_deposito(tmp_path, fecha_cierre, fecha_deposito, nombre=None):
+    nombre = nombre or run_batch.nombre_cierre_esperado(fecha_cierre)
+    ruta = tmp_path / nombre
+    sfc = {"total_movimiento": "100.00", "cobros_atc": "0.00", "dolares": "0.00",
+           "depositos": [{"deposito": "DEPOSITO 1", "importe": "100.00", "fecha": fecha_deposito, "asignacion": "AB1"}]}
+    sfc_vacio = {"total_movimiento": "0.00", "cobros_atc": "0.00", "dolares": "0.00", "depositos": []}
+    fx.crear_cierre(str(ruta), sfc, sfc_vacio)
+    return str(ruta)
+
+
+MENSAJE_HISTORICO = "actualice MACROS en Drive y vuelva a procesar"
+
+
+def test_deposito_posterior_con_inversion_posible_no_confirmada_apunta_a_la_fecha_del_cierre(tmp_path):
+    import datetime
+    ruta_maestro = _maestro(tmp_path, [_fila_macros("2026-09-27")], [])
+    ruta_cierre = _cierre_con_deposito(tmp_path, "2026-09-09", datetime.date(2026, 10, 9))
+    r = evaluar_cobertura_maestro(ruta_maestro, "2026-09-09", ruta_cierre)
+    assert r["estado"] == BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA
+    assert r["codigo_bloqueo"] == "MACROS_NO_CUBRE_FECHA_DEPOSITO"
+    assert r["fecha_requerida_deposito"] == "2026-10-09" and r["fecha_maxima_macros"] == "2026-09-27"
+    assert r["posible_inversion_ddmm"] == [{"fecha_deposito": "2026-10-09", "fecha_invertida": "2026-09-10"}]
+    m = r["mensaje"]
+    assert "MACROS_NO_CUBRE_FECHA_DEPOSITO" in m and "2026-10-09" in m and "2026-09-27" in m   # datos de siempre
+    assert "día y mes invertidos" in m and "2026-10-09 ↔ 2026-09-10" in m
+    assert "NO se corrigió automáticamente" in m and "Verifique primero la fecha de depósito en el archivo del cierre" in m
+    assert MENSAJE_HISTORICO not in m                                                           # no acusa a MACROS
+
+
+@pytest.mark.parametrize("fecha_cierre,macros_hasta,fecha_deposito", [
+    ("2026-09-04", "2026-09-05", (2026, 10, 9)),     # la inversión (10/09) TAMBIÉN queda fuera de MACROS: sigue siendo cobertura real
+    ("2026-09-09", "2026-09-27", (2026, 10, 15)),    # día > 12: no existe inversión
+    ("2026-09-09", "2026-09-27", (2026, 11, 11)),    # día == mes: la inversión es la misma fecha
+])
+def test_deposito_posterior_sin_inversion_posible_conserva_el_mensaje_historico(tmp_path, fecha_cierre, macros_hasta, fecha_deposito):
+    import datetime
+    ruta_maestro = _maestro(tmp_path, [_fila_macros(macros_hasta)], [])
+    ruta_cierre = _cierre_con_deposito(tmp_path, fecha_cierre, datetime.date(*fecha_deposito))
+    r = evaluar_cobertura_maestro(ruta_maestro, fecha_cierre, ruta_cierre)
+    assert r["codigo_bloqueo"] == "MACROS_NO_CUBRE_FECHA_DEPOSITO"
+    assert r["posible_inversion_ddmm"] == []
+    assert MENSAJE_HISTORICO in r["mensaje"] and "invertidos" not in r["mensaje"]

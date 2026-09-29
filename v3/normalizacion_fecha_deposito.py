@@ -19,13 +19,28 @@ pivote arbitrario del tipo "20xx"). Si no coincide, o no se conoce el año
 del cierre, NO se corrige nada: la celda queda intacta y seguirá fallando
 exactamente igual que antes (fail-closed, nunca se adivina).
 
-ALCANCE DELIBERADAMENTE MÁS ANGOSTO que el auditor completo: aquí NO se
-hace contraste contra vouchers de MACROS (inversión DD/MM, tolerancia de
-1 día, conflicto) — eso es Control 5 completo, un control de auditoría
-humana aparte (ver esa skill). Este módulo solo resuelve el caso que
-rompía el precheck automático de V3: el FORMATO de una fecha de texto ya
-inequívoca por sí misma (año de 2 dígitos == año del cierre), el mismo
-caso "sin voucher" de esa regla, sin necesitar MACROS para nada.
+SEGUNDA REGLA (hallazgo real, CAJA AMÉRICA, cierres 09, 10 y 11/09/2026):
+FECHA EXCEL REAL CON DÍA/MES INVERTIDOS. Una celda FECHA DE DEPOSITO que ya
+es una fecha Excel real (no texto) pero guardada con día↔mes invertidos
+(p. ej. 09/10/2026 en vez de 10/09/2026) no la corrige el paso de texto de
+arriba. Aquí se reutiliza LITERAL la clase `NORMALIZAR_INVERSION_DDMM` de
+`control5_fecha_deposito.py` (`_swap` + rama final de `_clasificar_fila`),
+regla aprobada en `control5_regla.md`: SOLO se normaliza si
+  1. existe UN ÚNICO voucher en MACROS para (asignación normalizada +
+     importe exacto a 2 decimales);
+  2. la fecha invertida día↔mes existe (día <= 12 y día != mes);
+  3. esa fecha invertida coincide EXACTAMENTE con la fecha del voucher.
+La evidencia sale del MISMO maestro ya materializado (`ruta_maestro_local`),
+leído con excel_io.leer_macros_bnb() (mismo lector que usa el precheck).
+Nunca por cercanía al cierre ni por heurística: sin voucher único que lo
+confirme NO se corrige (fail-closed). Igual que el auditor, una fecha que
+ya coincide con el voucher o difiere en 1 día calendario (tolerancia) se
+deja intacta antes de considerar cualquier inversión.
+
+El resto del Control 5 humano (tolerancia de 1 día como aviso, conflicto,
+conversión de texto contra voucher) sigue siendo la auditoría aparte: este
+módulo solo resuelve lo que rompía el precheck automático de V3 — el
+FORMATO de un texto inequívoco y la INVERSIÓN confirmada por voucher único.
 
 ESCRITURA SEGURA REUTILIZADA: nunca `openpyxl.save()` sobre un cierre
 (prohibido explícitamente por esa misma skill, SKILL.md, "Reglas de
@@ -47,7 +62,9 @@ cero cambio de comportamiento para los cierres que ya funcionan.
 import datetime
 import os
 import re
+from decimal import Decimal, InvalidOperation
 
+import excel_io
 from v3 import _xlsm_xml as X
 
 # Extracción literal de control5_fecha_deposito.py — MISMO regex, MISMA
@@ -62,6 +79,47 @@ CAJAS_SFC = {
 
 MOTIVO_ANIO_2_DIGITOS = "TEXTO_ANIO_2_DIGITOS_EXPANDIDO_CONTRA_ANIO_DEL_CIERRE"
 MOTIVO_FORMATO_NORMALIZADO = "TEXTO_FECHA_FORMATO_NORMALIZADO"
+
+# Mismos nombres que control5_fecha_deposito.py (NORMALIZAR_INVERSION,
+# motivo "INVERSION_DD/MM_IGUAL_A_VOUCHER", tolerancia de 1 día calendario).
+CLASE_INVERSION_DDMM = "NORMALIZAR_INVERSION_DDMM"
+MOTIVO_INVERSION_DDMM = "INVERSION_DD/MM_IGUAL_A_VOUCHER"
+TOLERANCIA_DIAS = 1
+
+
+def _swap(d):
+    """Extracción literal de control5_fecha_deposito._swap: fecha con día y
+    mes invertidos, o None si no existe (día > 12) o es igual (día == mes)."""
+    if d.day > 12 or d.day == d.month:
+        return None
+    try:
+        return datetime.date(d.year, d.day, d.month)
+    except ValueError:
+        return None
+
+
+def fecha_invertida_candidata(fecha):
+    """Fecha con día↔mes invertidos (o None). API pública de `_swap` para
+    quien solo quiere saber si una inversión DD/MM es POSIBLE (p. ej. el
+    mensaje del precheck); nunca decide corregir nada."""
+    return _swap(fecha)
+
+
+def indice_vouchers_macros(ruta_maestro):
+    """{(codigo_normalizado, importe_2dec): [date | None, ...]} desde la hoja
+    "Tablas Dinamicas Profesional" del maestro, con el MISMO lector que el
+    precheck (excel_io.leer_macros_bnb: mismos encabezados repetidos
+    descartados, solo códigos con crédito > 0). Un voucher es ÚNICO solo si
+    la clave tiene exactamente UNA entrada; una entrada None es un voucher
+    sin fecha válida (no hay evidencia). Lanza si el maestro es ilegible."""
+    por_codigo = excel_io.leer_macros_bnb(ruta_maestro)["por_codigo"]
+    indice = {}
+    for codigo, movimientos in por_codigo.items():
+        for mov in movimientos:
+            fecha_iso = mov.get("fecha")
+            fecha = datetime.date.fromisoformat(fecha_iso) if fecha_iso else None
+            indice.setdefault((codigo, mov["importe"]), []).append(fecha)
+    return indice
 
 
 def interpretar_fecha_texto(texto, anio_cierre):
@@ -115,26 +173,132 @@ def _localizar_columnas(filas):
 
 
 # ---------------------------------------------------------------------------
-# 1) CLASIFICAR — solo lectura, solo el caso "texto de fecha ambigua"
+# 1) CLASIFICAR — solo lectura: (a) texto de fecha ambigua pero resoluble,
+# (b) fecha Excel real con día/mes invertidos confirmada por voucher único.
 # ---------------------------------------------------------------------------
 
-def clasificar_fechas_deposito(ruta_cierre, caja, fecha_cierre_iso):
+def _codigo_de_celda(celda):
+    """Asignación normalizada de una celda del cierre, con la MISMA
+    normalización que excel_io.leer_macros_bnb aplica a la clave de MACROS
+    (excel_io.normalize_codigo). '' si no hay asignación."""
+    if celda is None or celda.tipo == "vacia" or celda.valor is None:
+        return ""
+    valor = celda.valor
+    if celda.tipo == "numero":
+        try:
+            d = Decimal(valor)
+            valor = str(int(d)) if d == d.to_integral_value() else valor
+        except InvalidOperation:
+            return ""
+    return excel_io.normalize_codigo(valor)
+
+
+def _importe_de_celda(celda):
+    """Importe a 2 decimales (mismo criterio que la clave de MACROS:
+    excel_io.money_str) si la celda trae un número válido > 0; None si no
+    hay importe auditable (vacío, no numérico o <= 0: no es un depósito a
+    auditar, igual que control5_fecha_deposito.analizar)."""
+    if celda is None or celda.tipo in ("vacia", "otro") or celda.valor is None:
+        return None
+    try:
+        dec = excel_io.to_decimal(celda.valor)
+    except ValueError:
+        return None
+    return excel_io.money_str(dec) if dec > 0 else None
+
+
+def _evaluar_inversion_ddmm(celda_f, fila, c_imp, c_asg, pq, obtener_indice):
+    """Regla `NORMALIZAR_INVERSION_DDMM` de control5_fecha_deposito.py para
+    UNA celda FECHA DE DEPOSITO que es fecha Excel real. Devuelve
+    (plan_item | None, revision | None): `plan_item` solo si la inversión
+    está CONFIRMADA por voucher único; `revision` describe, sin corregir,
+    una inversión posible que NO se pudo confirmar. Ninguna otra clase del
+    auditor se aplica aquí (ver docstring del módulo)."""
+    try:
+        fecha_celda, con_hora = X.serial_a_fecha(celda_f.valor, pq.date1904)
+    except ValueError:
+        return None, None  # número fuera de rango de fechas: no es el caso de esta regla
+    if not pq.estilo_es_fecha(celda_f.estilo):
+        return None, None  # número sin formato de fecha: el auditor lo manda a revisión, aquí nunca se toca
+    inv = _swap(fecha_celda)
+    if inv is None:
+        return None, None  # sin inversión posible (día > 12 o día == mes): nada que evaluar
+
+    importe = _importe_de_celda(fila.get(c_imp))
+    if importe is None:
+        return None, None  # no es un depósito con importe a auditar
+    base = {"hoja": None, "celda": celda_f.ref, "fecha_excel": fecha_celda.isoformat(),
+            "fecha_invertida_candidata": inv.isoformat(), "importe": importe, "asignacion": None,
+            "fecha_voucher": None}
+
+    def revision(motivo):
+        base["motivo"] = motivo
+        return None, base
+
+    codigo = _codigo_de_celda(fila.get(c_asg))
+    base["asignacion"] = codigo or None
+    if not codigo:
+        return revision("ASIGNACION_VACIA_SIN_VOUCHER")
+    try:
+        indice = obtener_indice()
+    except Exception as exc:  # noqa: BLE001 — sin evidencia legible de MACROS: NUNCA se corrige
+        return revision("MACROS_ILEGIBLE:%s" % type(exc).__name__)
+    if indice is None:
+        return revision("MACROS_NO_DISPONIBLE_PARA_CONFIRMAR")
+    vouchers = indice.get((codigo, importe), [])
+    if not vouchers:
+        return revision("SIN_VOUCHER_EN_MACROS")
+    if len(vouchers) > 1:
+        return revision("VOUCHER_NO_UNICO_%d_COINCIDENCIAS" % len(vouchers))
+    fv = vouchers[0]
+    if fv is None:
+        return revision("VOUCHER_SIN_FECHA_VALIDA")
+    base["fecha_voucher"] = fv.isoformat()
+    dif_dias = abs((fecha_celda - fv).days)  # días calendario entre FECHAS, no horas
+    if dif_dias <= TOLERANCIA_DIAS:
+        return None, None  # CORRECTA / DENTRO_TOLERANCIA_1_DIA: el valor no se toca
+    if con_hora:
+        return revision("FECHA_CON_HORA_NO_SE_MODIFICA")
+    if inv != fv:
+        return revision("FECHA_DISTINTA_A_VOUCHER_Y_SU_INVERSION_TAMPOCO_COINCIDE")
+    return {
+        "celda": celda_f.ref, "valor_actual": "fecha Excel real %s" % fecha_celda.isoformat(),
+        "fecha_nueva": fv, "asignacion": codigo, "importe": importe,
+        "fecha_excel": fecha_celda, "fecha_voucher": fv,
+    }, None
+
+
+def clasificar_fechas_deposito(ruta_cierre, caja, fecha_cierre_iso, indice_vouchers=None):
     """Recorre las hojas SFC de `caja` y devuelve un `plan` (una entrada
     por celda a normalizar: hoja/celda/fecha_nueva/valor_actual) más su
     `trazabilidad` humana (hoja/celda/valor_original/valor_normalizado/
-    motivo). Nunca escribe nada. `caja`: 'tiquipaya' | 'america'.
+    motivo) y `revision` (inversiones DD/MM posibles NO confirmadas, que
+    NO se corrigen). Nunca escribe nada. `caja`: 'tiquipaya' | 'america'.
     `fecha_cierre_iso`: 'YYYY-MM-DD' del cierre (resuelve el año de 2
     dígitos); None si se desconoce (entonces ningún año de 2 dígitos se
-    acepta, igual que la regla original)."""
+    acepta, igual que la regla original).
+
+    `indice_vouchers`: la evidencia de MACROS para la regla de inversión
+    DD/MM — dict `indice_vouchers_macros()` o un callable sin argumentos que
+    lo devuelve (se invoca de forma PEREZOSA, solo cuando alguna celda
+    FECHA DE DEPOSITO real tiene una inversión posible; un cierre normal no
+    fuerza ninguna lectura de MACROS). None = sin evidencia: la inversión
+    DD/MM nunca se corrige, solo se reporta en `revision`."""
     if caja not in CAJAS_SFC:
         raise ValueError("CAJA_DESCONOCIDA: %r (validas: %s)" % (caja, sorted(CAJAS_SFC)))
     anio_cierre = int(fecha_cierre_iso[:4]) if fecha_cierre_iso else None
 
+    if callable(indice_vouchers):
+        obtener_indice = indice_vouchers
+    else:
+        def obtener_indice():
+            return indice_vouchers
+
     pq = X.Paquete(ruta_cierre)
     if pq.date1904:
-        return {"plan": [], "trazabilidad": [], "omitido": "LIBRO_DATE1904_NO_SOPORTADO"}
+        return {"plan": [], "trazabilidad": [], "revision": [], "omitido": "LIBRO_DATE1904_NO_SOPORTADO"}
 
-    plan, trazabilidad = [], []
+    plan, trazabilidad, revision = [], [], []
     compactos = {X.normalizar_texto(n).replace(" ", ""): n for n in pq.hojas}
     for sfc in CAJAS_SFC[caja]:
         nombre = compactos.get(sfc)
@@ -154,10 +318,31 @@ def clasificar_fechas_deposito(ruta_cierre, caja, fecha_cierre_iso):
             if "DEPOSITO" not in texto_etq:
                 break  # fin determinístico del bloque (misma regla que excel_io/control5)
             celda_f = fila.get(c_fec)
-            # Solo texto: una fecha Excel real, vacía, fórmula u "otro" tipo
-            # no es el caso que este módulo resuelve (excel_io ya las lee
-            # bien, o ya las bloquea por otro motivo que no es de formato).
-            if celda_f is None or celda_f.tipo != "texto":
+            if celda_f is None:
+                continue
+            if celda_f.tipo == "numero":
+                # Fecha Excel real: la única corrección posible es la
+                # inversión DD/MM confirmada por voucher único (2ª regla).
+                item, rev = _evaluar_inversion_ddmm(celda_f, fila, c_imp, c_asg, pq, obtener_indice)
+                if rev is not None:
+                    rev["hoja"] = nombre
+                    revision.append(rev)
+                if item is not None:
+                    item["hoja"] = nombre
+                    plan.append(item)
+                    trazabilidad.append({
+                        "hoja": nombre, "celda": item["celda"],
+                        "valor_original": item["fecha_excel"].isoformat(),
+                        "valor_normalizado": item["fecha_nueva"].isoformat(),
+                        "motivo": MOTIVO_INVERSION_DDMM, "clase": CLASE_INVERSION_DDMM,
+                        "asignacion": item["asignacion"], "importe": item["importe"],
+                        "fecha_voucher": item["fecha_voucher"].isoformat(),
+                    })
+                continue
+            # Texto (1ª regla). Una celda vacía, fórmula u "otro" tipo no es
+            # el caso que este módulo resuelve (excel_io ya las lee bien, o
+            # ya las bloquea por otro motivo que no es de formato).
+            if celda_f.tipo != "texto":
                 continue
             fecha_nueva, motivo_rechazo = interpretar_fecha_texto(celda_f.valor, anio_cierre)
             if fecha_nueva is None:
@@ -174,7 +359,7 @@ def clasificar_fechas_deposito(ruta_cierre, caja, fecha_cierre_iso):
                 "motivo": motivo,
             })
 
-    return {"plan": plan, "trazabilidad": trazabilidad, "omitido": None}
+    return {"plan": plan, "trazabilidad": trazabilidad, "revision": revision, "omitido": None}
 
 
 # ---------------------------------------------------------------------------
@@ -273,27 +458,32 @@ def verificar_integridad(ruta_in, ruta_out, plan, reemplazos):
 # y v3.precheck_maestro.aplicar_precheck_maestro() (ver v3/dev_api.py).
 # ---------------------------------------------------------------------------
 
-def normalizar_cierre_para_precheck(ruta_cierre_local, fecha_cierre_iso, caja):
+def normalizar_cierre_para_precheck(ruta_cierre_local, fecha_cierre_iso, caja, indice_vouchers=None):
     """Para UN cierre ya materializado localmente: si tiene alguna FECHA DE
-    DEPOSITO en texto ambiguo-pero-resoluble, escribe una copia NUEVA
-    normalizada (nunca sobrescribe `ruta_cierre_local`) y devuelve su ruta;
-    si no hace falta nada, devuelve `ruta_cierre_local` tal cual (cero
+    DEPOSITO normalizable (texto ambiguo-pero-resoluble, o fecha Excel real
+    con día/mes invertidos CONFIRMADA por voucher único de MACROS — ver
+    `indice_vouchers` en clasificar_fechas_deposito), escribe una copia
+    NUEVA normalizada (nunca sobrescribe `ruta_cierre_local`) y devuelve su
+    ruta; si no hace falta nada, devuelve `ruta_cierre_local` tal cual (cero
     archivos nuevos, cero cambio de comportamiento).
 
     Nunca lanza por un cierre individual: un problema técnico (archivo
     corrupto, hoja no reconocida, libro date1904) simplemente no normaliza
     nada y deja `ruta_cierre_local` intacto — el cierre seguirá su curso
     normal (y, si corresponde, precheck_maestro lo bloqueará con su propio
-    diagnóstico, igual que hoy)."""
+    diagnóstico, igual que hoy). `revision` lista las inversiones DD/MM
+    posibles que NO se pudieron confirmar (no se corrigen)."""
     try:
-        resultado = clasificar_fechas_deposito(ruta_cierre_local, caja, fecha_cierre_iso)
+        resultado = clasificar_fechas_deposito(ruta_cierre_local, caja, fecha_cierre_iso, indice_vouchers=indice_vouchers)
     except Exception as exc:  # aislamiento: nunca detiene el resto del lote
         return {
             "ruta_cierre_local": ruta_cierre_local, "normalizado": False,
-            "cambios": [], "mensaje": f"{type(exc).__name__}: {exc}",
+            "cambios": [], "revision": [], "mensaje": f"{type(exc).__name__}: {exc}",
         }
+    revision = resultado.get("revision", [])
     if resultado.get("omitido") or not resultado["plan"]:
-        return {"ruta_cierre_local": ruta_cierre_local, "normalizado": False, "cambios": [], "mensaje": None}
+        return {"ruta_cierre_local": ruta_cierre_local, "normalizado": False, "cambios": [],
+                "revision": revision, "mensaje": None}
 
     base, ext = os.path.splitext(ruta_cierre_local)
     ruta_salida = base + ".normalizado" + ext
@@ -302,12 +492,33 @@ def normalizar_cierre_para_precheck(ruta_cierre_local, fecha_cierre_iso, caja):
     except Exception as exc:  # nunca deja una copia a medio escribir en uso
         return {
             "ruta_cierre_local": ruta_cierre_local, "normalizado": False,
-            "cambios": [], "mensaje": f"NORMALIZACION_FALLIDA:{type(exc).__name__}: {exc}",
+            "cambios": [], "revision": revision, "mensaje": f"NORMALIZACION_FALLIDA:{type(exc).__name__}: {exc}",
         }
     return {
         "ruta_cierre_local": ruta_salida, "normalizado": True,
-        "cambios": resultado["trazabilidad"], "mensaje": None,
+        "cambios": resultado["trazabilidad"], "revision": revision, "mensaje": None,
     }
+
+
+def _proveedor_indice_vouchers(ruta_maestro):
+    """Callable perezoso y memoizado: lee el maestro UNA sola vez, y solo si
+    alguna celda lo necesita. Un maestro ausente o ilegible da None (sin
+    evidencia => la inversión DD/MM nunca se corrige); el precheck reportará
+    el problema del maestro con su propio diagnóstico."""
+    cache = {}
+
+    def obtener():
+        if "indice" not in cache:
+            if not ruta_maestro:
+                cache["indice"] = None
+            else:
+                try:
+                    cache["indice"] = indice_vouchers_macros(ruta_maestro)
+                except Exception:  # noqa: BLE001 — sin evidencia legible: no se corrige
+                    cache["indice"] = None
+        return cache["indice"]
+
+    return obtener
 
 
 def normalizar_cierres_materializados(cierres_materializados, caja=None):
@@ -315,16 +526,28 @@ def normalizar_cierres_materializados(cierres_materializados, caja=None):
     de la lista que devuelve v3.materializacion.ejecutar_materializacion().
     Los demás items (SIN_ARCHIVO/AMBIGUO/ERROR_MATERIALIZACION) pasan
     intactos. Actualiza `ruta_cierre_local` in place cuando corresponde y
-    agrega `normalizacion_fecha_deposito` (trazabilidad) a cada item."""
+    agrega `normalizacion_fecha_deposito` (trazabilidad) a cada item; si
+    quedó alguna inversión DD/MM posible sin confirmar, además
+    `normalizacion_fecha_deposito_revision`. La evidencia de MACROS sale del
+    `ruta_maestro_local` ya materializado de cada item (misma copia que
+    usará el precheck), leído una sola vez por maestro distinto."""
     caja_codigo = caja if isinstance(caja, str) else getattr(caja, "codigo", "tiquipaya")
+    proveedores = {}
     resultados = []
     for item in cierres_materializados:
         if item.get("estado_materializacion") != "MATERIALIZADO" or not item.get("ruta_cierre_local"):
             resultados.append(dict(item))
             continue
-        norm = normalizar_cierre_para_precheck(item["ruta_cierre_local"], item.get("fecha"), caja_codigo)
+        ruta_maestro = item.get("ruta_maestro_local")
+        if ruta_maestro not in proveedores:
+            proveedores[ruta_maestro] = _proveedor_indice_vouchers(ruta_maestro)
+        norm = normalizar_cierre_para_precheck(
+            item["ruta_cierre_local"], item.get("fecha"), caja_codigo, indice_vouchers=proveedores[ruta_maestro],
+        )
         salida = dict(item)
         salida["ruta_cierre_local"] = norm["ruta_cierre_local"]
         salida["normalizacion_fecha_deposito"] = norm["cambios"]
+        if norm.get("revision"):
+            salida["normalizacion_fecha_deposito_revision"] = norm["revision"]
         resultados.append(salida)
     return resultados

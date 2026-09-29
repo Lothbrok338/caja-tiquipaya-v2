@@ -55,6 +55,7 @@ genuinamente sin ATC).
 """
 
 import argparse
+import datetime
 import json
 import os
 import sys
@@ -66,6 +67,7 @@ import config_cajas as cfg  # noqa: E402  (reutilizado tal cual: resolver_caja)
 import excel_io  # noqa: E402  (reutilizado tal cual, ver docstring)
 from v3.materializacion import MATERIALIZADO  # noqa: E402
 from v3.motor import NO_PROCESADO  # noqa: E402
+from v3.normalizacion_fecha_deposito import fecha_invertida_candidata  # noqa: E402
 
 
 MAESTRO_APTO = "MAESTRO_APTO"
@@ -132,6 +134,27 @@ def _clasificar_fechas_deposito(fechas, fecha_cierre):
     return plausibles, anomalas
 
 
+def _posibles_inversiones_ddmm(plausibles, fecha_maxima_macros):
+    """Fechas de depósito POSTERIORES a la cobertura de MACROS cuya versión
+    con día↔mes invertidos existe (día <= 12 y día != mes) y SÍ cae dentro de
+    la cobertura de MACROS: hay una inversión DD/MM posible que
+    v3.normalizacion_fecha_deposito NO confirmó (sin voucher único de
+    MACROS que la respalde; si lo hubiera confirmado, la fecha ya llegaría
+    corregida aquí). Es solo una pista para el MENSAJE: nunca corrige ni
+    decide nada. Estructural, sin cercanía al cierre ni otra heurística."""
+    posibles = []
+    for f in sorted(set(plausibles)):
+        if f <= fecha_maxima_macros:
+            continue
+        try:
+            inv = fecha_invertida_candidata(datetime.date.fromisoformat(f))
+        except ValueError:
+            continue
+        if inv is not None and inv.isoformat() <= fecha_maxima_macros:
+            posibles.append({"fecha_deposito": f, "fecha_invertida": inv.isoformat()})
+    return posibles
+
+
 def _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre, caja=None):
     """Evalúa UN maestro (más el propio cierre, para saber si ese día tuvo
     movimiento ATC) contra UNA fecha de cierre. Devuelve dict con
@@ -148,7 +171,7 @@ def _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre, caja=None):
     cierre (tipeo, p. ej. 2016) NO se usan para exigir cobertura: se
     reportan aparte en `observaciones` (FECHA_DEPOSITO_ANOMALA) para decisión
     humana. Claves adicionales: `codigo_bloqueo`, `fecha_requerida_deposito`,
-    `observaciones`.
+    `observaciones`, `posible_inversion_ddmm` (solo en MACROS_NO_CUBRE_FECHA_DEPOSITO).
     Un maestro ilegible (archivo inexistente, hoja faltante, columnas
     faltantes, workbook corrupto), sin NINGUNA fecha registrada en MACROS,
     o un cierre cuyo archivo no se puede leer para determinar si tuvo
@@ -205,6 +228,26 @@ def _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre, caja=None):
     plausibles, anomalas = _clasificar_fechas_deposito(fechas_dep, fecha_cierre)
     fecha_requerida = _fecha_maxima(plausibles)
     if fecha_requerida and fecha_requerida > fecha_maxima_macros:
+        posibles = _posibles_inversiones_ddmm(plausibles, fecha_maxima_macros)
+        if posibles:
+            # Posible inversión DD/MM en la FECHA DE DEPOSITO del CIERRE que
+            # no se pudo confirmar con un voucher único de MACROS: el
+            # mensaje apunta a la fecha del cierre, NUNCA afirma que MACROS
+            # esté desactualizado (no se sabe).
+            pares = ", ".join(f"{p['fecha_deposito']} ↔ {p['fecha_invertida']}" for p in posibles)
+            mensaje = (
+                f"{MACROS_NO_CUBRE_FECHA_DEPOSITO}: el cierre trae depósitos hasta {fecha_requerida} "
+                f"pero MACROS solo llega hasta {fecha_maxima_macros}. Posible causa: la FECHA DE DEPOSITO "
+                f"del cierre tiene día y mes invertidos ({pares}); no se pudo confirmar con un voucher único "
+                "de MACROS (asignación + importe), por eso NO se corrigió automáticamente. Verifique primero "
+                "la fecha de depósito en el archivo del cierre; solo si esa fecha es correcta, actualice MACROS."
+            )
+        else:
+            mensaje = (
+                f"{MACROS_NO_CUBRE_FECHA_DEPOSITO}: el cierre trae depósitos hasta {fecha_requerida} "
+                f"pero MACROS solo llega hasta {fecha_maxima_macros}. Los vouchers de esos depósitos "
+                "todavía no pueden estar en MACROS: actualice MACROS en Drive y vuelva a procesar."
+            )
         return {
             "estado": BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
             "fecha_cierre": fecha_cierre,
@@ -212,11 +255,8 @@ def _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre, caja=None):
             "fecha_maxima_atc": fecha_maxima_atc,
             "codigo_bloqueo": MACROS_NO_CUBRE_FECHA_DEPOSITO,
             "fecha_requerida_deposito": fecha_requerida,
-            "mensaje": (
-                f"{MACROS_NO_CUBRE_FECHA_DEPOSITO}: el cierre trae depósitos hasta {fecha_requerida} "
-                f"pero MACROS solo llega hasta {fecha_maxima_macros}. Los vouchers de esos depósitos "
-                "todavía no pueden estar en MACROS: actualice MACROS en Drive y vuelva a procesar."
-            ),
+            "posible_inversion_ddmm": posibles,
+            "mensaje": mensaje,
         }
 
     try:
@@ -346,6 +386,7 @@ def aplicar_precheck_maestro(cierres_materializados, caja=None):
             "mensaje_precheck_maestro": cobertura["mensaje"],
             "codigo_bloqueo_precheck": cobertura.get("codigo_bloqueo"),
             "fecha_requerida_deposito": cobertura.get("fecha_requerida_deposito"),
+            "posible_inversion_ddmm": cobertura.get("posible_inversion_ddmm") or [],
             "observaciones_precheck": cobertura.get("observaciones") or [],
         })
         if cobertura["estado"] in (BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA):
