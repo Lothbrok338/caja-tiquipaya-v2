@@ -1161,6 +1161,29 @@ def ejecutar_control3_institucional(anio, mes, base_dir_dev, dry_run=False, conf
 
 
 # ---------------------------------------------------------------------------
+# Contrato de error de GENERAR GLOBAL (/webhook/tiq-v3-dev/global): SIEMPRE
+# un objeto JSON, nunca stderr/traceback/texto plano. Conserva
+# `resultado: "ERROR"` + `mensaje` (lo que ya lee el frontend, incluido
+# PERIODO_CERRADO_CONTROL1) y agrega los campos estables del contrato.
+# scripts/serve_v3_frontend.py emite este MISMO sobre cuando el fallo ocurre
+# en n8n (fuera de Python) y n8n no devuelve JSON.
+# ---------------------------------------------------------------------------
+
+CODIGO_GLOBAL_ERROR_TECNICO = "GLOBAL_ERROR_TECNICO"
+
+
+def sobre_error_global(mensaje, detalle):
+    return {
+        "resultado": "ERROR",
+        "ok": False,
+        "estado": ERROR_REVISAR,
+        "codigo": CODIGO_GLOBAL_ERROR_TECNICO,
+        "mensaje": mensaje,
+        "detalle": detalle,
+    }
+
+
+# ---------------------------------------------------------------------------
 # CLI — mismo patrón Python-es-la-única-autoridad de los demás módulos.
 # ---------------------------------------------------------------------------
 
@@ -1272,6 +1295,8 @@ def main(argv=None):
             )}
     except Exception as exc:
         salida = {"resultado": "ERROR", "codigo": type(exc).__name__, "mensaje": str(exc)}
+        if args.accion == "generar_global":
+            salida = sobre_error_global(str(exc), f"{type(exc).__name__}: {exc}")
 
     # Serializacion defensiva: si `salida` contuviera algo no serializable
     # (bug de programacion en cualquier accion de arriba), NUNCA se deja un
@@ -1284,7 +1309,10 @@ def main(argv=None):
     try:
         texto = json.dumps(salida, ensure_ascii=False, indent=2, default=str)
     except TypeError as exc:
-        texto = json.dumps({"resultado": "ERROR", "codigo": "SALIDA_NO_SERIALIZABLE", "mensaje": str(exc)}, ensure_ascii=False, indent=2)
+        error = {"resultado": "ERROR", "codigo": "SALIDA_NO_SERIALIZABLE", "mensaje": str(exc)}
+        if args.accion == "generar_global":
+            error = sobre_error_global(str(exc), f"SALIDA_NO_SERIALIZABLE: {exc}")
+        texto = json.dumps(error, ensure_ascii=False, indent=2)
 
     with open(args.output, "w", encoding="utf-8") as f:
         f.write(texto)

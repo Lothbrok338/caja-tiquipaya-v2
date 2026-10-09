@@ -34,9 +34,13 @@ cambio, INSTITUCIONALES: CONTROL 1 y CONTROL 3 son controles únicos que
 auditan conjuntamente TIQUIPAYA + AMERICA, y ambos GLOBAL mensuales
 comparten la misma carpeta GLOBAL. Por eso resuelven siempre a los mismos
 4 folder IDs históricos, para cualquier caja -- no existen variables
-DRIVE_CONTROLES_AME / DRIVE_GLOBAL_AME / DRIVE_CONTROL1_AME /
-DRIVE_CONTROL3_AME. `sap` es la única pieza del mensual que sí es por caja
-(reutiliza el destino "sap" de los 5 diarios).
+DRIVE_CONTROLES_AME / DRIVE_CONTROL1_AME / DRIVE_CONTROL3_AME. `sap` es la
+única pieza del mensual que sí es por caja (reutiliza el destino "sap" de
+los 5 diarios). DRIVE_GLOBAL_AME (carpeta CAJA AMERICA/GLOBAL) es un
+destino ADICIONAL de publicación del GLOBAL AME, que resuelve únicamente el
+nodo n8n "CONSTRUIR - Lista publicaciones GLOBAL"; la carpeta GLOBAL
+institucional sigue recibiendo también el GLOBAL AME (CONTROL 1/3 lo leen
+de ahí), por eso `global` aquí no cambia.
 """
 
 import os
@@ -108,8 +112,9 @@ def resolver_destinos_drive(caja=None, entorno=None):
 # GLOBAL mensuales (SAP_GLOBAL_TIQ_.../SAP_GLOBAL_AME_...) se publican en la
 # MISMA carpeta GLOBAL. Por eso estos 4 folder IDs son fijos y compartidos
 # por las dos cajas -- NO existen (ni deben crearse) variables
-# DRIVE_CONTROLES_AME / DRIVE_GLOBAL_AME / DRIVE_CONTROL1_AME /
-# DRIVE_CONTROL3_AME: no hay "destino AME" distinto que resolver aquí.
+# DRIVE_CONTROLES_AME / DRIVE_CONTROL1_AME / DRIVE_CONTROL3_AME: no hay
+# "destino AME" distinto que resolver aquí. (DRIVE_GLOBAL_AME es solo una
+# copia ADICIONAL del GLOBAL AME publicada por n8n; ver docstring.)
 _MENSUAL_INSTITUCIONAL = {
     "controles": "1yZI_OCuYOAILg8E6uT-bAmkQtW-XB-qB",
     "global": "1KREzDpgptWRwuArA1qYco49rplOEeeNU",

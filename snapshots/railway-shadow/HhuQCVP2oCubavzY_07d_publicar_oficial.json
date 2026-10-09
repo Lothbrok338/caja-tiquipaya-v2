@@ -199,15 +199,15 @@
           "whatToSearch": "files",
           "includeTrashed": false
         },
-        "options": {},
-        "alwaysOutputData": true
+        "options": {}
       },
       "credentials": {
         "googleDriveOAuth2Api": {
           "id": "aoEcEAFQQ38XcwZg",
           "name": "Google Drive account"
         }
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "id": "5954a0a2-cfa9-4937-b46d-31df3a04d5ca",

@@ -128,6 +128,7 @@ cambia en absoluto.
 import base64
 import hmac
 import http.server
+import json
 import os
 import socket
 import subprocess
@@ -313,6 +314,62 @@ def _credenciales_validas(header_authorization):
     return usuario_ok and clave_ok
 
 
+# ---------------------------------------------------------------------
+# Contrato JSON de GENERAR GLOBAL (/webhook/tiq-v3-dev/global). n8n
+# 2.35.7, en modo "responseNode", responde HTTP 200 con cuerpo VACIO
+# cuando la ejecucion termina sin pasar por "RESPONDER global" (un nodo
+# que falla, o una rama que se queda sin items) -- el navegador veia
+# "Respuesta no-JSON del backend (HTTP 200)". Para ESTA ruta el proxy
+# nunca reenvia algo que no sea un objeto JSON: si n8n no lo entrega, se
+# responde el MISMO sobre de error que emite v3/dev_api.py
+# (sobre_error_global). Ninguna otra ruta cambia de comportamiento.
+# ---------------------------------------------------------------------
+
+RUTA_WEBHOOK_GLOBAL = "/webhook/tiq-v3-dev/global"
+
+
+def es_webhook_global(path):
+    return urllib.parse.urlsplit(path).path == RUTA_WEBHOOK_GLOBAL
+
+
+def sobre_error_global(mensaje, detalle):
+    return {
+        "resultado": "ERROR",
+        "ok": False,
+        "estado": "ERROR_REVISAR",
+        "codigo": "GLOBAL_ERROR_TECNICO",
+        "mensaje": mensaje,
+        "detalle": detalle,
+    }
+
+
+def respuesta_global_json(status, cuerpo):
+    """(status, bytes) que el proxy devuelve al navegador para /global.
+    Un objeto JSON de n8n con 2xx (o un error que ya trae
+    `resultado: "ERROR"`) pasa tal cual; cualquier otra cosa (cuerpo
+    vacio, texto plano, HTML, JSON que no es objeto, error generico de
+    n8n) se reemplaza por el sobre de error -- nunca se expone el cuerpo
+    crudo al navegador."""
+    try:
+        data = json.loads(cuerpo.decode("utf-8")) if cuerpo else None
+    except (ValueError, UnicodeDecodeError):
+        data = None
+    if isinstance(data, dict) and (200 <= status < 300 or data.get("resultado") == "ERROR"):
+        return status, cuerpo
+    if isinstance(data, dict) and data.get("message"):
+        detalle = "n8n HTTP {}: {}".format(status, str(data.get("message"))[:300])
+    elif not cuerpo:
+        detalle = "n8n HTTP {}: respuesta vacia (el workflow termino sin responder)".format(status)
+    else:
+        detalle = "n8n HTTP {}: respuesta no-JSON ({} bytes)".format(status, len(cuerpo))
+    sobre = sobre_error_global(
+        "GENERAR GLOBAL fallo en el orquestador antes de devolver un resultado. "
+        "Revisar la ejecucion del workflow en n8n; la publicacion en Drive puede no haberse completado.",
+        detalle,
+    )
+    return (status if status >= 400 else 502), json.dumps(sobre, ensure_ascii=False).encode("utf-8")
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         # Sin esto, el navegador puede quedarse con una version vieja del
@@ -434,6 +491,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return self._proxy_n8n("OPTIONS")
 
     def _proxy(self, method):
+        if es_webhook_global(self.path):
+            return self._proxy_global(method)
         try:
             N8N_MANAGER.preparar_para_webhook()
         except TimeoutError:
@@ -467,6 +526,49 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(e.read())
+        finally:
+            N8N_MANAGER.liberar_despues_de_webhook()
+
+    def _responder_json(self, status, cuerpo):
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.end_headers()
+        self.wfile.write(cuerpo)
+
+    def _proxy_global(self, method):
+        """Igual que _proxy(), pero la respuesta de /global SIEMPRE es un
+        objeto JSON (ver respuesta_global_json): tambien si n8n no arranca,
+        no responde o devuelve un cuerpo vacio/no-JSON."""
+        try:
+            N8N_MANAGER.preparar_para_webhook()
+        except TimeoutError:
+            N8N_MANAGER.liberar_despues_de_webhook()
+            self._responder_json(503, json.dumps(sobre_error_global(
+                "GENERAR GLOBAL no se pudo ejecutar: el orquestador n8n no arranco a tiempo.",
+                "N8N_NO_DISPONIBLE",
+            ), ensure_ascii=False).encode("utf-8"))
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length) if length else None
+            req = urllib.request.Request(
+                N8N_ORIGIN + self.path,
+                data=body,
+                method=method,
+                headers={"Content-Type": self.headers.get("Content-Type", "application/json")},
+            )
+            try:
+                with urllib.request.urlopen(req) as r:
+                    status, cuerpo = r.status, r.read()
+            except urllib.error.HTTPError as e:
+                status, cuerpo = e.code, e.read()
+            except (urllib.error.URLError, OSError) as e:
+                status, cuerpo = 502, json.dumps(sobre_error_global(
+                    "GENERAR GLOBAL no se pudo ejecutar: no hubo respuesta del orquestador n8n.",
+                    "N8N_SIN_RESPUESTA: {}".format(type(e).__name__),
+                ), ensure_ascii=False).encode("utf-8")
+            self._responder_json(*respuesta_global_json(status, cuerpo))
         finally:
             N8N_MANAGER.liberar_despues_de_webhook()
 

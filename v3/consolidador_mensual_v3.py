@@ -278,7 +278,7 @@ def ejecutar_consolidacion_v3(anio, mes, plantilla, salida, archivos_lista, forc
         if not os.path.isfile(ruta):
             raise RuntimeError(f"ARCHIVO_LISTA_NO_ENCONTRADO: {ruta}")
 
-    cm.validar_guardarrieles_salida(salida, plantilla, rutas_candidatas, force)
+    cm.validar_guardarrieles_salida(salida, plantilla, rutas_candidatas, force, caja)
 
     rutas_unicas, sha256_por_archivo, duplicados_identicos, duplicados_diferentes = \
         cm.detectar_duplicados(rutas_candidatas)

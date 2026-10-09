@@ -181,6 +181,70 @@ test('sin ninguna referencia a publicacion/sap ni $input.first() para elegir arc
   });
   assert.ok(!/\$input\.first\(\)/.test(cargar('filtrar')));
 });
+// GLOBAL AME (bug 2026-10-09): destinos de publicacion por caja. TIQUIPAYA
+// conserva EXACTAMENTE el destino historico (carpeta institucional de 07E);
+// AMERICA publica en la institucional (CONTROL 1/3 la leen) + DRIVE_GLOBAL_AME.
+function ejecutarConJson(codigo, nodos, entradas, env) {
+  const $ = function (nombre) {
+    const items = nodos[nombre];
+    if (!items) throw new Error('nodo no mockeado: ' + nombre);
+    return { first: function () { return items[0]; }, all: function () { return items; }, item: items[0] };
+  };
+  return new Function('$', '$input', '$json', '$env', codigo)($, { all: function () { return entradas; } }, entradas[0].json, env || {});
+}
+const pub = function (caja, nombreSap, nombreRes, env) {
+  return ejecutarConJson(cargar('lista_publicaciones'), {
+    'DECIDIR - Publicar GLOBAL oficial': [{ json: { debe_publicar: true, ruta_sap: '/b/global/' + nombreSap, ruta_resultado: '/b/global/' + nombreRes } }],
+    'RESOLVER carpeta SAP oficial': [{ json: { caja: caja } }],
+  }, [{ json: { carpeta_id: 'INSTITUCIONAL_GLOBAL' } }], env).map(function (i) { return i.json; });
+};
+test('lista publicaciones TIQ: exactamente el destino historico (institucional, 2 archivos)', function () {
+  const r = pub('tiquipaya', 'SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx', 'RESULTADO_GLOBAL_TIQ_SEPTIEMBRE_2026.json', { DRIVE_GLOBAL_AME: 'ame-folder' });
+  assert.deepStrictEqual(r, [
+    { carpeta_id: 'INSTITUCIONAL_GLOBAL', nombre_archivo: 'SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx', ruta_local_origen: '/b/global/SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx', modo_si_existe: 'actualizar' },
+    { carpeta_id: 'INSTITUCIONAL_GLOBAL', nombre_archivo: 'RESULTADO_GLOBAL_TIQ_SEPTIEMBRE_2026.json', ruta_local_origen: '/b/global/RESULTADO_GLOBAL_TIQ_SEPTIEMBRE_2026.json', modo_si_existe: 'actualizar' },
+  ]);
+});
+test('lista publicaciones AME: institucional + DRIVE_GLOBAL_AME (SAP_GLOBAL_AME + RESULTADO_GLOBAL_AME)', function () {
+  const r = pub('america', 'SAP_GLOBAL_AME_SEPTIEMBRE_2026.xlsx', 'RESULTADO_GLOBAL_AME_SEPTIEMBRE_2026.json', { DRIVE_GLOBAL_AME: 'ame-folder' });
+  assert.deepStrictEqual(r.map(function (j) { return j.carpeta_id + '|' + j.nombre_archivo; }), [
+    'INSTITUCIONAL_GLOBAL|SAP_GLOBAL_AME_SEPTIEMBRE_2026.xlsx',
+    'INSTITUCIONAL_GLOBAL|RESULTADO_GLOBAL_AME_SEPTIEMBRE_2026.json',
+    'ame-folder|SAP_GLOBAL_AME_SEPTIEMBRE_2026.xlsx',
+    'ame-folder|RESULTADO_GLOBAL_AME_SEPTIEMBRE_2026.json',
+  ]);
+  r.forEach(function (j) { assert.strictEqual(j.modo_si_existe, 'actualizar'); });
+});
+test('lista publicaciones AME: DRIVE_GLOBAL_AME ausente -> falla cerrado (no publica nada)', function () {
+  assert.throws(function () {
+    pub('america', 'SAP_GLOBAL_AME_SEPTIEMBRE_2026.xlsx', 'RESULTADO_GLOBAL_AME_SEPTIEMBRE_2026.json', {});
+  }, /DRIVE_AME_PENDIENTE: falta configurar DRIVE_GLOBAL_AME/);
+});
+test('lista publicaciones AME: DRIVE_GLOBAL_AME igual a la institucional no duplica', function () {
+  const r = pub('america', 'SAP_GLOBAL_AME_SEPTIEMBRE_2026.xlsx', 'RESULTADO_GLOBAL_AME_SEPTIEMBRE_2026.json', { DRIVE_GLOBAL_AME: 'INSTITUCIONAL_GLOBAL' });
+  assert.strictEqual(r.length, 2);
+});
+test('lista publicaciones: prefijo de archivo de otra caja -> falla cerrado', function () {
+  assert.throws(function () {
+    pub('america', 'SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx', 'RESULTADO_GLOBAL_TIQ_SEPTIEMBRE_2026.json', { DRIVE_GLOBAL_AME: 'ame-folder' });
+  }, /GLOBAL_NOMBRE_NO_CORRESPONDE_A_CAJA/);
+  assert.throws(function () {
+    pub('tiquipaya', 'SAP_GLOBAL_AME_SEPTIEMBRE_2026.xlsx', 'RESULTADO_GLOBAL_AME_SEPTIEMBRE_2026.json', {});
+  }, /GLOBAL_NOMBRE_NO_CORRESPONDE_A_CAJA/);
+});
+test('lista publicaciones: caja desconocida -> falla cerrado', function () {
+  assert.throws(function () {
+    pub('bolivia', 'SAP_GLOBAL_TIQ_SEPTIEMBRE_2026.xlsx', 'RESULTADO_GLOBAL_TIQ_SEPTIEMBRE_2026.json', {});
+  }, /CAJA_DESCONOCIDA/);
+});
+test('lista publicaciones: el codigo desplegado (railway-shadow y v3-final) coincide', function () {
+  ['railway-shadow', 'v3-final'].forEach(function (snap) {
+    const ruta = path.join(__dirname, '..', '..', 'snapshots', snap, 'aLs1f3GMqswbaENA_backend_dev.json');
+    const wf = JSON.parse(fs.readFileSync(ruta, 'utf8'));
+    const nodo = (wf.workflow || wf).nodes.find(function (n) { return n.name === 'CONSTRUIR - Lista publicaciones GLOBAL'; });
+    assert.strictEqual(nodo.parameters.jsCode.trim(), cargar('lista_publicaciones').trim(), 'desalineado en ' + snap);
+  });
+});
 test('el codigo desplegado en el snapshot de BACKEND DEV coincide con estos archivos', function () {
   if (!fs.existsSync(snapshot)) { console.log('       (snapshot ausente: omitido)'); return; }
   const wf = JSON.parse(fs.readFileSync(snapshot, 'utf8')); const nodos = (wf.workflow || wf).nodes;
