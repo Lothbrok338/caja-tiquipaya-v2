@@ -133,6 +133,7 @@ def sandbox(tmp_path):
     env["FAKE_N8N_LOG"] = str(log)
     env["TIQ_BASE_DIR"] = str(tmp_path / "dev_workdir")
     env["TIQ_BLOCK_OFFICIAL_PUBLISH"] = "true"
+    env["DB_TYPE"] = "postgresdb"
     for k in ("TIQ_AUTH_USERNAME", "TIQ_AUTH_PASSWORD"):
         env.pop(k, None)
 

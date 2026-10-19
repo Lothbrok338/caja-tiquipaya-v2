@@ -214,6 +214,7 @@ def _correr_sync(tmp_path, snapshot_doc, env_extra):
     env = dict(os.environ)
     env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
     env["TIQ_WORKFLOWS_SNAPSHOTS_DIR"] = str(snapshots_dir)
+    env["DB_TYPE"] = "postgresdb"
     env["FAKE_N8N_LOG"] = str(log)
     env["FAKE_N8N_EXPORT_CONTENT"] = str(export_content)
     env.update(env_extra)
@@ -349,15 +350,160 @@ def test_sync_falla_cerrado_a_mitad_no_sigue_ni_declara_exito(tmp_path):
     env = dict(os.environ)
     env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
     env["TIQ_WORKFLOWS_SNAPSHOTS_DIR"] = str(snapshots)
+    env["DB_TYPE"] = "postgresdb"
     env["FAKE_N8N_LOG"] = str(log)
     r = subprocess.run(["bash", SYNC_SCRIPT], env=env, capture_output=True, text=True)
 
     llamadas = log.read_text(encoding="utf-8")
     assert r.returncode != 0
     assert "[workflow-sync] listo" not in r.stdout
-    assert "--id=id-1" in llamadas and "wf1.json" in llamadas  # el primero si se aplico
+    assert "import:workflow --input=%s" % (snapshots / "wf1.json") in llamadas  # el primero si se aplico
+    assert "publish:workflow --id=id-1" in llamadas
     assert "publish:workflow --id=id-2" not in llamadas          # el que fallo no se publica
-    assert "id-3" not in llamadas and "wf3.json" not in llamadas  # los siguientes no se tocan
+    # los siguientes no se ESCRIBEN (el pre-chequeo si los LEYO: solo export)
+    assert "wf3.json" not in llamadas and "publish:workflow --id=id-3" not in llamadas
+
+
+# ---------------------------------------------------------------------------
+# PRE-CHEQUEO: todo lo detectable sin escribir aborta con CERO escrituras.
+# ---------------------------------------------------------------------------
+
+_N8N_POR_ID = """#!/usr/bin/env bash
+# n8n falso: export:workflow devuelve el contenido de $FAKE_EXPORTS/<id>.json
+# si existe (si no, falla = ABSENT); registra TODA llamada en orden.
+echo "$@" >> "$FAKE_N8N_LOG"
+sub="$1"; shift
+case "$sub" in
+  export:workflow)
+    id=""; out=""
+    for a in "$@"; do case "$a" in --id=*) id="${a#--id=}";; --output=*) out="${a#--output=}";; esac; done
+    [ -f "$FAKE_EXPORTS/$id.json" ] || exit 1
+    cp "$FAKE_EXPORTS/$id.json" "$out"
+    ;;
+  import:workflow|publish:workflow) exit 0 ;;
+  *) exit 9 ;;
+esac
+"""
+
+
+def _preparar_precheck(tmp_path, snapshots, exports=None):
+    """snapshots: {archivo: contenido_str}; exports: {id: contenido_str}."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    n8n = bin_dir / "n8n"
+    n8n.write_text(_N8N_POR_ID, encoding="utf-8")
+    n8n.chmod(0o755)
+    sdir = tmp_path / "snapshots"
+    sdir.mkdir()
+    for nombre, contenido in snapshots.items():
+        (sdir / nombre).write_text(contenido, encoding="utf-8")
+    edir = tmp_path / "exports"
+    edir.mkdir()
+    for wid, contenido in (exports or {}).items():
+        (edir / (wid + ".json")).write_text(contenido, encoding="utf-8")
+    log = tmp_path / "n8n.log"
+    log.write_text("", encoding="utf-8")
+    env = dict(os.environ)
+    env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+    env["TIQ_WORKFLOWS_SNAPSHOTS_DIR"] = str(sdir)
+    env["DB_TYPE"] = "postgresdb"
+    env["FAKE_N8N_LOG"] = str(log)
+    env["FAKE_EXPORTS"] = str(edir)
+    return env, log
+
+
+def _escrituras(log):
+    return [l for l in log.read_text(encoding="utf-8").splitlines()
+            if l.startswith("import:workflow") or l.startswith("publish:workflow")]
+
+
+def _snap(i, **extra):
+    return json.dumps(_wf(nombre="WF-%d" % i, id="id-%d" % i, **extra))
+
+
+def test_precheck_json_invalido_en_el_tercero_aborta_sin_escrituras(tmp_path):
+    env, log = _preparar_precheck(tmp_path, {
+        "wf1.json": _snap(1), "wf2.json": _snap(2), "wf3.json": "{no es json",
+    })
+    r = subprocess.run(["bash", SYNC_SCRIPT], env=env, capture_output=True, text=True)
+    assert r.returncode != 0
+    assert _escrituras(log) == [], "el pre-chequeo debe abortar ANTES de la primera escritura"
+    assert "[workflow-sync] listo" not in r.stdout
+
+
+def test_precheck_snapshot_sin_id_aborta_sin_escrituras(tmp_path):
+    sin_id = json.dumps({"name": "WF-3", "nodes": [], "connections": {}, "settings": {}})
+    env, log = _preparar_precheck(tmp_path, {"wf1.json": _snap(1), "wf2.json": _snap(2), "wf3.json": sin_id})
+    r = subprocess.run(["bash", SYNC_SCRIPT], env=env, capture_output=True, text=True)
+    assert r.returncode != 0 and _escrituras(log) == []
+
+
+def test_precheck_id_repetido_aborta_sin_escrituras(tmp_path):
+    env, log = _preparar_precheck(tmp_path, {"wf1.json": _snap(1), "wf2.json": _snap(1)})
+    r = subprocess.run(["bash", SYNC_SCRIPT], env=env, capture_output=True, text=True)
+    assert r.returncode != 0 and "id repetido" in r.stderr and _escrituras(log) == []
+
+
+def test_precheck_export_con_formato_inesperado_aborta_sin_escrituras(tmp_path):
+    """Un export con 2 workflows en la lista (formato invalido) en el 3.º:
+    antes se habrian aplicado el 1.º y el 2.º y recien ahi abortado."""
+    env, log = _preparar_precheck(
+        tmp_path,
+        {"wf1.json": _snap(1), "wf2.json": _snap(2), "wf3.json": _snap(3)},
+        exports={"id-3": json.dumps([json.loads(_snap(3)), json.loads(_snap(3))])},
+    )
+    r = subprocess.run(["bash", SYNC_SCRIPT], env=env, capture_output=True, text=True)
+    assert r.returncode != 0
+    assert _escrituras(log) == []
+
+
+def test_todas_las_lecturas_ocurren_antes_de_cualquier_escritura(tmp_path):
+    env, log = _preparar_precheck(tmp_path, {"wf%d.json" % i: _snap(i) for i in (1, 2, 3)})
+    r = subprocess.run(["bash", SYNC_SCRIPT], env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    subs = [l.split()[0] for l in log.read_text(encoding="utf-8").splitlines()]
+    primera_escritura = next(i for i, s in enumerate(subs) if s != "export:workflow")
+    assert subs[:primera_escritura] == ["export:workflow"] * 3
+    assert "export:workflow" not in subs[primera_escritura:]
+    assert "pre-chequeo OK: 3 workflow(s)" in r.stdout
+
+
+def test_sin_postgres_como_destino_aborta_sin_llamar_a_n8n(tmp_path):
+    """Sin DB_TYPE=postgresdb n8n usaria SQLite efimero en el contenedor de
+    pre-deploy y el sync 'tendria exito' sin tocar el Postgres real."""
+    env, log = _preparar_precheck(tmp_path, {"wf1.json": _snap(1)})
+    for valor in (None, "sqlite"):
+        if valor is None:
+            env.pop("DB_TYPE", None)
+        else:
+            env["DB_TYPE"] = valor
+        r = subprocess.run(["bash", SYNC_SCRIPT], env=env, capture_output=True, text=True)
+        assert r.returncode != 0 and "postgresdb" in r.stderr
+        assert log.read_text(encoding="utf-8") == "", "ni siquiera debe leer de n8n"
+
+
+def test_requisito_postgres_se_puede_desactivar_explicitamente(tmp_path):
+    env, log = _preparar_precheck(tmp_path, {"wf1.json": _snap(1)})
+    env.pop("DB_TYPE", None)
+    env["TIQ_SYNC_REQUIRE_POSTGRES"] = "false"
+    r = subprocess.run(["bash", SYNC_SCRIPT], env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+
+
+def test_precheck_con_los_8_snapshots_reales_y_n8n_falso(tmp_path):
+    """Los 8 snapshots versionados de railway-shadow pasan el pre-chequeo:
+    8 lecturas, y recien despues 8 import + 8 publish (n8n FALSO, sin red)."""
+    reales = os.path.join(REPO_ROOT, "snapshots", "railway-shadow")
+    contenidos = {f: open(os.path.join(reales, f), encoding="utf-8").read()
+                  for f in sorted(os.listdir(reales)) if f.endswith(".json")}
+    assert len(contenidos) == 8
+    env, log = _preparar_precheck(tmp_path, contenidos)
+    r = subprocess.run(["bash", SYNC_SCRIPT], env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    subs = [l.split()[0] for l in log.read_text(encoding="utf-8").splitlines()]
+    assert subs[:8] == ["export:workflow"] * 8
+    assert subs[8:].count("import:workflow") == 8 and subs[8:].count("publish:workflow") == 8
+    assert "listo: 8 workflow(s) sincronizados" in r.stdout
 
 
 if __name__ == "__main__":

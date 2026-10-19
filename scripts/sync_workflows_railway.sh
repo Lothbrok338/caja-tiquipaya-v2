@@ -85,7 +85,29 @@ _publicar() {
   n8n publish:workflow --id="$id" >/dev/null
 }
 
+# PRE-CHEQUEO (solo lectura, ANTES de la primera escritura): n8n no tiene
+# transacciones entre workflows, asi que todo lo que se pueda detectar sin
+# escribir se detecta aqui y aborta con 0 escrituras:
+#   - destino: sin DB_TYPE=postgresdb n8n usaria un SQLite efimero del
+#     contenedor y el sync "tendria exito" sin tocar el Postgres real.
+#   - los snapshots: JSON valido, con "id" y "name", sin ids repetidos.
+#   - la decision de CADA workflow (export + comparacion), que ademas falla
+#     cerrado ante un export con formato inesperado.
+# Solo despues se aplican las decisiones (fase 2). Un fallo de n8n a mitad de
+# la fase 2 sigue pudiendo dejar un subconjunto aplicado; reintentar el
+# deploy lo completa (el sync es idempotente).
+if [ "${TIQ_SYNC_REQUIRE_POSTGRES:-true}" = "true" ] && [ "${DB_TYPE:-}" != "postgresdb" ]; then
+  echo "[workflow-sync] ERROR: DB_TYPE='${DB_TYPE:-<no fijada>}' (se exige postgresdb): sin eso n8n" >&2
+  echo "[workflow-sync] usaria una base local efimera y el sync no tocaria el Postgres real." >&2
+  exit 1
+fi
+
 encontrados=0
+ids_vistos=" "
+plan_ids=()
+plan_nombres=()
+plan_snapshots=()
+plan_decisiones=()
 for snapshot in "$SNAPSHOTS_DIR"/*.json; do
   [ -e "$snapshot" ] || continue
   encontrados=$((encontrados + 1))
@@ -93,12 +115,48 @@ for snapshot in "$SNAPSHOTS_DIR"/*.json; do
   id="$(_leer_campo "$snapshot" id)"
   nombre="$(_leer_campo "$snapshot" name)"
 
+  case "$ids_vistos" in
+    *" $id "*)
+      echo "[workflow-sync] ERROR: id repetido '$id' en $SNAPSHOTS_DIR" >&2
+      exit 1
+      ;;
+  esac
+  ids_vistos="$ids_vistos$id "
+
   exportado="$TMP_DIR/${id}.json"
   if n8n export:workflow --id="$id" --output="$exportado" >"$TMP_DIR/${id}.export.log" 2>&1; then
     decision="$("$PYTHON_BIN" "$COMPARADOR" "$snapshot" "$exportado")"
   else
     decision="ABSENT"
   fi
+
+  case "$decision" in
+    SAME|NEEDS_PUBLISH|DIFFERENT|ABSENT) ;;
+    *)
+      echo "[workflow-sync] ERROR $id ($nombre): decision desconocida '$decision'" >&2
+      exit 1
+      ;;
+  esac
+
+  plan_ids+=("$id")
+  plan_nombres+=("$nombre")
+  plan_snapshots+=("$snapshot")
+  plan_decisiones+=("$decision")
+done
+
+if [ "$encontrados" -eq 0 ]; then
+  echo "[workflow-sync] ERROR: ningun snapshot *.json en $SNAPSHOTS_DIR" >&2
+  exit 1
+fi
+
+echo "[workflow-sync] pre-chequeo OK: $encontrados workflow(s) validados, ninguna escritura todavia"
+
+# FASE 2: aplicar las decisiones ya validadas.
+for i in "${!plan_ids[@]}"; do
+  id="${plan_ids[$i]}"
+  nombre="${plan_nombres[$i]}"
+  snapshot="${plan_snapshots[$i]}"
+  decision="${plan_decisiones[$i]}"
 
   case "$decision" in
     SAME)
@@ -117,16 +175,7 @@ for snapshot in "$SNAPSHOTS_DIR"/*.json; do
         echo "[workflow-sync] UPDATED $id ($nombre) -- contenido distinto, importado y publicado"
       fi
       ;;
-    *)
-      echo "[workflow-sync] ERROR $id ($nombre): decision desconocida '$decision'" >&2
-      exit 1
-      ;;
   esac
 done
-
-if [ "$encontrados" -eq 0 ]; then
-  echo "[workflow-sync] ERROR: ningun snapshot *.json en $SNAPSHOTS_DIR" >&2
-  exit 1
-fi
 
 echo "[workflow-sync] listo: $encontrados workflow(s) sincronizados"
