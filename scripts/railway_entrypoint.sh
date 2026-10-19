@@ -21,6 +21,16 @@
 # script ya no lo toca en absoluto.
 set -euo pipefail
 
+# Modo "ejecutar y salir": si Railway entrega un comando (p. ej. el
+# preDeployCommand de railway.json) como argumentos de este ENTRYPOINT, se
+# ejecuta tal cual y el contenedor termina con SU codigo de salida. Sin
+# esto, un comando recibido como argumento seria ignorado y el contenedor
+# de pre-deploy arrancaria el proxy y nunca terminaria. Sin argumentos
+# (arranque normal) este bloque no hace nada.
+if [ "$#" -gt 0 ]; then
+  exec "$@"
+fi
+
 echo "[railway_entrypoint] TIQ_BLOCK_OFFICIAL_PUBLISH=${TIQ_BLOCK_OFFICIAL_PUBLISH:-<no fijada>}"
 if [ "${TIQ_BLOCK_OFFICIAL_PUBLISH:-}" != "true" ]; then
   echo "[railway_entrypoint] ADVERTENCIA: TIQ_BLOCK_OFFICIAL_PUBLISH no es 'true'." >&2
@@ -34,22 +44,16 @@ fi
 # aqui, antes de arrancar n8n, nunca dentro de un nodo del workflow.
 mkdir -p "${TIQ_BASE_DIR:-/app/dev_workdir}/tiq_v3_tmp"
 
-# FIX (bug real, bloque caja-america): el script que arranca n8n (ver
-# scripts/) solo lo arranca con lo que YA esta guardado en su Postgres
-# persistente -- nunca importa nada. El unico mecanismo previo para llevar un fix de
-# snapshots/railway-shadow/*.json al n8n en ejecucion era MANUAL
-# (scripts/import_workflows_railway.sh, "una sola vez por instancia
-# nueva"), asi que un commit nuevo podia quedar en la imagen Docker sin
-# que el workflow REAL en Postgres cambiara. sync_workflows_railway.sh
-# cierra ese hueco en CADA boot, sin dejar ningun proceso n8n corriendo
-# (son comandos CLI de una sola corrida, ver ese script) -- el modelo
-# on-demand/sleep de GestorN8N (serve_v3_frontend.py) sigue intacto.
-#
-# FAIL CLOSED: si el sync falla, este entrypoint aborta ANTES de servir el
-# frontend (set -euo pipefail ya activo arriba) -- nunca se expone una UI
-# nueva contra workflows n8n desincronizados.
-echo "[railway_entrypoint] Sincronizando workflows n8n con snapshots/railway-shadow ..."
-bash /app/scripts/sync_workflows_railway.sh
+# Sincronizacion de workflows n8n (snapshots/railway-shadow/*.json -> Postgres):
+# YA NO corre en el arranque del contenedor. Importar y publicar los 8
+# workflows costaba ~107-115 s en CADA despertar de Serverless Sleep (un
+# n8n CLI por workflow) y bloqueaba el proxy durante todo ese tiempo.
+# Ahora la ejecuta Railway UNA vez por deploy como preDeployCommand
+# (ver railway.json), contra el mismo Postgres persistente y ANTES de que
+# el contenedor nuevo reciba trafico: si falla, el deploy no avanza y la
+# version anterior sigue sirviendo (fail closed, igual que antes pero sin
+# pagar el costo en cada despertar). Un despertar normal solo reutiliza lo
+# que ese ultimo deploy dejo en Postgres.
 
 # Frontend + proxy /webhook/* en foreground: es el UNICO proceso que este
 # entrypoint arranca ahora, y es el proceso principal del contenedor

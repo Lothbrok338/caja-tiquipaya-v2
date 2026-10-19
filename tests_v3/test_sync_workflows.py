@@ -287,15 +287,77 @@ def test_sync_nunca_deja_un_n8n_start_corriendo():
 
 
 # ---------------------------------------------------------------------------
-# railway_entrypoint.sh llama al sync ANTES de servir el frontend.
+# El sync corre UNA vez por deploy (preDeployCommand), no en el arranque.
 # ---------------------------------------------------------------------------
 
-def test_entrypoint_llama_sync_antes_del_frontend():
-    ruta = os.path.join(REPO_ROOT, "scripts", "railway_entrypoint.sh")
-    lineas = open(ruta, encoding="utf-8").read().splitlines()
-    idx_sync = next(i for i, l in enumerate(lineas) if "sync_workflows_railway.sh" in l and l.strip().startswith("bash"))
-    idx_frontend = next(i for i, l in enumerate(lineas) if "serve_v3_frontend.py" in l and l.strip().startswith("exec"))
-    assert idx_sync < idx_frontend
+def _codigo_sin_comentarios(ruta):
+    with open(ruta, encoding="utf-8") as f:
+        return "".join(l for l in f if not l.strip().startswith("#"))
+
+
+def test_entrypoint_ya_no_llama_al_sync():
+    """El despertar normal (Serverless Sleep) no debe reimportar ni
+    publicar workflows: el entrypoint no referencia el script de sync."""
+    codigo = _codigo_sin_comentarios(os.path.join(REPO_ROOT, "scripts", "railway_entrypoint.sh"))
+    assert "sync_workflows_railway" not in codigo
+    assert "import:workflow" not in codigo and "publish:workflow" not in codigo
+
+
+def test_railway_json_ejecuta_el_sync_como_predeploy():
+    with open(os.path.join(REPO_ROOT, "railway.json"), encoding="utf-8") as f:
+        cfg = json.load(f)
+    cmd = cfg["deploy"]["preDeployCommand"]
+    assert len(cmd) == 1
+    assert "/app/scripts/sync_workflows_railway.sh" in cmd[0]
+    assert cmd[0].startswith("timeout "), "el pre-deploy no tiene limite por defecto en Railway"
+    # El resto de la configuracion de despliegue queda exactamente como estaba.
+    assert cfg["build"] == {"builder": "DOCKERFILE", "dockerfilePath": "Dockerfile"}
+    assert {k: v for k, v in cfg["deploy"].items() if k != "preDeployCommand"} == {
+        "numReplicas": 1,
+        "restartPolicyType": "ON_FAILURE",
+        "restartPolicyMaxRetries": 5,
+        "healthcheckPath": "/healthz",
+    }
+
+
+def test_sync_falla_cerrado_a_mitad_no_sigue_ni_declara_exito(tmp_path):
+    """Si un import falla en el pre-deploy, el script termina con codigo
+    != 0 en ese workflow: no publica ese id, no toca los siguientes y no
+    imprime la linea de exito que se verifica en los logs del deploy."""
+    snapshots = tmp_path / "snapshots"
+    snapshots.mkdir()
+    for i in (1, 2, 3):
+        doc = _wf(nombre="WF-%d" % i, id="id-%d" % i)
+        (snapshots / ("wf%d.json" % i)).write_text(json.dumps(doc), encoding="utf-8")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    n8n = bin_dir / "n8n"
+    n8n.write_text(
+        "#!/usr/bin/env bash\n"
+        'echo "$@" >> "$FAKE_N8N_LOG"\n'
+        'case "$1" in\n'
+        "  export:workflow) exit 1 ;;\n"   # ABSENT -> import + publish
+        '  import:workflow) case "$*" in *wf2.json*) exit 1 ;; esac ;;\n'
+        "esac\n",
+        encoding="utf-8",
+    )
+    n8n.chmod(0o755)
+    log = tmp_path / "n8n.log"
+    log.write_text("", encoding="utf-8")
+
+    env = dict(os.environ)
+    env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+    env["TIQ_WORKFLOWS_SNAPSHOTS_DIR"] = str(snapshots)
+    env["FAKE_N8N_LOG"] = str(log)
+    r = subprocess.run(["bash", SYNC_SCRIPT], env=env, capture_output=True, text=True)
+
+    llamadas = log.read_text(encoding="utf-8")
+    assert r.returncode != 0
+    assert "[workflow-sync] listo" not in r.stdout
+    assert "--id=id-1" in llamadas and "wf1.json" in llamadas  # el primero si se aplico
+    assert "publish:workflow --id=id-2" not in llamadas          # el que fallo no se publica
+    assert "id-3" not in llamadas and "wf3.json" not in llamadas  # los siguientes no se tocan
 
 
 if __name__ == "__main__":

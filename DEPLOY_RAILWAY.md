@@ -47,7 +47,8 @@ aplicación + el Postgres ya existente, nada más.
 | `Dockerfile` | Imagen `node:22-bookworm-slim` (Debian) + `npm install -g n8n` + Python 3 vía `apt-get` (la imagen oficial `n8nio/n8n` no sirve de base: su capa final `n8nio/base` es Alpine sin `apk` ni compilador por diseño — no se le puede instalar Python encima) |
 | `.dockerignore` | Excluye `.git`, `node_modules`, caches |
 | `railway.json` | Declara build por Dockerfile |
-| `scripts/railway_entrypoint.sh` | Arranca n8n (background) + `serve_v3_frontend.py` (foreground, proceso público) |
+| `scripts/railway_entrypoint.sh` | Arranca `serve_v3_frontend.py` (foreground, proceso público); n8n lo arranca ese proxy bajo demanda. No sincroniza workflows (ver §7B). Con argumentos, los ejecuta y sale (modo pre-deploy) |
+| `scripts/sync_workflows_railway.sh` | Importa/publica los workflows de `snapshots/railway-shadow/` en el Postgres de n8n. Lo ejecuta Railway como `preDeployCommand` (ver §7B) |
 | `scripts/start_n8n.sh` | Adaptado: detecta Codespaces / Railway / genérico para la URL pública de n8n; soporte Codespaces intacto |
 | `scripts/serve_v3_frontend.py` | Adaptado: puerto y origen de n8n desde `PORT`/`TIQ_N8N_ORIGIN`, con el mismo default de antes; autenticación HTTP Basic (ver §5B) |
 | `v3/shadow_guard.py` | Guarda de entorno SHADOW MODE (ver §5) |
@@ -185,6 +186,27 @@ repetirlos en Railway salvo que se quiera cambiar alguno.
    secretos.
 7. Confirmar `GET /webhook/tiq-v3-dev/estado` responde y muestra `publication_mode` según
    corresponda.
+
+## 7B. Sincronización de workflows: una vez por deploy, no en cada despertar
+
+`railway.json` declara `deploy.preDeployCommand`:
+`timeout 900 bash /app/scripts/sync_workflows_railway.sh`.
+
+- **Cuándo corre**: en cada deploy (push a la rama, redeploy, cambio de variables), en un
+  contenedor aparte de la misma imagen, con las variables del servicio y acceso por red
+  privada a Postgres, **antes** de que el contenedor nuevo reciba tráfico. Un despertar de
+  Serverless Sleep **no** lo ejecuta: el proxy arranca sin esperar y n8n sigue arrancando
+  bajo demanda con lo que el último deploy dejó publicado en Postgres.
+- **Si falla** (código de salida ≠ 0, o pasa de 900 s): Railway no reintenta y el deploy no
+  avanza; la versión anterior sigue sirviendo.
+- **Qué hace el pre-deploy y qué no**: solo usa comandos CLI de n8n de una sola corrida
+  contra Postgres. Railway no monta volúmenes ni conserva el sistema de archivos del
+  contenedor de pre-deploy; el script no depende de ninguno.
+- **Primer deploy con este cambio**: confirmar en los logs del deploy la línea
+  `[workflow-sync] listo: 8 workflow(s) sincronizados` antes de dar el deploy por bueno.
+- **Cambio de comportamiento a tener en cuenta**: antes, cada despertar volvía a importar los
+  snapshots (pisando cualquier edición hecha a mano en el editor n8n). Ahora esas ediciones
+  persisten hasta el siguiente deploy, que sí vuelve a aplicar los snapshots.
 
 ## 8. Cómo probar
 

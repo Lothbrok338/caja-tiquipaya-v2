@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # sync_workflows_railway.sh — mantiene los 7 workflows n8n de
 # snapshots/railway-shadow/ sincronizados con lo que hay persistido en el
-# Postgres de esta instancia, en CADA arranque del contenedor (llamado
-# desde railway_entrypoint.sh, ANTES de servir el frontend).
+# Postgres de esta instancia, UNA vez por deploy: Railway lo ejecuta como
+# preDeployCommand (ver railway.json), en un contenedor aparte de la misma
+# imagen, con las variables del servicio y acceso privado a Postgres, y
+# ANTES de que el contenedor nuevo reciba trafico. YA NO se llama desde
+# railway_entrypoint.sh: un despertar normal (Serverless Sleep) no
+# reimporta ni republica nada.
 #
 # Por qué existe: `n8n start` (scripts/start_n8n.sh) solo ARRANCA n8n con
 # lo que ya está guardado en su Postgres persistente -- nunca importa
@@ -42,11 +46,11 @@
 #                          que arriba.
 #
 # FAIL CLOSED: `set -euo pipefail` + cualquier comando n8n que falle
-# aborta ESTE script con código != 0. railway_entrypoint.sh NO debe
-# servir el frontend si este script falla (ver ese archivo): mejor un
-# contenedor que no arranca a uno que sirve un frontend nuevo contra
-# workflows viejos, que es exactamente el bug que este script existe
-# para cerrar.
+# aborta ESTE script con código != 0. Como preDeployCommand, un código
+# != 0 hace que Railway NO avance el deploy (no se reintenta) y la version
+# anterior sigue sirviendo: mejor un deploy que no avanza a uno que sirve
+# un frontend nuevo contra workflows viejos, que es exactamente el bug
+# que este script existe para cerrar.
 #
 # NO toca credenciales (nunca se leen ni se comparan aquí -- ver
 # scripts/_compare_workflow.py), NO borra workflows, NO corre SQL manual,

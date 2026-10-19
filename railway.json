@@ -6,6 +6,7 @@
   },
   "deploy": {
     "numReplicas": 1,
+    "preDeployCommand": ["timeout 900 bash /app/scripts/sync_workflows_railway.sh"],
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 5,
     "healthcheckPath": "/healthz"
