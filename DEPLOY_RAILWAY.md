@@ -202,7 +202,8 @@ Config as Code deja de leerse el 2026-12-01.
   aparte de la misma imagen, con las variables del servicio y **antes** de que el contenedor nuevo
   reciba tráfico. Un despertar de Serverless Sleep **no** lo ejecuta: el proxy arranca sin esperar
   y n8n sigue arrancando bajo demanda con lo que el último deploy dejó en Postgres. Un `redeploy`
-  que reutiliza la build tampoco lo ejecuta.
+  o `rollback` de un deployment existente usa la configuración que ESE deployment tenía guardada
+  (comprobado con la sonda): ejecuta el pre-deploy que tenía entonces, no el configurado ahora.
 - **Cómo llega el comando**: Railway lo ejecuta directamente (no pasa por el `ENTRYPOINT`).
 - **Si falla** (código ≠ 0 o supera el límite): Railway no reintenta, el deploy queda `FAILED` y la
   versión anterior sigue activa.
