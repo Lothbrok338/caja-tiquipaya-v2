@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # sync_workflows_railway.sh — mantiene los 7 workflows n8n de
 # snapshots/railway-shadow/ sincronizados con lo que hay persistido en el
-# Postgres de esta instancia, en CADA arranque del contenedor (llamado
-# desde railway_entrypoint.sh, ANTES de servir el frontend).
+# Postgres de esta instancia, UNA vez por deploy: Railway lo ejecuta como
+# preDeployCommand (ver railway.json), en un contenedor aparte de la misma
+# imagen, con las variables del servicio y acceso privado a Postgres, y
+# ANTES de que el contenedor nuevo reciba trafico. YA NO se llama desde
+# railway_entrypoint.sh: un despertar normal (Serverless Sleep) no
+# reimporta ni republica nada.
 #
 # Por qué existe: `n8n start` (scripts/start_n8n.sh) solo ARRANCA n8n con
 # lo que ya está guardado en su Postgres persistente -- nunca importa
@@ -42,11 +46,11 @@
 #                          que arriba.
 #
 # FAIL CLOSED: `set -euo pipefail` + cualquier comando n8n que falle
-# aborta ESTE script con código != 0. railway_entrypoint.sh NO debe
-# servir el frontend si este script falla (ver ese archivo): mejor un
-# contenedor que no arranca a uno que sirve un frontend nuevo contra
-# workflows viejos, que es exactamente el bug que este script existe
-# para cerrar.
+# aborta ESTE script con código != 0. Como preDeployCommand, un código
+# != 0 hace que Railway NO avance el deploy (no se reintenta) y la version
+# anterior sigue sirviendo: mejor un deploy que no avanza a uno que sirve
+# un frontend nuevo contra workflows viejos, que es exactamente el bug
+# que este script existe para cerrar.
 #
 # NO toca credenciales (nunca se leen ni se comparan aquí -- ver
 # scripts/_compare_workflow.py), NO borra workflows, NO corre SQL manual,
@@ -81,7 +85,29 @@ _publicar() {
   n8n publish:workflow --id="$id" >/dev/null
 }
 
+# PRE-CHEQUEO (solo lectura, ANTES de la primera escritura): n8n no tiene
+# transacciones entre workflows, asi que todo lo que se pueda detectar sin
+# escribir se detecta aqui y aborta con 0 escrituras:
+#   - destino: sin DB_TYPE=postgresdb n8n usaria un SQLite efimero del
+#     contenedor y el sync "tendria exito" sin tocar el Postgres real.
+#   - los snapshots: JSON valido, con "id" y "name", sin ids repetidos.
+#   - la decision de CADA workflow (export + comparacion), que ademas falla
+#     cerrado ante un export con formato inesperado.
+# Solo despues se aplican las decisiones (fase 2). Un fallo de n8n a mitad de
+# la fase 2 sigue pudiendo dejar un subconjunto aplicado; reintentar el
+# deploy lo completa (el sync es idempotente).
+if [ "${TIQ_SYNC_REQUIRE_POSTGRES:-true}" = "true" ] && [ "${DB_TYPE:-}" != "postgresdb" ]; then
+  echo "[workflow-sync] ERROR: DB_TYPE='${DB_TYPE:-<no fijada>}' (se exige postgresdb): sin eso n8n" >&2
+  echo "[workflow-sync] usaria una base local efimera y el sync no tocaria el Postgres real." >&2
+  exit 1
+fi
+
 encontrados=0
+ids_vistos=" "
+plan_ids=()
+plan_nombres=()
+plan_snapshots=()
+plan_decisiones=()
 for snapshot in "$SNAPSHOTS_DIR"/*.json; do
   [ -e "$snapshot" ] || continue
   encontrados=$((encontrados + 1))
@@ -89,12 +115,48 @@ for snapshot in "$SNAPSHOTS_DIR"/*.json; do
   id="$(_leer_campo "$snapshot" id)"
   nombre="$(_leer_campo "$snapshot" name)"
 
+  case "$ids_vistos" in
+    *" $id "*)
+      echo "[workflow-sync] ERROR: id repetido '$id' en $SNAPSHOTS_DIR" >&2
+      exit 1
+      ;;
+  esac
+  ids_vistos="$ids_vistos$id "
+
   exportado="$TMP_DIR/${id}.json"
   if n8n export:workflow --id="$id" --output="$exportado" >"$TMP_DIR/${id}.export.log" 2>&1; then
     decision="$("$PYTHON_BIN" "$COMPARADOR" "$snapshot" "$exportado")"
   else
     decision="ABSENT"
   fi
+
+  case "$decision" in
+    SAME|NEEDS_PUBLISH|DIFFERENT|ABSENT) ;;
+    *)
+      echo "[workflow-sync] ERROR $id ($nombre): decision desconocida '$decision'" >&2
+      exit 1
+      ;;
+  esac
+
+  plan_ids+=("$id")
+  plan_nombres+=("$nombre")
+  plan_snapshots+=("$snapshot")
+  plan_decisiones+=("$decision")
+done
+
+if [ "$encontrados" -eq 0 ]; then
+  echo "[workflow-sync] ERROR: ningun snapshot *.json en $SNAPSHOTS_DIR" >&2
+  exit 1
+fi
+
+echo "[workflow-sync] pre-chequeo OK: $encontrados workflow(s) validados, ninguna escritura todavia"
+
+# FASE 2: aplicar las decisiones ya validadas.
+for i in "${!plan_ids[@]}"; do
+  id="${plan_ids[$i]}"
+  nombre="${plan_nombres[$i]}"
+  snapshot="${plan_snapshots[$i]}"
+  decision="${plan_decisiones[$i]}"
 
   case "$decision" in
     SAME)
@@ -113,16 +175,7 @@ for snapshot in "$SNAPSHOTS_DIR"/*.json; do
         echo "[workflow-sync] UPDATED $id ($nombre) -- contenido distinto, importado y publicado"
       fi
       ;;
-    *)
-      echo "[workflow-sync] ERROR $id ($nombre): decision desconocida '$decision'" >&2
-      exit 1
-      ;;
   esac
 done
-
-if [ "$encontrados" -eq 0 ]; then
-  echo "[workflow-sync] ERROR: ningun snapshot *.json en $SNAPSHOTS_DIR" >&2
-  exit 1
-fi
 
 echo "[workflow-sync] listo: $encontrados workflow(s) sincronizados"

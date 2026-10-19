@@ -17,9 +17,15 @@ tmp_path local.
 
 Uso: python -m pytest tests_v3/test_railway_entrypoint.py -q
 """
+import json
 import os
 import re
+import socket
 import subprocess
+import time
+import urllib.request
+
+import pytest
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENTRYPOINT = os.path.join(RAIZ, "scripts", "railway_entrypoint.sh")
@@ -86,3 +92,156 @@ def test_entrypoint_ya_no_arranca_n8n_directamente():
     assert _MKDIR_LINEA in contenido
     assert "exec python3 /app/scripts/serve_v3_frontend.py" in contenido
     assert re.search(r"^set -euo pipefail$", contenido, re.MULTILINE)
+
+
+# ---------------------------------------------------------------------------
+# Arranque rapido: el despertar normal ya no sincroniza workflows (el sync
+# corre como preDeployCommand, ver railway.json y DEPLOY_RAILWAY.md §7B).
+# Estas pruebas ejecutan el entrypoint REAL (copia con /app/ -> raiz del
+# repo, nada mas) con un `n8n` falso que registra cada llamada.
+# ---------------------------------------------------------------------------
+
+_N8N_REGISTRADOR = """#!/usr/bin/env bash
+echo "$@" >> "$FAKE_N8N_LOG"
+if [ -n "${FAKE_N8N_FALLA_EN:-}" ] && [ "$1" = "$FAKE_N8N_FALLA_EN" ]; then exit 1; fi
+if [ "$1" = "export:workflow" ]; then exit 1; fi
+exit 0
+"""
+
+
+@pytest.fixture
+def sandbox(tmp_path):
+    """Entrypoint real con rutas /app/ apuntando al repo + n8n falso."""
+    original = _contenido()
+    parcheado = original.replace("/app/", RAIZ + "/")
+    assert parcheado != original and "/app/" not in parcheado
+    entrypoint = tmp_path / "railway_entrypoint.sh"
+    entrypoint.write_text(parcheado, encoding="utf-8")
+    entrypoint.chmod(0o755)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    n8n = bin_dir / "n8n"
+    n8n.write_text(_N8N_REGISTRADOR, encoding="utf-8")
+    n8n.chmod(0o755)
+
+    log = tmp_path / "n8n.log"
+    log.write_text("", encoding="utf-8")
+
+    env = dict(os.environ)
+    env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+    env["FAKE_N8N_LOG"] = str(log)
+    env["TIQ_BASE_DIR"] = str(tmp_path / "dev_workdir")
+    env["TIQ_BLOCK_OFFICIAL_PUBLISH"] = "true"
+    env["DB_TYPE"] = "postgresdb"
+    for k in ("TIQ_AUTH_USERNAME", "TIQ_AUTH_PASSWORD"):
+        env.pop(k, None)
+
+    def llamadas_n8n():
+        return [l for l in log.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+    return {"entrypoint": str(entrypoint), "env": env, "llamadas_n8n": llamadas_n8n, "tmp": tmp_path}
+
+
+def _puerto_libre():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def test_arranque_normal_sirve_el_proxy_sin_sincronizar_workflows(sandbox):
+    env = dict(sandbox["env"])
+    puerto = _puerto_libre()
+    env["PORT"] = str(puerto)
+
+    t0 = time.monotonic()
+    proc = subprocess.Popen(
+        ["bash", sandbox["entrypoint"]], env=env, cwd=str(sandbox["tmp"]),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        estado = None
+        while time.monotonic() - t0 < 30:
+            assert proc.poll() is None, "el entrypoint termino antes de servir: " + proc.stderr.read()
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:%d/healthz" % puerto, timeout=1) as resp:
+                    estado, cuerpo = resp.status, resp.read()
+                break
+            except OSError:
+                time.sleep(0.05)
+        tiempo = time.monotonic() - t0
+        assert estado == 200 and cuerpo == b"OK"
+        # Antes: ~107-115 s de sync en cada despertar. Ahora el proxy
+        # responde en cuanto Python levanta.
+        assert tiempo < 10, "el proxy tardo %.1f s en responder /healthz" % tiempo
+        print("healthz 200 en %.2f s tras lanzar el entrypoint" % tiempo)
+        # Ni una sola llamada a n8n (ni export, ni import, ni publish, ni start).
+        assert sandbox["llamadas_n8n"]() == []
+        # El directorio que necesita el backend sigue creandose.
+        assert os.path.isdir(os.path.join(env["TIQ_BASE_DIR"], "tiq_v3_tmp"))
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
+def test_con_argumentos_el_entrypoint_ejecuta_y_sale_sin_arrancar_el_proxy(sandbox):
+    r = subprocess.run(
+        ["bash", sandbox["entrypoint"], "bash", "-c", "echo comando-recibido; exit 0"],
+        env=sandbox["env"], capture_output=True, text=True, timeout=20,
+    )
+    assert r.returncode == 0 and "comando-recibido" in r.stdout
+    r = subprocess.run(
+        ["bash", sandbox["entrypoint"], "bash", "-c", "exit 7"],
+        env=sandbox["env"], capture_output=True, text=True, timeout=20,
+    )
+    assert r.returncode == 7, "el codigo de salida del comando debe propagarse tal cual"
+
+
+# Comando EXACTO configurado en el servicio de Railway (preDeployCommand);
+# es la misma forma validada con la sonda. Ver DEPLOY_RAILWAY.md §7B.
+_PREDEPLOY_COMANDO = "timeout 900 bash /app/scripts/sync_workflows_railway.sh"
+
+
+def _comando_predeploy_local():
+    return _PREDEPLOY_COMANDO.replace("/app/", RAIZ + "/")
+
+
+def _snapshots_sinteticos(tmp):
+    d = tmp / "snapshots"
+    d.mkdir()
+    for i in (1, 2):
+        doc = {"id": "id-%d" % i, "name": "WF-%d" % i, "nodes": [], "connections": {}, "settings": {}}
+        (d / ("wf%d.json" % i)).write_text(json.dumps(doc), encoding="utf-8")
+    return str(d)
+
+
+@pytest.mark.parametrize("via_entrypoint", [False, True])
+def test_predeploy_exitoso_sincroniza_y_sale_con_cero(sandbox, via_entrypoint):
+    """El comando EXACTO del pre-deploy funciona tanto si Railway lo
+    ejecuta directamente como si lo entrega como argumentos al ENTRYPOINT."""
+    env = dict(sandbox["env"])
+    env["TIQ_WORKFLOWS_SNAPSHOTS_DIR"] = _snapshots_sinteticos(sandbox["tmp"])
+    comando = _comando_predeploy_local()
+    argv = ["bash", sandbox["entrypoint"]] + comando.split() if via_entrypoint else ["bash", "-c", comando]
+    r = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "[workflow-sync] listo: 2 workflow(s) sincronizados" in r.stdout
+    llamadas = sandbox["llamadas_n8n"]()
+    assert sum(l.startswith("import:workflow") for l in llamadas) == 2
+    assert sum(l.startswith("publish:workflow") for l in llamadas) == 2
+
+
+@pytest.mark.parametrize("via_entrypoint", [False, True])
+def test_predeploy_fallido_sale_distinto_de_cero_y_no_declara_exito(sandbox, via_entrypoint):
+    """Fail closed: un fallo del sync hace que el pre-deploy termine con
+    codigo != 0 (Railway no avanza el deploy) y que el contenedor de
+    pre-deploy no llegue a servir nada."""
+    env = dict(sandbox["env"])
+    env["TIQ_WORKFLOWS_SNAPSHOTS_DIR"] = _snapshots_sinteticos(sandbox["tmp"])
+    env["FAKE_N8N_FALLA_EN"] = "import:workflow"
+    comando = _comando_predeploy_local()
+    argv = ["bash", sandbox["entrypoint"]] + comando.split() if via_entrypoint else ["bash", "-c", comando]
+    r = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode != 0
+    assert "[workflow-sync] listo" not in r.stdout
+    assert not any(l.startswith("publish:workflow") for l in sandbox["llamadas_n8n"]())
