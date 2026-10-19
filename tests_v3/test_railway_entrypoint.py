@@ -197,12 +197,13 @@ def test_con_argumentos_el_entrypoint_ejecuta_y_sale_sin_arrancar_el_proxy(sandb
     assert r.returncode == 7, "el codigo de salida del comando debe propagarse tal cual"
 
 
+# Comando EXACTO configurado en el servicio de Railway (preDeployCommand);
+# es la misma forma validada con la sonda. Ver DEPLOY_RAILWAY.md §7B.
+_PREDEPLOY_COMANDO = "timeout 900 bash /app/scripts/sync_workflows_railway.sh"
+
+
 def _comando_predeploy_local():
-    with open(os.path.join(RAIZ, "railway.json"), encoding="utf-8") as f:
-        cmd = json.load(f)["deploy"]["preDeployCommand"][0]
-    parcheado = cmd.replace("/app/", RAIZ + "/")
-    assert parcheado != cmd
-    return parcheado
+    return _PREDEPLOY_COMANDO.replace("/app/", RAIZ + "/")
 
 
 def _snapshots_sinteticos(tmp):
@@ -216,7 +217,7 @@ def _snapshots_sinteticos(tmp):
 
 @pytest.mark.parametrize("via_entrypoint", [False, True])
 def test_predeploy_exitoso_sincroniza_y_sale_con_cero(sandbox, via_entrypoint):
-    """El comando EXACTO de railway.json funciona tanto si Railway lo
+    """El comando EXACTO del pre-deploy funciona tanto si Railway lo
     ejecuta directamente como si lo entrega como argumentos al ENTRYPOINT."""
     env = dict(sandbox["env"])
     env["TIQ_WORKFLOWS_SNAPSHOTS_DIR"] = _snapshots_sinteticos(sandbox["tmp"])

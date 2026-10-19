@@ -304,16 +304,16 @@ def test_entrypoint_ya_no_llama_al_sync():
     assert "import:workflow" not in codigo and "publish:workflow" not in codigo
 
 
-def test_railway_json_ejecuta_el_sync_como_predeploy():
+def test_railway_json_no_define_el_predeploy():
+    """El pre-deploy vive en la configuracion del SERVICIO en Railway (un
+    servicio nuevo no lee railway.json y Config as Code deja de leerse el
+    2026-12-01). railway.json no debe llevar una segunda copia que pueda
+    divergir; el resto de su contenido queda exactamente como estaba."""
     with open(os.path.join(REPO_ROOT, "railway.json"), encoding="utf-8") as f:
         cfg = json.load(f)
-    cmd = cfg["deploy"]["preDeployCommand"]
-    assert len(cmd) == 1
-    assert "/app/scripts/sync_workflows_railway.sh" in cmd[0]
-    assert cmd[0].startswith("timeout "), "el pre-deploy no tiene limite por defecto en Railway"
-    # El resto de la configuracion de despliegue queda exactamente como estaba.
+    assert "preDeployCommand" not in cfg["deploy"]
     assert cfg["build"] == {"builder": "DOCKERFILE", "dockerfilePath": "Dockerfile"}
-    assert {k: v for k, v in cfg["deploy"].items() if k != "preDeployCommand"} == {
+    assert cfg["deploy"] == {
         "numReplicas": 1,
         "restartPolicyType": "ON_FAILURE",
         "restartPolicyMaxRetries": 5,
