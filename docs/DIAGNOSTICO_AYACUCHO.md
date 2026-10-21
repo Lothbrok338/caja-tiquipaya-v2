@@ -1,3 +1,5 @@
+> **OBSOLETO (2026-10-21):** este diagnóstico se hizo sobre `main` (V2) y sus conclusiones de ausencia de n8n/Railway/América/rectificación son FALSAS. Ver `docs/DIAGNOSTICO_AYACUCHO_V3.md`. Se conserva como historial.
+
 # Diagnóstico — Caja Ayacucho con Power Automate + Python (Railway)
 
 Fecha: 2026-10-21 · Rama: `claude/charming-pasteur-l1uxy1` · Base: `main` @ `8a5c6e8`
