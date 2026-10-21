@@ -1,0 +1,32 @@
+flowchart LR
+  U([Navegador · v3_control_cierres.html]) -->|"HTTPS + Basic Auth"| PX[Proxy serve_v3_frontend.py]
+  AvncCajaRO7v3Dev["AVANCE CAJA · DEV (solo lectura)<br/>AvncCajaRO7v3Dev · 12 nodos"]
+  CanZtkmnm0ukAC8c["01 INGESTA · DEV<br/>CanZtkmnm0ukAC8c · 13 nodos"]
+  HhuQCVP2oCubavzY["07D PUBLICAR ARCHIVO OFICIAL (crear o actualizar) · DRIVE<br/>HhuQCVP2oCubavzY · 13 nodos"]
+  Lht5xRinJ9nJpHCW["07E BUSCAR O CREAR CARPETA OFICIAL · DRIVE<br/>Lht5xRinJ9nJpHCW · 8 nodos"]
+  aLs1f3GMqswbaENA["BACKEND DEV (webhooks)<br/>aLs1f3GMqswbaENA · 196 nodos"]
+  fn7lLjHsiMd48DGK["07C DESCARGAR ARCHIVO OFICIAL SI EXISTE · DRIVE<br/>fn7lLjHsiMd48DGK · 8 nodos"]
+  sJVgoBRpBntc96vf["PREFLIGHT OFICIAL (solo lectura)<br/>sJVgoBRpBntc96vf · 13 nodos"]
+  wcgxNei3duWfMDp1["06B PUBLICACION OFICIAL · DRIVE<br/>wcgxNei3duWfMDp1 · 54 nodos"]
+  PX -->|"/webhook/tiq-v3-dev/*"| AvncCajaRO7v3Dev
+  PX -->|"/webhook/tiq-v3-dev/*"| aLs1f3GMqswbaENA
+  aLs1f3GMqswbaENA -->|Execute Workflow| wcgxNei3duWfMDp1
+  aLs1f3GMqswbaENA -->|Execute Workflow| CanZtkmnm0ukAC8c
+  aLs1f3GMqswbaENA -->|Execute Workflow| sJVgoBRpBntc96vf
+  aLs1f3GMqswbaENA -->|Execute Workflow| Lht5xRinJ9nJpHCW
+  aLs1f3GMqswbaENA -->|Execute Workflow| HhuQCVP2oCubavzY
+  PY[["python -m v3.dev_api --accion …"]]
+  ING[["python -m v3.ingesta"]]
+  AvncCajaRO7v3Dev -->|Execute Command| PY
+  CanZtkmnm0ukAC8c -->|Execute Command| ING
+  aLs1f3GMqswbaENA -->|Execute Command| PY
+  GD[(Google Drive)]
+  AvncCajaRO7v3Dev -.->|nodos googleDrive| GD
+  CanZtkmnm0ukAC8c -.->|nodos googleDrive| GD
+  HhuQCVP2oCubavzY -.->|nodos googleDrive| GD
+  Lht5xRinJ9nJpHCW -.->|nodos googleDrive| GD
+  aLs1f3GMqswbaENA -.->|nodos googleDrive| GD
+  fn7lLjHsiMd48DGK -.->|nodos googleDrive| GD
+  sJVgoBRpBntc96vf -.->|nodos googleDrive| GD
+  wcgxNei3duWfMDp1 -.->|nodos googleDrive| GD
+  style fn7lLjHsiMd48DGK stroke-dasharray: 5 5
