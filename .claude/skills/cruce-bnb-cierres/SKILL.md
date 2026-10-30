@@ -1,6 +1,6 @@
 ---
 name: cruce-bnb-cierres
-description: Cruza los depósitos declarados en los cierres de cajeros (SFC101, SFC102, SFC107, SFC108) contra el detalle de abonos BNB del macro mensual y genera un PDF con discrepancias. Úsala para la revisión diaria de vouchers o cuando se pida un cruce por rango de fechas.
+description: Cruza los depósitos declarados en los cierres de cajeros (SFC101, SFC102, SFC107, SFC108) contra el detalle de abonos BNB del macro mensual y genera dos PDF con las observaciones, uno por zona (Tiquipaya y América). Úsala para la revisión diaria de vouchers o cuando se pida un cruce por rango de fechas.
 ---
 
 # Cruce BNB vs cierres de cajeros
@@ -14,7 +14,8 @@ description: Cruza los depósitos declarados en los cierres de cajeros (SFC101, 
 
 ## Alcance
 
-- Solo cajas SFC101, SFC102, SFC107 y SFC108.
+- Zona Tiquipaya: SFC101 y SFC102.
+- Zona América: SFC107 y SFC108.
 - SFC105 y demás cajas NO se revisan, salvo que el usuario lo pida.
 
 ## Fuentes en Drive
@@ -29,6 +30,8 @@ Los archivos tienen el mismo nombre en carpetas distintas. Identifica cada archi
 | Cierres Tiquipaya | AGENTE TIQUIPAYA / 03_PROCESADOS / 2026 / 2026-10 | `1v_eXoYr_4KGRj1-bPlI_glEuiFTAztyZ` |
 | Cierres Tiquipaya (respaldo) | AGENTE TIQUIPAYA / 00_ENTRADA_CIERRES | `1ntneoE3MI-25FyPXUymXEvIJmnaZWyJ1` |
 | Detalle BNB (macro) | AGENTE TIQUIPAYA / 02_MAESTROS / 2026 / 2026-10 | `1-aFzsjbg0pqAF1SQN1CdOCHN-LYocNf8` |
+| Entrega TIQUIPAYA | AGENTE TIQUIPAYA / 06_REPORTES / TIQUIPAYA | `1dfBZFbdMO4dSo_Omu1bU3sCti72Z66OD` |
+| Entrega AMERICA | AGENTE TIQUIPAYA / 06_REPORTES / AMERICA | `1JljzKmvUEXxVYnkGZHyPAtrtDtg-TkJ1` |
 
 Reglas de búsqueda:
 
@@ -49,32 +52,33 @@ Reglas de búsqueda:
      --salida <carpeta_salida>
    ```
 
-   Usa `python3 -I` si ejecutas código que lee archivos descargados.
-3. Revisa `resultado.json`. Los estados son:
-   - `OK`: código, importe y fecha cuadran.
-   - `FECHA_INVERTIDA`: el cierre tiene día y mes al revés.
-   - `FECHA_DISTINTA`: el código y el importe cuadran, la fecha no.
-   - `MONTO_DISTINTO`: el código existe en el BNB con otro importe.
-   - `SIN_ABONO`: discrepancia real. No hay abono con ese código.
-   - `PENDIENTE`: la fecha de depósito es posterior a la cobertura del detalle BNB. No es discrepancia.
-   - `REVISAR`: fecha ilegible en el cierre.
-4. Genera el PDF desde `reporte.html`, usando `render.js` de esta carpeta:
+   Genera `resultado.json` y dos reportes: `TIQUIPAYA/reporte.html` y `AMERICA/reporte.html`. Solo listan las observaciones; los depósitos que cuadran no aparecen.
+3. Convierte cada reporte a PDF con `render.js`:
 
    ```bash
-   cd <carpeta_salida> && node /home/user/caja-tiquipaya-v2/.claude/skills/cruce-bnb-cierres/render.js reporte.html reporte.pdf
+   cd <carpeta_salida> && node /home/user/caja-tiquipaya-v2/.claude/skills/cruce-bnb-cierres/render.js TIQUIPAYA/reporte.html TIQUIPAYA/observaciones_tiquipaya.pdf
+   cd <carpeta_salida> && node /home/user/caja-tiquipaya-v2/.claude/skills/cruce-bnb-cierres/render.js AMERICA/reporte.html AMERICA/observaciones_america.pdf
    ```
 
-5. Entrega el PDF y un resumen corto en el chat. Incluye por cada discrepancia: cierre, caja, asignación, importe y qué se observó.
+4. Sube cada PDF a su carpeta de entrega de Drive:
+   - `observaciones_tiquipaya.pdf` → carpeta TIQUIPAYA (`1dfBZFbdMO4dSo_Omu1bU3sCti72Z66OD`).
+   - `observaciones_america.pdf` → carpeta AMERICA (`1JljzKmvUEXxVYnkGZHyPAtrtDtg-TkJ1`).
+   Nombra cada archivo con la ventana, por ejemplo `observaciones_tiquipaya_27-10_28-10.pdf`.
+5. Responde en el chat con un resumen corto por zona: cuántos cuadran, cuántas observaciones hay y cuáles son (cierre, caja, asignación, importe, qué pasó). Incluye el enlace de cada PDF en Drive.
 
 ## Reglas de decisión
 
 - Nunca marques `SIN_ABONO` si la fecha de depósito está fuera de la cobertura del detalle BNB. Ese caso es `PENDIENTE`.
-- Un depósito es OK solo si código, importe y fecha coinciden. Si solo coincide el código, es discrepancia.
-- No modifiques cierres, macros ni archivos de Drive. Solo lees y generas el reporte.
+- Un depósito es OK solo si código, importe y fecha coinciden. Si solo coincide el código, es observación.
+- No modifiques cierres, macros ni archivos de Drive fuera de las carpetas de entrega.
 - Si el detalle BNB no cubre la fecha del cierre más reciente de la ventana, dilo en el resumen.
 
-## Salida
+## Estados
 
-- `resultado.json`: todos los depósitos con su estado.
-- `reporte.html` y `reporte.pdf`: reporte para leer. Las cifras del resumen deben salir del JSON, no escribirse a mano.
-- Carpeta de entrega en Drive: pendiente de confirmar por el usuario. Propuesta: `AGENTE TIQUIPAYA/06_REPORTES`.
+- `OK`: código, importe y fecha cuadran. No aparece en el reporte.
+- `FECHA_INVERTIDA`: el cierre tiene día y mes al revés.
+- `FECHA_DISTINTA`: código e importe cuadran, la fecha no.
+- `MONTO_DISTINTO`: el código existe en el BNB con otro importe.
+- `SIN_ABONO`: discrepancia real. No hay abono con ese código.
+- `PENDIENTE`: la fecha de depósito es posterior a la cobertura del detalle BNB. No es error.
+- `REVISAR`: fecha ilegible en el cierre.
