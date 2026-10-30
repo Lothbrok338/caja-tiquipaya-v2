@@ -4,12 +4,15 @@ Uso:
     python conciliar.py --cierres DIR --macro ARCHIVO.xlsm \
         --desde 27-10-2026 --hasta 28-10-2026 --salida DIR_SALIDA
 
---cierres  carpeta con los cierres descargados, nombrados "CIERRE dd-mm-aaaa.xlsm"
+--cierres  carpeta con los cierres, nombrados "... CIERRE dd-mm-aaaa.xlsm"
 --macro    libro de macros con la hoja "Tablas Dinamicas Profesional" (detalle BNB)
 --desde / --hasta  ventana por fecha de caja del cierre (incluye ambos extremos)
---cajas    cajas a revisar (por defecto SFC101,SFC102,SFC107,SFC108)
 
-Escribe resultado.json y reporte.html en --salida.
+Genera en --salida:
+    resultado.json
+    TIQUIPAYA/reporte.html   (cajas SFC101 y SFC102)
+    AMERICA/reporte.html     (cajas SFC107 y SFC108)
+Solo se listan en el reporte los depósitos observados (no los que cuadran).
 """
 import argparse
 import datetime as dt
@@ -22,7 +25,11 @@ import re
 import openpyxl
 
 HOJA_BNB = "Tablas Dinamicas Profesional"
-CAJAS_DEFAULT = ["SFC101", "SFC102", "SFC107", "SFC108"]
+ZONAS = {
+    "TIQUIPAYA": ["SFC101", "SFC102"],
+    "AMERICA": ["SFC107", "SFC108"],
+}
+CAJAS_DEFAULT = [c for cajas in ZONAS.values() for c in cajas]
 
 
 def parse_fecha(valor):
@@ -51,7 +58,7 @@ def fecha_desde_nombre(nombre):
 
 
 def leer_bnb(ruta):
-    """Devuelve lista de abonos con asignación y monto, y la cobertura de fechas."""
+    """Devuelve abonos con asignación y monto, y la cobertura de fechas del detalle."""
     wb = openpyxl.load_workbook(ruta, data_only=True)
     ws = wb[HOJA_BNB]
     abonos = []
@@ -62,7 +69,7 @@ def leer_bnb(ruta):
                 "fecha": parse_fecha(r[0]),
                 "asig": asig.strip(),
                 "monto": float(monto),
-                "caja": (r[5] or "").strip() if isinstance(r[5], str) else r[5],
+                "caja": r[5],
             })
     fechas = [a["fecha"] for a in abonos if a["fecha"]]
     cobertura = (min(fechas), max(fechas)) if fechas else (None, None)
@@ -86,7 +93,6 @@ def leer_depositos(ruta, cajas):
                     if isinstance(asig, str) and asig.strip() and isinstance(importe, (int, float)) and importe > 0:
                         depositos.append({
                             "caja": sn,
-                            "deposito": c.value.strip(),
                             "importe": float(importe),
                             "fecha_dep": parse_fecha(fecha),
                             "fecha_dep_texto": fecha if isinstance(fecha, str) else (fecha.strftime("%d-%m-%Y") if fecha else None),
@@ -96,7 +102,7 @@ def leer_depositos(ruta, cajas):
 
 
 def es_dia_mes_invertido(declarada, real):
-    return declarada and real and declarada.day == real.month and declarada.month == real.day
+    return bool(declarada and real and declarada.day == real.month and declarada.month == real.day)
 
 
 def clasificar(dep, bnb_por_asig, cobertura_hasta):
@@ -104,46 +110,44 @@ def clasificar(dep, bnb_por_asig, cobertura_hasta):
     abono = bnb_por_asig.get(dep["asig"])
     if abono:
         if abs(abono["monto"] - dep["importe"]) >= 0.01:
-            return "MONTO_DISTINTO", f"BNB abonó {abono['monto']:,.2f}"
+            return "MONTO_DISTINTO", f"El banco abonó {abono['monto']:,.2f}"
         if dep["fecha_dep"] == abono["fecha"]:
             return "OK", ""
         if es_dia_mes_invertido(dep["fecha_dep"], abono["fecha"]):
-            return "FECHA_INVERTIDA", f"Cierre: {dep['fecha_dep_texto']} · BNB: {abono['fecha']:%d-%m-%Y}"
-        return "FECHA_DISTINTA", f"Cierre: {dep['fecha_dep_texto']} · BNB: {abono['fecha']:%d-%m-%Y}"
+            return "FECHA_INVERTIDA", f"El banco abonó el {abono['fecha']:%d-%m-%Y}"
+        return "FECHA_DISTINTA", f"El banco abonó el {abono['fecha']:%d-%m-%Y}"
     if dep["fecha_dep"] and cobertura_hasta and dep["fecha_dep"] > cobertura_hasta:
-        return "PENDIENTE", f"El detalle BNB llega hasta {cobertura_hasta:%d-%m-%Y}"
+        return "PENDIENTE", f"Aún no hay extracto para esa fecha (el detalle llega hasta el {cobertura_hasta:%d-%m-%Y})"
     if dep["fecha_dep"] is None:
-        return "REVISAR", "Fecha de depósito ilegible en el cierre"
-    return "SIN_ABONO", "No existe abono BNB con este código de asignación"
+        return "REVISAR", "La fecha de depósito no se pudo leer en el cierre"
+    return "SIN_ABONO", "El banco no tiene ningún abono con este código"
 
 
-def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--cierres", required=True)
-    p.add_argument("--macro", required=True)
-    p.add_argument("--desde", required=True)
-    p.add_argument("--hasta", required=True)
-    p.add_argument("--salida", required=True)
-    p.add_argument("--cajas", default=",".join(CAJAS_DEFAULT))
-    args = p.parse_args()
+# Texto para una persona que no es técnica: qué pasó y qué hacer.
+EXPLICACION = {
+    "SIN_ABONO": ("No aparece en el banco", "Revisar el voucher físico y el depósito en el banco. Si el depósito es real, falta el abono. Si no lo es, corregir el cierre."),
+    "FECHA_INVERTIDA": ("La fecha está al revés", "Corregir la fecha de depósito en el cierre: el día y el mes están invertidos. El dinero sí está bien."),
+    "FECHA_DISTINTA": ("La fecha no coincide", "Verificar la fecha de depósito en el cierre contra el banco."),
+    "MONTO_DISTINTO": ("El monto no coincide", "Comparar el voucher con el monto que abonó el banco y corregir el cierre o el abono."),
+    "PENDIENTE": ("Pendiente de extracto", "No es un error. Se revisa cuando llegue el extracto de esa fecha."),
+    "REVISAR": ("Revisar a mano", "El archivo tiene una fecha que no se pudo leer. Verificarla en el cierre."),
+}
+ORDEN = ["SIN_ABONO", "MONTO_DISTINTO", "FECHA_INVERTIDA", "FECHA_DISTINTA", "REVISAR", "PENDIENTE"]
 
-    desde = dt.datetime.strptime(args.desde, "%d-%m-%Y").date()
-    hasta = dt.datetime.strptime(args.hasta, "%d-%m-%Y").date()
-    cajas = [c.strip() for c in args.cajas.split(",") if c.strip()]
-    os.makedirs(args.salida, exist_ok=True)
 
-    abonos, (cob_desde, cob_hasta) = leer_bnb(args.macro)
+def construir_resultado(cierres, macro, desde, hasta, cajas):
+    abonos, (cob_desde, cob_hasta) = leer_bnb(macro)
     bnb_por_asig = {}
     for a in abonos:
         bnb_por_asig.setdefault(a["asig"], a)
 
     resultados = []
-    cierres_usados = []
-    for ruta in sorted(glob.glob(os.path.join(args.cierres, "*.xlsm"))):
+    usados = []
+    for ruta in sorted(glob.glob(os.path.join(cierres, "*.xlsm"))):
         fecha_caja = fecha_desde_nombre(ruta)
         if fecha_caja is None or not (desde <= fecha_caja <= hasta):
             continue
-        cierres_usados.append({"archivo": os.path.basename(ruta), "fecha_caja": fecha_caja.isoformat()})
+        usados.append({"archivo": os.path.basename(ruta), "fecha_caja": fecha_caja.isoformat()})
         for dep in leer_depositos(ruta, cajas):
             estado, detalle = clasificar(dep, bnb_por_asig, cob_hasta)
             resultados.append({
@@ -154,83 +158,119 @@ def main():
                 "estado": estado,
                 "detalle": detalle,
             })
-
-    conteo = {}
-    for r in resultados:
-        conteo[r["estado"]] = conteo.get(r["estado"], 0) + 1
-
-    salida = {
-        "ventana": {"desde": args.desde, "hasta": args.hasta},
+    return {
+        "ventana": {"desde": desde.strftime("%d-%m-%Y"), "hasta": hasta.strftime("%d-%m-%Y")},
         "cobertura_bnb": {
             "desde": cob_desde.isoformat() if cob_desde else None,
             "hasta": cob_hasta.isoformat() if cob_hasta else None,
         },
-        "cierres": cierres_usados,
-        "cajas": cajas,
-        "conteo": conteo,
+        "cierres": usados,
+        "conteo": {e: sum(1 for r in resultados if r["estado"] == e) for e in {r["estado"] for r in resultados}},
         "depositos": resultados,
     }
-    with open(os.path.join(args.salida, "resultado.json"), "w", encoding="utf-8") as f:
-        json.dump(salida, f, ensure_ascii=False, indent=2)
-
-    with open(os.path.join(args.salida, "reporte.html"), "w", encoding="utf-8") as f:
-        f.write(generar_html(salida))
-    print(json.dumps(conteo, ensure_ascii=False))
 
 
-ETIQUETA = {
-    "OK": ("ok", "Cuadra"),
-    "FECHA_INVERTIDA": ("bad", "Fecha invertida"),
-    "FECHA_DISTINTA": ("bad", "Fecha distinta"),
-    "MONTO_DISTINTO": ("bad", "Monto distinto"),
-    "SIN_ABONO": ("bad", "Sin abono BNB"),
-    "PENDIENTE": ("warn", "Pendiente de extracto"),
-    "REVISAR": ("warn", "Revisar"),
-}
-
-
-def generar_html(s):
-    filas = []
-    for r in s["depositos"]:
-        if r["estado"] == "OK":
-            continue
-        clase, texto = ETIQUETA.get(r["estado"], ("warn", r["estado"]))
-        filas.append(
-            "<tr>"
-            f"<td><span class='tag {clase}'>{texto}</span></td>"
-            f"<td>{html.escape(r['cierre'])}</td>"
-            f"<td>{html.escape(r['caja'])}</td>"
-            f"<td>{html.escape(r['asig'])}</td>"
-            f"<td class='num'>{r['importe']:,.2f}</td>"
-            f"<td>{html.escape(r['detalle'])}</td>"
-            "</tr>"
-        )
-    total = len(s["depositos"])
-    ok = s["conteo"].get("OK", 0)
-    tabla = "".join(filas) or "<tr><td colspan='6'>Sin discrepancias ni pendientes en la ventana.</td></tr>"
+def html_zona(zona, cajas, s):
+    depositos = [r for r in s["depositos"] if r["caja"] in cajas]
+    observados = sorted(
+        [r for r in depositos if r["estado"] != "OK"],
+        key=lambda r: (ORDEN.index(r["estado"]) if r["estado"] in ORDEN else 99, r["fecha_caja"]),
+    )
+    ok = sum(1 for r in depositos if r["estado"] == "OK")
+    graves = sum(1 for r in observados if r["estado"] not in ("PENDIENTE",))
+    pend = sum(1 for r in observados if r["estado"] == "PENDIENTE")
     cob = s["cobertura_bnb"]
+    cob_txt = f"{cob['desde']} a {cob['hasta']}" if cob["hasta"] else "sin datos"
+
+    if observados:
+        tarjetas = []
+        for r in observados:
+            titulo, accion = EXPLICACION.get(r["estado"], (r["estado"], ""))
+            color = "warn" if r["estado"] == "PENDIENTE" else "bad"
+            tarjetas.append(f"""
+<div class="item {color}">
+  <div class="item-top">
+    <span class="pill {color}">{html.escape(titulo)}</span>
+    <span class="monto">Bs {r['importe']:,.2f}</span>
+  </div>
+  <div class="grid">
+    <div><small>Cierre</small><b>{html.escape(r['cierre'].replace('.xlsm', ''))}</b></div>
+    <div><small>Caja</small><b>{html.escape(r['caja'])}</b></div>
+    <div><small>Asignación</small><b>{html.escape(r['asig'])}</b></div>
+    <div><small>Fecha en el cierre</small><b>{html.escape(str(r['fecha_dep_texto'] or r['fecha_dep'] or '—'))}</b></div>
+  </div>
+  <p class="que"><b>Qué pasó:</b> {html.escape(r['detalle'])}.</p>
+  <p class="que"><b>Qué hacer:</b> {html.escape(accion)}</p>
+</div>""")
+        cuerpo = "".join(tarjetas)
+    else:
+        cuerpo = '<div class="ok-box">✅ No hay observaciones en este periodo. Todos los depósitos cuadran con el banco.</div>'
+
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
-<title>Cruce BNB {html.escape(s['ventana']['desde'])} al {html.escape(s['ventana']['hasta'])}</title>
+<title>Observaciones {zona} {s['ventana']['desde']} al {s['ventana']['hasta']}</title>
 <style>
-body{{font-family:Arial,sans-serif;color:#1d2433;margin:28px;font-size:13px}}
-h1{{font-size:20px;margin:0 0 4px}} .sub{{color:#6b7385;margin-bottom:16px}}
-.cards{{display:flex;gap:10px;margin:12px 0}} .card{{flex:1;background:#f6f7fb;border-radius:8px;padding:10px 12px}}
-.card .n{{font-size:22px;font-weight:700}} .card .t{{color:#6b7385;font-size:11px;text-transform:uppercase}}
-table{{width:100%;border-collapse:collapse;margin-top:8px}} th,td{{padding:6px;border-bottom:1px solid #e3e6ee;text-align:left}}
-th{{background:#f6f7fb;font-size:11px;text-transform:uppercase;color:#6b7385}} td.num{{text-align:right}}
-.tag{{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}}
-.tag.ok{{background:#dcf3e7;color:#17693f}} .tag.bad{{background:#fde3e1;color:#a32a27}} .tag.warn{{background:#fff3cc;color:#7a5a00}}
-</style></head><body>
-<h1>Cruce de depósitos vs extracto BNB</h1>
-<div class="sub">Cierres del {html.escape(s['ventana']['desde'])} al {html.escape(s['ventana']['hasta'])} · Cajas: {html.escape(', '.join(s['cajas']))} · Detalle BNB cubre {html.escape(str(cob['desde']))} a {html.escape(str(cob['hasta']))}</div>
-<div class="cards">
-<div class="card"><div class="n">{total}</div><div class="t">Depósitos revisados</div></div>
-<div class="card"><div class="n">{ok}</div><div class="t">Cuadran</div></div>
-<div class="card"><div class="n">{total - ok}</div><div class="t">Observados</div></div>
-</div>
-<table><thead><tr><th>Estado</th><th>Cierre</th><th>Caja</th><th>Asignación</th><th>Importe</th><th>Detalle</th></tr></thead>
-<tbody>{tabla}</tbody></table>
-</body></html>"""
+  body {{ margin:0; font-family: Arial, Helvetica, sans-serif; color:#1d2433; font-size:13px; background:#fff; }}
+  .page {{ padding:26px 30px; }}
+  .head {{ background:#1d2433; color:#fff; border-radius:10px; padding:18px 20px; }}
+  .head h1 {{ margin:0 0 4px; font-size:20px; }}
+  .head .sub {{ color:#c9d1e0; font-size:12px; }}
+  .stats {{ display:flex; gap:10px; margin:16px 0; }}
+  .stat {{ flex:1; border-radius:10px; padding:12px 14px; background:#f4f6fa; }}
+  .stat .n {{ font-size:26px; font-weight:800; }}
+  .stat .t {{ font-size:11px; color:#5b6478; text-transform:uppercase; letter-spacing:.04em; }}
+  .stat.ok .n {{ color:#17693f; }} .stat.bad .n {{ color:#c0392b; }} .stat.warn .n {{ color:#9a6b00; }}
+  h2 {{ font-size:15px; margin:18px 0 8px; }}
+  .item {{ border:1px solid #e3e6ee; border-left:6px solid #c0392b; border-radius:10px; padding:12px 14px; margin-bottom:10px; page-break-inside:avoid; }}
+  .item.warn {{ border-left-color:#e0a100; }}
+  .item-top {{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }}
+  .pill {{ padding:4px 10px; border-radius:20px; font-weight:700; font-size:12px; color:#fff; }}
+  .pill.bad {{ background:#c0392b; }} .pill.warn {{ background:#e0a100; }}
+  .monto {{ font-size:18px; font-weight:800; }}
+  .grid {{ display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; background:#f7f8fb; border-radius:8px; padding:8px 10px; }}
+  .grid small {{ display:block; color:#6b7385; font-size:10px; text-transform:uppercase; }}
+  .grid b {{ font-size:13px; }}
+  .que {{ margin:8px 0 0; line-height:1.4; }}
+  .ok-box {{ background:#e8f7ee; border:1px solid #bfe6cf; border-radius:10px; padding:16px; font-size:14px; color:#17693f; }}
+  .foot {{ color:#8a91a3; font-size:10.5px; margin-top:16px; border-top:1px solid #e3e6ee; padding-top:8px; }}
+</style></head><body><div class="page">
+  <div class="head">
+    <h1>Observaciones de depósitos · {zona.title()}</h1>
+    <div class="sub">Cierres del {s['ventana']['desde']} al {s['ventana']['hasta']} · Cajas {', '.join(cajas)} · Extracto BNB disponible: {cob_txt}</div>
+  </div>
+  <div class="stats">
+    <div class="stat ok"><div class="n">{ok}</div><div class="t">Cuadran</div></div>
+    <div class="stat bad"><div class="n">{graves}</div><div class="t">Con error</div></div>
+    <div class="stat warn"><div class="n">{pend}</div><div class="t">Pendientes</div></div>
+  </div>
+  <h2>Detalle</h2>
+  {cuerpo}
+  <div class="foot">Generado automáticamente comparando los cierres de cajeros con el detalle de abonos del BNB. Los pendientes se revisan cuando llegue el extracto de su fecha.</div>
+</div></body></html>"""
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--cierres", required=True)
+    p.add_argument("--macro", required=True)
+    p.add_argument("--desde", required=True)
+    p.add_argument("--hasta", required=True)
+    p.add_argument("--salida", required=True)
+    args = p.parse_args()
+
+    desde = dt.datetime.strptime(args.desde, "%d-%m-%Y").date()
+    hasta = dt.datetime.strptime(args.hasta, "%d-%m-%Y").date()
+    s = construir_resultado(args.cierres, args.macro, desde, hasta, CAJAS_DEFAULT)
+
+    os.makedirs(args.salida, exist_ok=True)
+    with open(os.path.join(args.salida, "resultado.json"), "w", encoding="utf-8") as f:
+        json.dump(s, f, ensure_ascii=False, indent=2)
+
+    for zona, cajas in ZONAS.items():
+        carpeta = os.path.join(args.salida, zona)
+        os.makedirs(carpeta, exist_ok=True)
+        with open(os.path.join(carpeta, "reporte.html"), "w", encoding="utf-8") as f:
+            f.write(html_zona(zona, cajas, s))
+    print(json.dumps(s["conteo"], ensure_ascii=False))
 
 
 if __name__ == "__main__":
