@@ -4209,7 +4209,7 @@
       ],
       "parameters": {
         "operation": "write",
-        "fileName": "={{ $('FILTRAR - SAP diarios validos del periodo').item.json.ruta_destino }}",
+        "fileName": "={{ $('FILTRAR - SAP diarios validos del periodo').all()[$itemIndex].json.ruta_destino }}",
         "dataPropertyName": "data",
         "options": {}
       }
