@@ -86,7 +86,18 @@ MACROS_NO_CUBRE_FECHA_DEPOSITO = "MACROS_NO_CUBRE_FECHA_DEPOSITO"
 # tiene que decirlo así, para no mandar al auditor a revisar MACROS.
 CIERRE_FECHA_INVALIDA = "CIERRE_FECHA_INVALIDA"
 
-_ESTADOS_VALIDOS = (MAESTRO_APTO, BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA)
+# Hallazgo real (Tiquipaya, 2026-11-04): el cierre del 28/10 traía una hoja de
+# COMUNICACIONES INTERNAS sin el encabezado ASIGNACION (quedó como
+# "Columna1") y excel_io.leer_cierre() abortaba; cualquier fallo de lectura
+# del cierre se reportaba como "Maestro sin cobertura". Ahora, lo que
+# v3.normalizacion_fecha_deposito no puede reparar de forma segura se informa
+# como CIERRE_ILEGIBLE con el error EXACTO de lectura: el problema es del
+# archivo del cierre, nunca del maestro.
+CIERRE_ILEGIBLE = "CIERRE_ILEGIBLE"
+
+_ESTADOS_VALIDOS = (MAESTRO_APTO, BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA, CIERRE_ILEGIBLE)
+# Estados que impiden pasar al motor (precondición no cumplida).
+ESTADOS_BLOQUEO = (BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA, CIERRE_ILEGIBLE)
 
 
 def _fecha_maxima(fechas):
@@ -286,14 +297,20 @@ def _evaluar_cobertura_base(ruta_maestro, fecha_cierre, ruta_cierre, caja=None):
                     "archivo del cierre y vuelva a procesar — esto no es un problema del maestro."
                 ),
             }
+        # Cualquier otro fallo de lectura del cierre (hoja o columna
+        # faltante, archivo corrupto, ...): el problema es del ARCHIVO DEL
+        # CIERRE, no de la cobertura del maestro. Se informa el error exacto.
+        detalle = str(exc) or type(exc).__name__
         return {
-            "estado": BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA,
+            "estado": CIERRE_ILEGIBLE,
             "fecha_cierre": fecha_cierre,
             "fecha_maxima_macros": fecha_maxima_macros,
             "fecha_maxima_atc": fecha_maxima_atc,
+            "codigo_bloqueo": CIERRE_ILEGIBLE,
             "mensaje": (
-                f"No se pudo leer el cierre para determinar si tuvo movimiento "
-                f"ATC: {type(exc).__name__}: {exc}."
+                f"{CIERRE_ILEGIBLE}: no se pudo leer el archivo del cierre: {detalle}. "
+                "Corrija ese dato en el archivo del cierre y vuelva a procesar — esto NO es un problema del maestro "
+                f"(MACROS llega hasta {fecha_maxima_macros}; la cobertura de los depósitos no se pudo evaluar porque el cierre no se lee)."
             ),
         }
 
@@ -379,17 +396,24 @@ def aplicar_precheck_maestro(cierres_materializados, caja=None):
             caja=caja,
         )
         salida = dict(item)
+        mensaje = cobertura["mensaje"]
+        # Avisos NO bloqueantes que dejó la normalización de la copia
+        # (p. ej. encabezado ASIGNACION reparado): se muestran junto al
+        # mensaje del precheck para que la persona decida con ellos a la vista.
+        avisos = item.get("avisos_cierre") or []
+        if avisos:
+            mensaje += " AVISO: " + " ".join(a["mensaje"] for a in avisos)
         salida.update({
             "estado_precheck_maestro": cobertura["estado"],
             "fecha_maxima_macros": cobertura["fecha_maxima_macros"],
             "fecha_maxima_atc": cobertura["fecha_maxima_atc"],
-            "mensaje_precheck_maestro": cobertura["mensaje"],
+            "mensaje_precheck_maestro": mensaje,
             "codigo_bloqueo_precheck": cobertura.get("codigo_bloqueo"),
             "fecha_requerida_deposito": cobertura.get("fecha_requerida_deposito"),
             "posible_inversion_ddmm": cobertura.get("posible_inversion_ddmm") or [],
             "observaciones_precheck": cobertura.get("observaciones") or [],
         })
-        if cobertura["estado"] in (BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA):
+        if cobertura["estado"] in ESTADOS_BLOQUEO:
             salida["estado_motor"] = NO_PROCESADO
             salida["resultado"] = None
         resultados.append(salida)
@@ -404,7 +428,7 @@ def filtrar_aptos_para_motor(cierres_anotados):
     cierre (CIERRE_FECHA_INVALIDA: distinto motivo, mismo "no procesar")."""
     return [
         item for item in cierres_anotados
-        if item.get("estado_precheck_maestro") not in (BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA)
+        if item.get("estado_precheck_maestro") not in ESTADOS_BLOQUEO
     ]
 
 

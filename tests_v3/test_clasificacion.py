@@ -241,3 +241,25 @@ def test_solo_5_estados_finales_posibles():
         LISTO_PARA_PUBLICAR, ERROR_REVISAR, SIN_ARCHIVO, YA_PROCESADO, ERROR_TECNICO,
     }
     assert len(_ESTADOS_FINALES_V2) == 5
+
+
+# CIERRE_ILEGIBLE (hallazgo real Tiquipaya 2026-11-04): el archivo del cierre no se puede leer.
+# Estado propio, nunca BLOQUEADO_MAESTRO, nunca publicable ni "requiere revisión" del auditor.
+def test_cierre_ilegible_da_estado_propio_no_publicable_y_no_culpa_al_maestro():
+    from v3.clasificacion import CIERRE_ILEGIBLE_ESTADO, BLOQUEADO_MAESTRO
+    r = clasificar_cierre(_base_item(estado_precheck_maestro=CIERRE_ILEGIBLE_ESTADO, estado_motor="NO_PROCESADO", resultado=None))
+    assert r["estado_final"] == CIERRE_ILEGIBLE_ESTADO != BLOQUEADO_MAESTRO
+    assert r["accion_siguiente"] == ACCION_NINGUNA
+    assert r["publicable"] is False and r["requiere_revision"] is False
+    assert "no es un problema del maestro" in r["mensaje"].lower() and "cobertura" not in r["mensaje"].lower()
+
+
+# Avisos NO bloqueantes sobre el archivo del cierre: el estado y la acción no cambian (la persona decide publicar),
+# pero el aviso queda en el historial del cierre.
+def test_avisos_del_cierre_no_cambian_el_estado_y_quedan_en_mensajes():
+    aviso = {"codigo": "CI_ENCABEZADO_ASIGNACION_REPARADO_EN_COPIA", "mensaje": "AVISO-EXACTO-X"}
+    r = clasificar_cierre(_base_item(avisos_cierre=[aviso]))
+    assert r["estado_final"] == LISTO_PARA_PUBLICAR and r["accion_siguiente"] == ACCION_PUBLICAR and r["publicable"] is True
+    assert "AVISO-EXACTO-X" in r["mensajes"]
+    assert r["avisos_cierre"] == [aviso]                       # se conserva para el frontend
+    assert clasificar_cierre(_base_item())["mensajes"] == [r["mensajes"][0]]   # sin avisos: exactamente igual que antes

@@ -46,7 +46,7 @@ import run_batch  # noqa: E402  (reutilizado tal cual: _ESTADO_MAP)
 from v3.ingesta import SIN_ARCHIVO as ING_SIN_ARCHIVO, AMBIGUO as ING_AMBIGUO, ERROR_INGESTA  # noqa: E402
 from v3.materializacion import ERROR_MATERIALIZACION  # noqa: E402
 from v3.motor import PROCESADO, NO_PROCESADO, ERROR_MOTOR, _ESTADO_MOTOR_MAP_RESULTADO  # noqa: E402
-from v3.precheck_maestro import BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA  # noqa: E402
+from v3.precheck_maestro import BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA, CIERRE_ILEGIBLE  # noqa: E402
 import pipeline_tiquipaya as pipeline  # noqa: E402
 
 
@@ -79,6 +79,13 @@ BLOQUEADO_MAESTRO = BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA
 # mensaje "Maestro sin cobertura" engañoso) -- ver v3/precheck_maestro.py.
 CIERRE_FECHA_INVALIDA_ESTADO = CIERRE_FECHA_INVALIDA
 
+# Octavo estado (hallazgo real Tiquipaya, 2026-11-04): el archivo del cierre no
+# se puede leer (p. ej. falta el encabezado ASIGNACION en COMUNICACIONES
+# INTERNAS). Antes se mezclaba con BLOQUEADO_MAESTRO ("maestro sin cobertura")
+# aunque el maestro estaba bien; el mensaje exacto viaja en
+# `mensaje_precheck_maestro`.
+CIERRE_ILEGIBLE_ESTADO = CIERRE_ILEGIBLE
+
 ACCION_PUBLICAR = "PUBLICAR"
 ACCION_REVISAR = "REVISAR"
 ACCION_NINGUNA = "NINGUNA"
@@ -105,6 +112,7 @@ _ACCION_POR_ESTADO = {
     # de corrección ni botón de publicar para este estado.
     BLOQUEADO_MAESTRO: ACCION_NINGUNA,
     CIERRE_FECHA_INVALIDA_ESTADO: ACCION_NINGUNA,
+    CIERRE_ILEGIBLE_ESTADO: ACCION_NINGUNA,
 }
 
 _MENSAJES = {
@@ -121,6 +129,10 @@ _MENSAJES = {
     CIERRE_FECHA_INVALIDA_ESTADO: (
         "Fecha de depósito inválida en el cierre. Corrija la fecha en el archivo "
         "del cierre y vuelva a procesar — esto no es un problema del maestro."
+    ),
+    CIERRE_ILEGIBLE_ESTADO: (
+        "No se pudo leer el archivo del cierre. Corrija el dato indicado en el detalle y vuelva a "
+        "procesar — esto no es un problema del maestro."
     ),
 }
 
@@ -167,6 +179,9 @@ def clasificar_cierre(item):
         # Distinto de BLOQUEADO_MAESTRO a propósito: el problema es del
         # propio cierre (fecha de depósito inválida), nunca del maestro.
         estado_final = CIERRE_FECHA_INVALIDA_ESTADO
+    elif estado_precheck_maestro == CIERRE_ILEGIBLE_ESTADO:
+        # Igual criterio: el problema es del archivo del cierre, no del maestro.
+        estado_final = CIERRE_ILEGIBLE_ESTADO
     elif estado_motor == ERROR_MOTOR:
         estado_final = ERROR_TECNICO
     elif estado_motor == PROCESADO:
@@ -183,6 +198,9 @@ def clasificar_cierre(item):
     mensaje = _MENSAJES[estado_final]
     mensajes = list(item.get("mensajes") or [])
     mensajes.append(mensaje)
+    # Avisos NO bloqueantes sobre el archivo del cierre (v3.normalizacion_fecha_deposito):
+    # no cambian el estado ni la acción, solo quedan en el historial del cierre.
+    mensajes.extend(a["mensaje"] for a in (item.get("avisos_cierre") or []) if isinstance(a, dict) and a.get("mensaje"))
 
     # Se preserva TODO lo que el item ya traía de los Módulos 01-03
     # (archivo_esperado, estado_ingesta, estado_materializacion,

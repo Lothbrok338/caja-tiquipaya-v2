@@ -1026,6 +1026,96 @@ async function test_maestro_sin_cobertura_no_ofrece_correccion_ni_publicacion() 
 }
 
 // ---------------------------------------------------------------------------
+// Hallazgo real Tiquipaya 2026-11-04: el archivo del cierre no se pudo leer
+// (falta el encabezado ASIGNACION). El estado CIERRE_ILEGIBLE nunca dice
+// "maestro sin cobertura": el detalle muestra el error EXACTO.
+// ---------------------------------------------------------------------------
+async function test_cierre_ilegible_muestra_el_error_exacto_y_no_culpa_al_maestro() {
+  console.log("\n[CIERRE_ILEGIBLE] muestra el error exacto de lectura, sin culpar al maestro");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  const MENSAJE = "CIERRE_ILEGIBLE: no se pudo leer el archivo del cierre: SFC102: faltan columnas en Comunicaciones Internas: ['ASIGNACION']. Corrija ese dato en el archivo del cierre y vuelva a procesar — esto NO es un problema del maestro.";
+  window.fetch = function (url) {
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-ilegible", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
+    if (url.indexOf("/datos") !== -1) return Promise.resolve({
+      ok: true, json: () => Promise.resolve({
+        resultado: "OK", cierres: [{
+          fecha: "2026-10-28", archivo_esperado: "CIERRE 28-10-2026.xlsm",
+          estado_final: "CIERRE_ILEGIBLE", estado_precheck_maestro: "CIERRE_ILEGIBLE",
+          mensaje_precheck_maestro: MENSAJE, fecha_maxima_macros: "2026-11-02", fecha_maxima_atc: "2026-10-30",
+          requiere_revision: false, publicable: false, publicado: false, diferencia: null, bloqueadores: null,
+          mensaje: "No se pudo leer el archivo del cierre.", mensajes: ["No se pudo leer el archivo del cierre."],
+        }],
+      }),
+    });
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  await waitFor(() => window.document.getElementById("in-fecha-desde") && window.document.getElementById("in-fecha-desde").value !== "");
+  window.document.getElementById("btn-procesar").click();
+  await waitFor(() => window.document.querySelector("#tabla-body tr[data-hash]"), 5000);
+
+  const tag = window.document.querySelector("#tabla-body .tag");
+  ok(tag.textContent === "Cierre ilegible", "la fila dice 'Cierre ilegible', nunca 'Maestro sin cobertura'");
+  ok(tag.classList.contains("bloqueo-maestro") && !tag.classList.contains("error"), "mismo estilo neutral de precondicion, nunca 'error' contable");
+  ok(window.document.querySelectorAll("#tabla-body button.publicar").length === 0, "no se ofrece boton Publicar");
+
+  window.document.querySelector("#tabla-body tr[data-hash]").click();
+  await waitFor(() => window.document.getElementById("detalle-body").textContent.indexOf("NO SE PUDO LEER EL ARCHIVO DEL CIERRE") !== -1, 3000);
+  const texto = window.document.getElementById("detalle-body").textContent;
+  ok(texto.indexOf("faltan columnas en Comunicaciones Internas: ['ASIGNACION']") !== -1, "el detalle muestra el error EXACTO de lectura");
+  ok(texto.indexOf("MAESTRO SIN COBERTURA CONFIRMADA") === -1, "NUNCA muestra el panel de maestro sin cobertura");
+  ok(window.document.getElementById("sel-excepcion") === null, "no se ofrece formulario de correccion");
+  dom.window.close();
+}
+
+// ---------------------------------------------------------------------------
+// Aviso NO bloqueante sobre el archivo del cierre (encabezado ASIGNACION
+// reparado en la copia): el cierre sigue siendo publicable y la decision es
+// de la persona, pero el aviso se ve en la tabla y en el detalle.
+// ---------------------------------------------------------------------------
+async function test_aviso_del_cierre_es_visible_y_no_bloquea_la_publicacion() {
+  console.log("\n[AVISO CIERRE] visible en tabla y detalle, sin bloquear la publicacion");
+  const dom = makeDom("http://localhost/v3_control_cierres.html");
+  const { window } = dom;
+  window.alert = function (msg) { window.__lastAlert = msg; };
+  const AVISO = "CI_ENCABEZADO_ASIGNACION_REPARADO_EN_COPIA: en la hoja 'COMUNICACIONES INTERNAS SFC 102' el encabezado de la columna Q (Q1) dice 'Columna1' en lugar de 'ASIGNACION'.";
+  window.fetch = function (url) {
+    if (url.indexOf("/procesar") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", lote_id: "lote-aviso", estado_lote: "PROCESANDO", caja: "tiquipaya" }) });
+    if (url.indexOf("/estado") !== -1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ resultado: "OK", estado_lote: "LISTO_PARA_REVISION_O_PUBLICACION" }) });
+    if (url.indexOf("/datos") !== -1) return Promise.resolve({
+      ok: true, json: () => Promise.resolve({
+        resultado: "OK", cierres: [{
+          fecha: "2026-10-28", archivo_esperado: "CIERRE 28-10-2026.xlsm", estado_final: "LISTO_PARA_PUBLICAR",
+          diferencia: "0.00", bloqueadores: 0, requiere_revision: false, publicable: true, publicado: false,
+          sha256: null, mensajes: ["Motor ejecutado: OK."],
+          avisos_cierre: [{ codigo: "CI_ENCABEZADO_ASIGNACION_REPARADO_EN_COPIA", mensaje: AVISO }],
+          cuadre: { universo_ajustado: "1500.00", recaudacion_explicada: "1500.00", diferencia: "0.00" },
+        }],
+      }),
+    });
+    return Promise.reject(new Error("URL no esperada: " + url));
+  };
+
+  await waitFor(() => window.document.getElementById("in-fecha-desde") && window.document.getElementById("in-fecha-desde").value !== "");
+  window.document.getElementById("btn-procesar").click();
+  await waitFor(() => window.document.querySelector("#tabla-body tr[data-hash]"), 5000);
+
+  const tags = Array.from(window.document.querySelectorAll("#tabla-body tr[data-hash] .tag")).map((t) => t.textContent);
+  ok(tags.indexOf("Listo") !== -1, "el estado sigue siendo 'Listo' (no bloquea)");
+  ok(tags.indexOf("Con aviso") !== -1, "la fila muestra la marca 'Con aviso'");
+  ok(window.document.querySelectorAll("#tabla-body button.publicar").length === 1, "el boton Publicar sigue disponible: decide la persona");
+
+  window.document.querySelector("#tabla-body tr[data-hash]").click();
+  await waitFor(() => window.document.getElementById("detalle-body").textContent.indexOf("AVISO SOBRE EL ARCHIVO DEL CIERRE") !== -1, 3000);
+  const texto = window.document.getElementById("detalle-body").textContent;
+  ok(texto.indexOf("dice 'Columna1' en lugar de 'ASIGNACION'") !== -1, "el detalle muestra el aviso exacto");
+  dom.window.close();
+}
+
+// ---------------------------------------------------------------------------
 // FASE 10F: ajustes de interfaz. Banner tecnico "MODO REAL" eliminado (con
 // indicador pequeño "ENTORNO: DEV" en cabecera), texto residual "(modo
 // demo)" corregido en modo real, panel Cuadre con datos reales (Universo/
@@ -2017,6 +2107,8 @@ async function test_lote_no_aplica_en_demo() {
   await test_error_backend();
   await test_no_publicar_no_habilitado();
   await test_maestro_sin_cobertura_no_ofrece_correccion_ni_publicacion();
+  await test_cierre_ilegible_muestra_el_error_exacto_y_no_culpa_al_maestro();
+  await test_aviso_del_cierre_es_visible_y_no_bloquea_la_publicacion();
   await test_ajustes_interfaz_fase_10f();
   await test_publication_mode_dev_muestra_badge_dev();
   await test_publication_mode_official_muestra_badge_oficial();

@@ -625,3 +625,184 @@ def test_dev_api_sin_voucher_no_corrige_y_bloquea_con_mensaje_sobre_el_cierre(tm
     assert c["posible_inversion_ddmm"] == [{"fecha_deposito": "2026-12-09", "fecha_invertida": "2026-09-12"}]
     assert "día y mes invertidos" in c["mensaje_precheck_maestro"]
     assert c["normalizacion_fecha_deposito_revision"][0]["motivo"] == "SIN_VOUCHER_EN_MACROS"
+
+
+# ===========================================================================
+# TERCERA REGLA — ENCABEZADO `ASIGNACION` PERDIDO en COMUNICACIONES INTERNAS
+# (hallazgo real Tiquipaya, cierre 28/10/2026: SFC 102 traía `Columna1`).
+# No bloquea: la COPIA operativa lleva el encabezado reparado y queda un
+# aviso visible para que la persona decida. El original nunca se toca.
+# ===========================================================================
+
+import zipfile  # noqa: E402
+
+
+def _cierre_tiquipaya_ci(ruta, encabezado_e="Columna1", con_tabla=True, depositos_101=None):
+    """Cierre Tiquipaya completo (fx.crear_cierre) cuya hoja CI de SFC102 tiene `encabezado_e` en
+    lugar de ASIGNACION (columna E: justo a la derecha de CUENTA CONTABLE BANCO), opcionalmente
+    dentro de una tabla de Excel como en el archivo real."""
+    from openpyxl.worksheet.table import Table
+    sfc101 = {"total_movimiento": "0.00", "cobros_atc": "0.00", "dolares": "0.00", "depositos": depositos_101 or []}
+    sfc102 = {"total_movimiento": "0.00", "cobros_atc": "0.00", "dolares": "0.00", "total_ci": "10.00", "depositos": [],
+              "ci": [{"total": "10.00", "cuenta": "110103012", "asignacion": "ALQUILERES", "banco": "BNB"}]}
+    fx.crear_cierre(ruta, sfc101, sfc102)
+    wb = openpyxl.load_workbook(ruta)
+    ws = wb["COMUNICACIONES INTERNAS SFC102"]
+    ws["E1"].value = encabezado_e
+    if con_tabla:
+        ws.add_table(Table(displayName="TCI102", ref="A1:F2"))
+    wb.save(ruta)
+    return ruta
+
+
+def _partes(ruta):
+    with zipfile.ZipFile(ruta) as z:
+        return {n: z.read(n) for n in z.namelist()}
+
+
+def test_el_cierre_sin_la_reparacion_no_se_puede_leer_error_exacto(tmp_path):
+    """Documenta la precondición: sin reparar, excel_io aborta con este error exacto."""
+    ruta = _cierre_tiquipaya_ci(str(tmp_path / "CIERRE 28-10-2026.xlsm"))
+    with pytest.raises(ValueError, match=r"SFC102: faltan columnas en Comunicaciones Internas: \['ASIGNACION'\]"):
+        excel_io.leer_cierre(ruta, caja="tiquipaya")
+
+
+def test_encabezado_columna1_se_repara_en_la_copia_con_aviso_y_el_original_queda_intacto(tmp_path):
+    ruta = _cierre_tiquipaya_ci(str(tmp_path / "CIERRE 28-10-2026.xlsm"))
+    original = open(ruta, "rb").read()
+
+    r = nfd.normalizar_cierre_para_precheck(ruta, "2026-10-28", "tiquipaya")
+
+    assert r["normalizado"] is True and r["ruta_cierre_local"] == ruta.replace(".xlsm", ".normalizado.xlsm")
+    assert open(ruta, "rb").read() == original                                       # original intacto
+    assert len(r["avisos"]) == 1
+    aviso = r["avisos"][0]
+    assert aviso["codigo"] == nfd.AVISO_CI_ENCABEZADO_REPARADO
+    assert (aviso["hoja"], aviso["celda"], aviso["valor_original"], aviso["valor_nuevo"]) == (
+        "COMUNICACIONES INTERNAS SFC102", "E1", "Columna1", "ASIGNACION")
+    assert "Columna1" in aviso["mensaje"] and "COPIA" in aviso["mensaje"] and "usted decide" in aviso["mensaje"]
+    assert r["cambios"][0]["clase"] == nfd.CLASE_ENCABEZADO_CI
+
+    cierre = excel_io.leer_cierre(r["ruta_cierre_local"], caja="tiquipaya")           # ahora SÍ se lee
+    asignaciones = {c["asignacion"] for c in cierre["comunicaciones_internas"]}
+    assert "ALQUILERES" in asignaciones
+
+
+def test_la_reparacion_cambia_solo_la_celda_y_el_nombre_de_columna_de_la_tabla(tmp_path):
+    ruta = _cierre_tiquipaya_ci(str(tmp_path / "CIERRE 28-10-2026.xlsm"))
+    antes = _partes(ruta)
+    r = nfd.normalizar_cierre_para_precheck(ruta, "2026-10-28", "tiquipaya")
+    despues = _partes(r["ruta_cierre_local"])
+    assert list(antes) == list(despues)
+    cambiadas = sorted(n for n in antes if antes[n] != despues[n])
+    assert len(cambiadas) == 2 and any(n.startswith("xl/worksheets/sheet") for n in cambiadas) and any(n.startswith("xl/tables/") for n in cambiadas)
+    tabla = next(n for n in cambiadas if n.startswith("xl/tables/"))
+    assert b'name="ASIGNACION"' in despues[tabla] and b'name="Columna1"' not in despues[tabla]
+    assert b'name="Columna1"' in antes[tabla]
+    # Excel/openpyxl siguen abriendo la copia y el nombre de columna coincide con el encabezado de la celda
+    wb = openpyxl.load_workbook(r["ruta_cierre_local"])
+    ws = wb["COMUNICACIONES INTERNAS SFC102"]
+    assert ws["E1"].value == "ASIGNACION"
+    assert [c.name for c in ws.tables["TCI102"].tableColumns][4] == "ASIGNACION"
+
+
+def test_la_reparacion_funciona_sin_tabla_de_excel(tmp_path):
+    ruta = _cierre_tiquipaya_ci(str(tmp_path / "CIERRE 28-10-2026.xlsm"), con_tabla=False)
+    r = nfd.normalizar_cierre_para_precheck(ruta, "2026-10-28", "tiquipaya")
+    assert r["normalizado"] is True
+    assert openpyxl.load_workbook(r["ruta_cierre_local"])["COMUNICACIONES INTERNAS SFC102"]["E1"].value == "ASIGNACION"
+
+
+@pytest.mark.parametrize("encabezado", [
+    "Observacion",        # no es un nombre por defecto de Excel: no se adivina
+    "ASIGNACION X",       # contiene ASIGNACION: la columna existe, excel_io la acepta
+    "Columna",            # sin número: no es el patrón por defecto
+])
+def test_solo_se_repara_el_nombre_por_defecto_de_excel(tmp_path, encabezado):
+    ruta = _cierre_tiquipaya_ci(str(tmp_path / "CIERRE 28-10-2026.xlsm"), encabezado_e=encabezado, con_tabla=False)
+    r = nfd.normalizar_cierre_para_precheck(ruta, "2026-10-28", "tiquipaya")
+    assert r["normalizado"] is False and r["ruta_cierre_local"] == ruta and r["avisos"] == []
+
+
+def test_no_se_repara_si_falta_otra_columna_obligatoria_ni_si_no_esta_junto_a_cuenta_contable(tmp_path):
+    # BANCO también perdido: hay más de un problema, se informa el error exacto sin adivinar
+    ruta = _cierre_tiquipaya_ci(str(tmp_path / "A.xlsm"), con_tabla=False)
+    wb = openpyxl.load_workbook(ruta)
+    wb["COMUNICACIONES INTERNAS SFC102"]["F1"].value = "Columna2"
+    wb.save(ruta)
+    assert nfd.normalizar_cierre_para_precheck(ruta, "2026-10-28", "tiquipaya")["normalizado"] is False
+    # "Columna1" existe pero NO está a la derecha de CUENTA CONTABLE BANCO (columna G, fuera de lugar)
+    ruta2 = _cierre_tiquipaya_ci(str(tmp_path / "B.xlsm"), encabezado_e="Observacion", con_tabla=False)
+    wb = openpyxl.load_workbook(ruta2)
+    wb["COMUNICACIONES INTERNAS SFC102"]["G1"].value = "Columna1"
+    wb.save(ruta2)
+    r2 = nfd.normalizar_cierre_para_precheck(ruta2, "2026-10-28", "tiquipaya")
+    assert r2["normalizado"] is False and r2["avisos"] == []
+
+
+def test_cierre_con_asignacion_correcta_no_se_toca(tmp_path):
+    ruta = _cierre_tiquipaya_ci(str(tmp_path / "CIERRE 28-10-2026.xlsm"), encabezado_e="ASIGNACION")
+    r = nfd.normalizar_cierre_para_precheck(ruta, "2026-10-28", "tiquipaya")
+    assert r["normalizado"] is False and r["ruta_cierre_local"] == ruta and r["avisos"] == [] and r["cambios"] == []
+
+
+def test_hojas_ci_reconoce_los_nombres_con_espacio_y_el_sufijo_de_cada_caja(tmp_path):
+    wb = openpyxl.Workbook()
+    wb.active.title = "SFC107"
+    for nombre in ("COMUNICACIONES INTERNAS SFC 107", "COMUNICACIONES INTERNAS SFC 108", "COMUNICACIONES INTERNAS SFC 101"):
+        wb.create_sheet(nombre)
+    ruta = str(tmp_path / "x.xlsm")
+    wb.save(ruta)
+    pq = nfd.X.Paquete(ruta)
+    assert [h for _s, h in nfd._hojas_ci(pq, "america")] == ["COMUNICACIONES INTERNAS SFC 107", "COMUNICACIONES INTERNAS SFC 108"]
+    assert [h for _s, h in nfd._hojas_ci(pq, "tiquipaya")] == ["COMUNICACIONES INTERNAS SFC 101"]
+
+
+def test_reparacion_de_encabezado_y_correccion_de_fecha_en_la_misma_copia(tmp_path):
+    dep = [{"deposito": "DEPOSITO 1", "importe": "100.00", "fecha": D(2026, 12, 9), "asignacion": "AB1", "banco": "BNB"}]
+    ruta = _cierre_tiquipaya_ci(str(tmp_path / "CIERRE 12-09-2026.xlsm"), depositos_101=dep)
+    r = nfd.normalizar_cierre_para_precheck(ruta, "2026-09-12", "tiquipaya", indice_vouchers=_indice(("AB1", "100.00", D(2026, 9, 12))))
+    assert r["normalizado"] is True
+    assert sorted(c["clase"] for c in r["cambios"]) == sorted([nfd.CLASE_ENCABEZADO_CI, nfd.CLASE_INVERSION_DDMM])
+    cierre = excel_io.leer_cierre(r["ruta_cierre_local"], caja="tiquipaya")
+    assert cierre["sfc101"]["depositos"][0]["fecha_deposito"] == "2026-09-12"
+
+
+def test_normalizar_cierres_materializados_agrega_avisos_cierre_y_el_precheck_los_muestra(tmp_path):
+    ruta_maestro = str(tmp_path / "MAESTRO.xlsm")
+    fx.crear_maestro_unico(ruta_maestro, macros_filas=[("2026-10-28", "ZZ", "1.00"), ("2026-11-02", "ZZ", "1.00")],
+                           atc_filas=[("2026-10-28", "BANCO (NETO)", "110103012", "ATC", "0.00", "ASIG")])
+    ruta = _cierre_tiquipaya_ci(str(tmp_path / "CIERRE 28-10-2026.xlsm"))
+    items = [{"fecha": "2026-10-28", "estado_materializacion": "MATERIALIZADO", "ruta_cierre_local": ruta, "ruta_maestro_local": ruta_maestro}]
+    norm = nfd.normalizar_cierres_materializados(items, caja="tiquipaya")
+    assert norm[0]["ruta_cierre_local"].endswith(".normalizado.xlsm")
+    assert norm[0]["avisos_cierre"][0]["codigo"] == nfd.AVISO_CI_ENCABEZADO_REPARADO
+    anotado = pm.aplicar_precheck_maestro(norm, caja="tiquipaya")[0]
+    assert anotado["estado_precheck_maestro"] == pm.MAESTRO_APTO                       # ya no bloquea
+    assert "AVISO: " + nfd.AVISO_CI_ENCABEZADO_REPARADO in anotado["mensaje_precheck_maestro"]
+    assert anotado["avisos_cierre"] == norm[0]["avisos_cierre"]
+
+
+def test_dev_api_cierre_con_encabezado_perdido_se_procesa_con_aviso_y_sin_tocar_el_origen(tmp_path):
+    import run_batch
+    from v3 import dev_api
+    carpeta = tmp_path / "cierres_origen"
+    carpeta.mkdir()
+    ruta_cierre = str(carpeta / run_batch.nombre_cierre_esperado("2026-09-12"))
+    _cierre_tiquipaya_ci(ruta_cierre)
+    ruta_maestro = str(tmp_path / "maestro.xlsm")
+    fx.crear_maestro_unico(ruta_maestro, macros_filas=[("2026-09-14", "ZZ", "1.00")], atc_filas=[])
+    plantilla = tmp_path / "Plantilla.xlsx"
+    fx.crear_plantilla_sap(str(plantilla))
+    base = str(tmp_path / "dev")
+    lote = dev_api.crear_lote_pendiente("2026-09-12", "2026-09-12", "auditor.dev", base)
+    bytes_origen = open(ruta_cierre, "rb").read()
+
+    c = dev_api.procesar_lote(lote["lote_id"], base, str(carpeta), ruta_maestro, str(plantilla))["cierres"][0]
+
+    assert open(ruta_cierre, "rb").read() == bytes_origen
+    assert c["estado_precheck_maestro"] == pm.MAESTRO_APTO and c["estado_final"] != "CIERRE_ILEGIBLE"
+    assert c["estado_final"] != "BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA"
+    assert c["ruta_cierre_local"].endswith(".normalizado.xlsm")
+    assert c["avisos_cierre"][0]["codigo"] == nfd.AVISO_CI_ENCABEZADO_REPARADO
+    assert any(nfd.AVISO_CI_ENCABEZADO_REPARADO in m for m in c["mensajes"])

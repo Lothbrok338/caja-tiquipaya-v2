@@ -856,6 +856,10 @@
     // "error"/"revisar") pero label y texto de detalle propios para no
     // mandar al auditor a revisar MACROS por error.
     CIERRE_FECHA_INVALIDA: { label: "Fecha de depósito inválida", tag: "bloqueo-maestro" },
+    // Hallazgo real Tiquipaya 2026-11-04: el archivo del cierre no se pudo
+    // leer (p. ej. falta el encabezado ASIGNACION). El maestro está bien: el
+    // detalle muestra el error EXACTO (v3/precheck_maestro.py, CIERRE_ILEGIBLE).
+    CIERRE_ILEGIBLE: { label: "Cierre ilegible", tag: "bloqueo-maestro" },
   };
 
   // marcados: fecha -> true (seleccion multiple de la tabla, ver PUBLICACION
@@ -1349,6 +1353,10 @@
       tr.appendChild(el("td", { text: c.archivo || "—" }));
       var celdaEstado = el("td", {}, [el("span", { class: "tag " + info.tag, text: info.label })]);
       if (estaPublicado(c)) celdaEstado.appendChild(el("span", { class: "badge-publicado", text: "Publicado" }));
+      // Aviso NO bloqueante sobre el archivo del cierre (ver panel de detalle): la decisión de publicar es de la persona.
+      if (c._raw && c._raw.avisos_cierre && c._raw.avisos_cierre.length) {
+        celdaEstado.appendChild(el("span", { class: "tag revisar", text: "Con aviso", title: c._raw.avisos_cierre.map(function (a) { return a.mensaje; }).join(" ") }));
+      }
       tr.appendChild(celdaEstado);
       var diffCell = el("td", { class: "mono " + (c.diferencia === "0.00" ? "diff-ok" : (c.diferencia ? "diff-bad" : "")) , text: c.diferencia === null || c.diferencia === undefined ? "N/D" : fmtMoney(c.diferencia) });
       tr.appendChild(diffCell);
@@ -1459,6 +1467,28 @@
       secFechaInvalida.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: "Fecha del cierre" }), el("span", { class: "v", text: fmtFecha(c.fecha) })]));
       secFechaInvalida.appendChild(el("div", { class: "placeholder-note", text: c._raw.mensaje_precheck_maestro || "Corrija la fecha de depósito en el archivo del cierre y vuelva a procesar." }));
       cont.appendChild(secFechaInvalida);
+    }
+
+    // Hallazgo real Tiquipaya 2026-11-04: el archivo del cierre no se pudo leer.
+    // Se muestra el error exacto que devolvió la lectura; nada de "maestro".
+    if (c._raw && c._raw.estado_final === "CIERRE_ILEGIBLE") {
+      var secIlegible = el("div", { class: "detalle-section" });
+      secIlegible.appendChild(el("h3", { text: "NO SE PUDO LEER EL ARCHIVO DEL CIERRE", style: "color:#8a6414;" }));
+      secIlegible.appendChild(el("div", { class: "kv" }, [el("span", { class: "k", text: "Fecha del cierre" }), el("span", { class: "v", text: fmtFecha(c.fecha) })]));
+      secIlegible.appendChild(el("div", { class: "placeholder-note", text: c._raw.mensaje_precheck_maestro || "Corrija el archivo del cierre y vuelva a procesar." }));
+      cont.appendChild(secIlegible);
+    }
+
+    // Avisos NO bloqueantes sobre el archivo del cierre (p. ej. encabezado
+    // ASIGNACION reparado en la copia operativa). El cierre sigue su curso
+    // normal; publicar o no sigue siendo decisión de la persona.
+    if (c._raw && c._raw.avisos_cierre && c._raw.avisos_cierre.length) {
+      var secAvisos = el("div", { class: "detalle-section" });
+      secAvisos.appendChild(el("h3", { text: "AVISO SOBRE EL ARCHIVO DEL CIERRE", style: "color:#8a6414;" }));
+      c._raw.avisos_cierre.forEach(function (a) {
+        secAvisos.appendChild(el("div", { class: "placeholder-note", text: a.mensaje }));
+      });
+      cont.appendChild(secAvisos);
     }
 
     // ---- cuadre ----

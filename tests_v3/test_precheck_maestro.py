@@ -19,7 +19,7 @@ import run_batch  # noqa: E402
 import xlsx_fixtures as fx  # noqa: E402
 from v3.precheck_maestro import (  # noqa: E402
     evaluar_cobertura_maestro, aplicar_precheck_maestro, filtrar_aptos_para_motor,
-    MAESTRO_APTO, BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA,
+    MAESTRO_APTO, BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA, CIERRE_FECHA_INVALIDA, CIERRE_ILEGIBLE,
 )
 from v3.materializacion import MATERIALIZADO, SIN_ARCHIVO
 from v3.motor import NO_PROCESADO
@@ -156,10 +156,13 @@ def test_maestro_sin_ninguna_fecha_en_macros_bloquea(tmp_path):
 
 
 def test_cierre_ilegible_para_determinar_atc_bloquea(tmp_path):
+    """Un cierre que no se puede leer bloquea (el motor tampoco podría leerlo), pero el estado y el
+    mensaje dicen que el problema es el ARCHIVO DEL CIERRE, con el error exacto -- nunca "maestro"."""
     ruta_maestro = _maestro(tmp_path, [_fila_macros("2026-09-10")], [_fila_atc("2026-09-10")])
     r = evaluar_cobertura_maestro(ruta_maestro, "2026-09-10", "/no/existe/CIERRE.xlsm")
-    assert r["estado"] == BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA
-    assert "movimiento ATC" in r["mensaje"]
+    assert r["estado"] == CIERRE_ILEGIBLE and r["estado"] != BLOQUEADO_MAESTRO_COBERTURA_NO_CONFIRMADA
+    assert r["codigo_bloqueo"] == CIERRE_ILEGIBLE
+    assert "no se pudo leer el archivo del cierre" in r["mensaje"] and "NO es un problema del maestro" in r["mensaje"]
 
 
 # 5b) hallazgo real (CAJA AMÉRICA, 2026-09-28): una FECHA DE DEPOSITO con
@@ -600,3 +603,39 @@ def test_deposito_posterior_sin_inversion_posible_conserva_el_mensaje_historico(
     assert r["codigo_bloqueo"] == "MACROS_NO_CUBRE_FECHA_DEPOSITO"
     assert r["posible_inversion_ddmm"] == []
     assert MENSAJE_HISTORICO in r["mensaje"] and "invertidos" not in r["mensaje"]
+
+
+# ---------------------------------------------------------------------------
+# CIERRE_ILEGIBLE (hallazgo real Tiquipaya, cierre 28/10/2026): una hoja de
+# COMUNICACIONES INTERNAS sin el encabezado ASIGNACION. El error exacto de
+# lectura viaja en el mensaje; el estado nunca culpa al maestro.
+# ---------------------------------------------------------------------------
+
+def _cierre_ci_sin_asignacion(tmp_path, fecha, nombre=None):
+    ruta = _cierre(tmp_path, fecha, nombre=nombre)
+    wb = openpyxl.load_workbook(ruta)
+    wb["COMUNICACIONES INTERNAS SFC102"]["E1"].value = "Columna1"   # ASIGNACION perdido
+    wb.save(ruta)
+    return ruta
+
+
+def test_encabezado_asignacion_faltante_informa_el_error_exacto_y_no_culpa_al_maestro(tmp_path):
+    ruta_maestro = _maestro(tmp_path, [_fila_macros("2026-10-28"), _fila_macros("2026-11-02")], [_fila_atc("2026-10-28")])
+    ruta_cierre = _cierre_ci_sin_asignacion(tmp_path, "2026-10-28")
+    r = evaluar_cobertura_maestro(ruta_maestro, "2026-10-28", ruta_cierre)
+    assert r["estado"] == CIERRE_ILEGIBLE and r["codigo_bloqueo"] == CIERRE_ILEGIBLE
+    assert r["fecha_maxima_macros"] == "2026-11-02"
+    m = r["mensaje"]
+    assert "SFC102: faltan columnas en Comunicaciones Internas: ['ASIGNACION']" in m     # el error exacto
+    assert "NO es un problema del maestro" in m and "Maestro sin cobertura" not in m
+    assert "actualice MACROS" not in m
+
+
+def test_cierre_ilegible_no_pasa_al_motor(tmp_path):
+    ruta_maestro = _maestro(tmp_path, [_fila_macros("2026-10-28")], [_fila_atc("2026-10-28")])
+    ruta_cierre = _cierre_ci_sin_asignacion(tmp_path, "2026-10-28")
+    item = {"fecha": "2026-10-28", "estado_materializacion": MATERIALIZADO,
+            "ruta_cierre_local": ruta_cierre, "ruta_maestro_local": ruta_maestro}
+    anotado = aplicar_precheck_maestro([item])[0]
+    assert anotado["estado_precheck_maestro"] == CIERRE_ILEGIBLE and anotado["estado_motor"] == NO_PROCESADO
+    assert filtrar_aptos_para_motor([anotado]) == []
