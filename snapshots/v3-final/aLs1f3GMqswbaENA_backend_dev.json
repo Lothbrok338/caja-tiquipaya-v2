@@ -3265,7 +3265,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const modo = (($('WEBHOOK global').item.json.body) || {}).modo || 'dev';\nconst r = $json.data;\nconst debePublicar = modo === 'official' && r.estado === 'VALIDADO_PENDIENTE_PUBLICACION';\nreturn [{ json: { debe_publicar: debePublicar, ruta_sap: r.ruta_global_generado, ruta_resultado: r.ruta_resultado_json } }];"
+        "jsCode": "const modo = (($('WEBHOOK global').first().json.body) || {}).modo || 'dev';\nconst r = $json.data;\nconst debePublicar = modo === 'official' && r.estado === 'VALIDADO_PENDIENTE_PUBLICACION';\nreturn [{ json: { debe_publicar: debePublicar, ruta_sap: r.ruta_global_generado, ruta_resultado: r.ruta_resultado_json } }];"
       }
     },
     {
@@ -3864,7 +3864,7 @@
       ],
       "parameters": {
         "operation": "write",
-        "fileName": "={{ $('FILTRAR - SAP diarios validos del periodo').item.json.ruta_destino }}",
+        "fileName": "={{ $('FILTRAR - SAP diarios validos del periodo').all()[$itemIndex].json.ruta_destino }}",
         "dataPropertyName": "data",
         "options": {}
       }
@@ -6586,7 +6586,7 @@
         "parameters": {
           "mode": "runOnceForAllItems",
           "language": "javaScript",
-          "jsCode": "const modo = (($('WEBHOOK global').item.json.body) || {}).modo || 'dev';\nconst r = $json.data;\nconst debePublicar = modo === 'official' && r.estado === 'VALIDADO_PENDIENTE_PUBLICACION';\nreturn [{ json: { debe_publicar: debePublicar, ruta_sap: r.ruta_global_generado, ruta_resultado: r.ruta_resultado_json } }];"
+          "jsCode": "const modo = (($('WEBHOOK global').first().json.body) || {}).modo || 'dev';\nconst r = $json.data;\nconst debePublicar = modo === 'official' && r.estado === 'VALIDADO_PENDIENTE_PUBLICACION';\nreturn [{ json: { debe_publicar: debePublicar, ruta_sap: r.ruta_global_generado, ruta_resultado: r.ruta_resultado_json } }];"
         }
       },
       {
@@ -7185,7 +7185,7 @@
         ],
         "parameters": {
           "operation": "write",
-          "fileName": "={{ $('FILTRAR - SAP diarios validos del periodo').item.json.ruta_destino }}",
+          "fileName": "={{ $('FILTRAR - SAP diarios validos del periodo').all()[$itemIndex].json.ruta_destino }}",
           "dataPropertyName": "data",
           "options": {}
         }
